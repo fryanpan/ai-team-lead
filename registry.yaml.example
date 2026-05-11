@@ -1,0 +1,65 @@
+# Project Registry
+# Maps project names to their local paths, GitHub repos, and tool config.
+# The metaproject reads from main worktrees (~/dev/{project}) and proposes changes via GitHub PRs.
+#
+# Copy this file to registry.yaml and fill in your own projects.
+
+projects:
+  my-app:
+    path: ~/dev/my-app
+    repo: your-username/my-app
+    linear:
+      team_id: 00000000-0000-0000-0000-000000000000
+      team_key: APP
+    docs:
+      learnings: docs/process/learnings.md
+      retros: docs/process/retrospective.md
+      decisions: docs/product/decisions.md
+      claude_md: CLAUDE.md
+    skills_dir: .claude/skills
+    rules_dir: .claude/rules
+
+  side-project:
+    path: ~/dev/side-project
+    repo: your-username/side-project
+    linear:
+      team_id: 00000000-0000-0000-0000-000000000001
+      team_key: SID
+    docs:
+      learnings: docs/process/learnings.md
+      retros: docs/process/retrospective.md
+      decisions: docs/product/decisions.md
+      claude_md: CLAUDE.md
+    skills_dir: .claude/skills
+    rules_dir: .claude/rules
+
+  # A project you're joining / helping improve.
+  # Same schema — just a different repo and possibly different tools.
+  team-frontend:
+    path: ~/dev/team-frontend
+    repo: SomeOrg/team-frontend
+    notion:
+      board: https://www.notion.so/your-board-id
+      meeting_notes: https://www.notion.so/your-meeting-notes-id
+    docs:
+      learnings: context/process/learnings.md
+      retros: context/process/retrospective.md
+      decisions: context/product/decisions.md
+      claude_md: CLAUDE.md
+    skills_dir: .claude/skills
+    rules_dir: .claude/rules
+
+  # Optional: team context for a project you're joining.
+  # Helps the metaproject understand the team's stack and goals.
+  team-context:
+    team:
+      - name: Teammate Name
+        role: Frontend
+        notes: Comfortable with Claude Code, good at larger features
+    stack:
+      languages: [Python, TypeScript]
+      tools:
+        ticketing: Notion
+        docs: Notion
+        ci_cd: GitHub Actions
+        repo: GitHub

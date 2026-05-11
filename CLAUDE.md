@@ -1,0 +1,118 @@
+# Project: AI Team Lead (Team Lead + Metaproject)
+
+## Overview
+
+Cross-project team-lead and management toolkit. Two roles in one:
+
+1. **Team Lead** — handles DMs, routes work to the right project, tracks tasks across all managed products, and coordinates the autonomous agent system.
+2. **Metaproject** — reviews, improves, and scaffolds other projects. Reads from project repos and proposes changes via GitHub PRs.
+
+## How It Works
+
+### Project Registry
+`registry.yaml` maps each managed project to its local path, GitHub repo, and Linear team. The metaproject reads from main worktrees (`~/dev/{project}`) using absolute filesystem paths.
+
+**Before reading from a project**, ensure freshness: `git -C <path> pull --ff-only` to update to latest origin/main. If pull fails (dirty worktree or diverged history), investigate before reading.
+
+### Cross-Project Changes
+Never edit files in other project repos directly. Always propose changes via GitHub PRs using `gh pr create --repo <repo>`. The GitHub MCP plugin is unreliable for private repos and new repos — see `docs/process/learnings.md`.
+
+### Worktree Interaction
+Each project has 2–5 active Team Lead worktrees. The metaproject always reads from the main worktree at `~/dev/{project}`. Feature branch worktrees are not read — they may have uncommitted or in-progress work.
+
+## Skills
+
+### Team Lead / Registry
+| Skill | Purpose |
+| --- | --- |
+| `/team-lead` | Coordinate peer Claude Code sessions across managed products via claude-hive |
+| `/add-project` | Append an existing repo to `registry.yaml` |
+| `/new-project` | Scaffold a new project from scratch (GitHub repo, Linear project, `.claude/`, then registers via `/add-project`) |
+| `/respawn-sessions` | Re-open all long-running Claude Code sessions in detached tmux sessions based on `registry.yaml` (`respawn: true` projects). Used manually after a Mac reboot or whenever sessions need to be rebuilt. |
+| `/shutdown-session` | Cleanly shut down peer session(s) by project name. Maps to actual claude binary PIDs (not the hive-mcp child PIDs that `list_peers` returns), kills them, sweeps orphans, verifies. Use when spinning down agents not on this week's goals. |
+
+### Team coordination
+| Skill | Purpose |
+| --- | --- |
+| `/weekly-plan` | Set this week's goals with the user in a Notion page Team Lead watches. Carry over unfinished work, prioritize, estimate hands-on hours, the user picks, then expand kept goals. Each goal title is a measurable outcome with due date + estimate. |
+| `/daily-review` | Intra-day status pass. Pulls peer transcripts + hive messages + open PRs + weekly-plan progress, asks each agent for clarification where needed, writes a prioritized review doc to `.claude/reviews/YYYY-MM-DD.md` brought under live-feedback for inline comments. |
+
+### Agent Operations (used by peer sessions working on tickets)
+| Skill | Purpose |
+| --- | --- |
+| `/ship-auto` | Full ship pipeline (review → PR → CI → Copilot → merge → deploy) with no mid-flow pauses. Default for personal repos. |
+| `/ship-guarded` | Same pipeline + risk-surface assessment before merge (tools you rely on in production) |
+| `/ship-push-only` | Push branch and stop; humans own PR + merge + deploy (advisory / team-owned repos) |
+
+### Cross-Project
+| Skill | Purpose |
+| --- | --- |
+| `/aggregate` | Pull learnings and retros from all registered projects, identify cross-cutting patterns |
+| `/retro` | Meta-level retrospective on a session's transcript |
+| `/persist-plan` | Persist an internal plan to `docs/product/plans/` |
+| `/ux-review` | Walk a UI feature as a real user before shipping it |
+
+## Key Directories
+
+| Directory | Purpose |
+| --- | --- |
+| `plugin/team-lead-fleet/` | Canonical source of fleet-wide skills + alwaysApply rules. Every peer enables this plugin. |
+| `.claude/skills/` | Team-Lead's own skills. Fleet-shared skills (`ship-*`, `retro`, `persist-plan`, `ux-review`) appear here as **symlinks** into `plugin/team-lead-fleet/skills/` — single source of truth, no recursion-via-plugin-self-enable. |
+| `.claude/rules/` | Team-Lead's own rules. Same symlink pattern: each rule is a symlink into `plugin/team-lead-fleet/rules/` except `claude-hive-peer.md` which is peer-only and intentionally not symlinked here. |
+| `docs/process/` | This project's own learnings + retros |
+
+## Conventions
+
+### Before Making Changes
+- Read `registry.yaml` to understand which projects are managed
+- Check `docs/process/learnings.md` for metaproject-specific gotchas
+
+### After Making Changes
+- Shared skills + rules ship via `plugin/team-lead-fleet/` — peers pull updates by reloading the plugin, no per-project sync needed
+- Log non-obvious decisions in `docs/process/learnings.md`
+
+### Privacy in Commits and PRs
+The names and details of managed projects are private. When writing commit messages or PR descriptions for this repo:
+- Do NOT include project names (e.g., use `registry: add new project`, not `registry: add my-project`)
+- Do NOT describe what a new project does or who it's for
+- PR descriptions should only cover what changed in *this* repo (skills, plugin, scripts, hooks), not the project that triggered the work
+
+### Code Style
+- Keep skills focused — one skill per workflow, not monolithic multi-purpose skills
+- Fleet-wide skills + rules live in `plugin/team-lead-fleet/`; Team-Lead-only skills live in `.claude/skills/`
+
+## Private Files
+
+Some files are gitignored because they contain project-specific data (project names, team members, IDs). These are symlinked from the main worktree in Team Lead worktrees.
+
+| File | Contains |
+| --- | --- |
+| `registry.yaml` | Project list, team metadata, Linear/Notion IDs |
+| `docs/process/retrospective.md` | Session retros (auto-generated, project-specific) |
+| `docs/process/propagation-log.md` | Propagation audit log with PR URLs (gitignored) |
+| `docs/process/aggregation-log.md` | Aggregation pass output (per-project learnings; gitignored) |
+
+**After creating a worktree**, run `./scripts/setup-private.sh` to symlink these from the main worktree.
+
+**One-time setup after a fresh clone** — enable the git hooks that auto-run `setup-private.sh` on worktree creation AND scan content for leaks before push:
+```bash
+git config core.hooksPath .githooks
+```
+
+See `registry.yaml.example` for the registry schema.
+
+## Pre-push leak gate
+
+`.githooks/pre-push` runs `scripts/scrub-check.py` on the diff being pushed and blocks the push if it finds project names (from `registry.yaml`) or denylist patterns. The principle: **once a push lands on GitHub and a PR is opened, the content is public-record forever (PR descriptions and commits can't be removed)** — so the gate has to fire BEFORE the push.
+
+- Patterns: `projects:` keys in `registry.yaml` (auto-pulled; single-word names under 6 chars are skipped to avoid English-word collisions) + the hand-curated denylist at `~/.config/team-lead/scrub-denylist.txt`.
+- Cross-repo fleet check: set `SCRUB_FLEET_REGISTRY=~/dev/<your-fleet>/registry.yaml` in your shell rc so the gate works in peer repos too.
+- Self-name skip: the current repo's own name is never flagged (a repo legitimately self-references in its README / CLAUDE.md / plugin metadata).
+- Bypass (use sparingly, never on a public repo without re-checking): `SCRUB_SKIP=1 git push ...`.
+- Periodic audit: `python3 scripts/scrub-check.py --scan-all-tracked` scans every tracked file (not just the diff).
+- Extending: edit `~/.config/team-lead/scrub-denylist.txt` (one pattern per line, plain string or `/regex/`).
+
+## Linear (optional)
+Set per-project Linear team info in `registry.yaml`. The metaproject uses these to file issues and check status.
+
+@docs/process/learnings.md

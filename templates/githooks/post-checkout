@@ -1,0 +1,7 @@
+#!/bin/bash
+# Run setup-private.sh when a worktree is created or a branch is checked out.
+# $3 is 1 for branch checkout (including `git worktree add`), 0 for file checkout.
+if [ "$3" = "1" ] && [ -f ./scripts/setup-private.sh ]; then
+  echo "Running setup-private.sh..."
+  ./scripts/setup-private.sh 2>/dev/null || true
+fi

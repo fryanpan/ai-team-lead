@@ -1,0 +1,14 @@
+registry.yaml
+docs/process/retrospective.md
+docs/process/propagation-log.md
+docs/process/aggregation-log.md
+.context/
+.worktrees/
+.claude/worktrees/
+.claude/*.lock
+.venv/
+__pycache__/
+.pytest_cache/
+.envrc
+.claude/discord/
+.claude/reviews/

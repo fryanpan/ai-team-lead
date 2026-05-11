@@ -1,0 +1,1 @@
+../../plugin/team-lead-fleet/rules/notion-mcp.md

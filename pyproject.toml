@@ -1,0 +1,12 @@
+[project]
+name = "ai-team-lead"
+version = "0.1.0"
+description = "Cross-project management tool"
+requires-python = ">=3.12"
+dependencies = []
+
+[dependency-groups]
+dev = ["pytest>=9.0.3"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

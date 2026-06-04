@@ -106,7 +106,7 @@ projects:
       ...
 ```
 
-`respawn: true` is required. `session_name` is optional — if missing, the script uses a Title-Cased version of the registry key.
+`respawn: true` is required. `session_name` is optional — if missing, the script uses a Title-Cased version of the registry key. `repo` is **optional**: omit it for a local-only folder (no git repo — e.g. a synced Google Drive subfolder). respawn.py never runs git regardless, so a local-only project respawns exactly like a repo-backed one; only `path` + `respawn: true` are needed.
 
 No need to redeploy the script — the next respawn pass picks up the new registry contents automatically.
 

@@ -14,6 +14,8 @@ Cross-project team-lead and management toolkit. Two roles in one:
 
 **Before reading from a project**, ensure freshness: `git -C <path> pull --ff-only` to update to latest origin/main. If pull fails (dirty worktree or diverged history), investigate before reading.
 
+**Local-only projects (no `repo`):** a registry entry with no `repo` field is a plain local folder — not a git repo (e.g. a synced Google Drive subfolder, a scratch dir). For these, **run no git commands at all** — no pull/fetch/status, and no PR flow. Read and edit the folder directly. `respawn: true` still works (respawn.py never touches git). The tooling (`respawn.py`, `refresh_team_state.py`) already treats a missing `repo` as "local-only, skip git."
+
 ### Cross-Project Changes
 Never edit files in other project repos directly. Always propose changes via GitHub PRs using `gh pr create --repo <repo>`. The GitHub MCP plugin is unreliable for private repos and new repos — see `docs/process/learnings.md`.
 

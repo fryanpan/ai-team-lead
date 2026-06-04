@@ -49,6 +49,20 @@ projects:
     skills_dir: .claude/skills
     rules_dir: .claude/rules
 
+  # A local-only project — just a folder on disk, no git repo.
+  # Omit `repo` and the metaproject treats it as local-only: it skips ALL git
+  # commands for this project (no pull / fetch / status, no PR flow). Edits go
+  # straight to the folder. Good for synced folders (e.g. a Google Drive
+  # subfolder), scratch dirs, or any working folder that isn't version-controlled.
+  # `respawn: true` still works — respawn.py never touches git, it just relaunches
+  # `claude --continue` in the folder.
+  local-notes:
+    path: ~/Documents/local-notes
+    respawn: true
+    session_name: "Local Notes"
+    docs:
+      claude_md: CLAUDE.md
+
   # Optional: team context for a project you're joining.
   # Helps the metaproject understand the team's stack and goals.
   team-context:

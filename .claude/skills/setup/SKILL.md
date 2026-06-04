@@ -98,6 +98,22 @@ Register the MCP server (user scope — available in every session):
 claude mcp add --scope user --transport stdio claude-hive -- bun ~/claude-hive-mcp/server.ts
 ```
 
+Allow the hive tools at **user scope** so they work in every project without per-project prompts. These go in the user's `~/.claude/settings.json` `permissions.allow` — **NOT** a project-level `.claude/settings.json` (a project-scoped grant only covers that one repo; hive is used fleet-wide). Add all five hive tools:
+
+```json
+"permissions": {
+  "allow": [
+    "mcp__claude-hive__list_peers",
+    "mcp__claude-hive__send_message",
+    "mcp__claude-hive__set_summary",
+    "mcp__claude-hive__check_messages",
+    "mcp__claude-hive__whoami"
+  ]
+}
+```
+
+Do this via the `update-config` skill (it merges into the existing user allowlist) or `/permissions`, with the user's consent — don't silently rewrite their settings. The common mistake is letting the first hive tool-use prompt write the grant into the *current project's* settings; that's why hive then only works in one repo.
+
 Wire the channel so messages **push instantly** (without it you'd fall back to manual `check_messages`). Add an alias:
 
 ```sh

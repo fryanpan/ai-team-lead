@@ -11,6 +11,7 @@ The plugin the user's peer Claude Code sessions share. Replaces per-project prop
 - `/retro` — meta retrospective on a session
 - `/persist-plan` — save an internal plan to `docs/product/plans/`
 - `/ux-review` — walk a UI feature as a user before shipping
+- `writing-for-readers` — doc craft. Not for peers to load directly: it's preloaded into the `writing-editor` subagent. A peer that loads it instead of delegating has spent the context delegation saves.
 
 Each project picks ONE ship skill via a line in its `CLAUDE.md`:
 
@@ -18,8 +19,12 @@ Each project picks ONE ship skill via a line in its `CLAUDE.md`:
 
 `workflow-conventions.md` §Post-Implementation tells the agent how to look it up.
 
+### Subagents (auto-discovered from `agents/`)
+- `team-lead-fleet:writing-editor` — owns any document other people will read. Peers delegate to it via `delegate-writing.md` rather than writing docs themselves; it preloads `writing-for-readers` through its `skills:` frontmatter, so the craft can't be forgotten. Plugin agents are namespaced — the `subagent_type` is `team-lead-fleet:writing-editor`, not `writing-editor`.
+
 ### Rules (alwaysApply — injected at SessionStart via hook)
 - `claude-hive-peer.md` — peer protocol (set_summary, list_peers, send_message via to_stable_id, /compact after task close)
+- `delegate-writing.md` — route "doc other people will read" work to the `writing-editor` subagent. Gated out for subagents (prose gate + `block-writing-recursion.sh`).
 - `workflow-conventions.md` — planning, decision framework, commit discipline, LLM turn efficiency, code review, post-implementation, team-lead-notification
 - `feedback-loop.md` — capture learnings, periodic retros
 - `live-feedback-default.md` — bind markdown / dev-server reviews to the live-feedback widget
@@ -40,6 +45,31 @@ Each project picks ONE ship skill via a line in its `CLAUDE.md`:
 ```
 
 The marketplace lives at `~/dev/ai-team-lead/plugin/.claude-plugin/marketplace.json`. Each peer needs the marketplace registered once (Claude Code remembers it across sessions).
+
+### Repos where you can't commit the enable
+
+Some repos have a **tracked** `.claude/settings.json` and are team-owned — committing a personal plugin-enable there would push fleet-internal config into someone else's repo. At least one advisory repo in the registry is in exactly this position.
+
+For those, enable it locally instead, in **untracked** `.claude/settings.local.json`:
+
+```jsonc
+// .claude/settings.local.json  — untracked, local only
+{
+  "enabledPlugins": {
+    "team-lead-fleet@team-lead-fleet": true
+  }
+}
+```
+
+`settings.local.json` merges over the tracked `settings.json`. **Check that it's actually ignored before you write it**, especially on a public repo:
+
+```bash
+git check-ignore -v .claude/settings.local.json
+```
+
+On this machine that resolves to `~/.config/git/ignore` — a *global* gitignore, not the repo's and not a Claude Code default. The team-owned repos generally say nothing about it in their own `.gitignore`. So the protection is personal machine config: on a fresh clone elsewhere, or for anyone else, the file is untracked-but-not-ignored and one `git add -A` away from being committed to a repo you don't own. If `check-ignore` comes back empty, add the ignore locally (`.git/info/exclude`) rather than editing a team-owned `.gitignore`.
+
+Worth stating plainly: this is per-machine and per-clone, so it doesn't survive a fresh clone and nobody else on that repo inherits it. The repos that most need the writing subagent — team-owned ones with review-heavy docs — are exactly the ones the plugin can't reach by default.
 
 ## Updating
 

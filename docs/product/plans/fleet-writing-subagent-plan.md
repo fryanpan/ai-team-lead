@@ -75,7 +75,9 @@ Thin. Routes "doc for others" work to the subagent. Two hard constraints:
 - **Budget.** Injected rules are already ~511 lines on this branch / ~661 with the unmerged branch, against a stated ~80-line budget in learnings.md. Note: `alwaysApply:` frontmatter is **vestigial** — `hooks/session-start.sh` concatenates *every* file in `rules/` regardless. New rule target: ≲15 lines.
 - **Gate out subagents.** Custom subagents *do* load CLAUDE.md and project rules (verified), so the trigger leaks into the writing subagent and invites recursion.
 
-**Gate design — prose + mechanical, following existing precedent.** `hooks/block-hive-in-subagents.sh` (unmerged branch) already solves this exact shape and records the lesson in its own comment: *"Rules alone don't hold here: an alwaysApply rule telling subagents not to do this is inherited advice they can rationalize past."* It uses a verified discriminator: **the PreToolUse payload carries `agent_id` only for subagents** (absent in the main session). I'll follow it: prose gate modeled on `claude-hive-peer.md`'s opener, backed by a PreToolUse hook denying recursive `writing-editor` dispatch from inside a subagent. Fail-open, like its precedent.
+**Gate design — prose + mechanical, following existing precedent.** `hooks/block-hive-in-subagents.sh` already solves this exact shape and records the lesson in its own comment: *"Rules alone don't hold here: an alwaysApply rule telling subagents not to do this is inherited advice they can rationalize past."* It uses a verified discriminator: **the PreToolUse payload carries `agent_id` only for subagents** (absent in the main session). I'll follow it: prose gate modeled on `claude-hive-peer.md`'s opener, backed by a PreToolUse hook denying recursive `writing-editor` dispatch from inside a subagent. Fail-open, like its precedent.
+
+**Provenance correction, since this doc preaches it:** that precedent is *uncommitted* — `block-hive-in-subagents.sh` is an untracked file in the main worktree, referenced by an uncommitted `hooks.json`. It exists in no commit on any branch. So it has never run for any peer, and a checkout would delete it. It's a sound design I followed, but calling it "shipped precedent" would have been a claim the source doesn't support. It needs committing (see below).
 
 ### 3. The craft skill — `plugin/team-lead-fleet/skills/writing-for-readers/SKILL.md`
 
@@ -141,3 +143,27 @@ The GREEN doc fixed the exact axes the baseline failed — including the two nob
 ## Ship
 
 PR to `ai-team-lead`. **HOLD for Bryan's morning review — do not auto-merge.** Fleet-wide behavior change.
+
+## Late finding: merging this PR does not ship it
+
+The fleet plugin is installed from a **directory** marketplace (`~/dev/ai-team-lead/plugin`), but the install is a **one-time copy** into `~/.claude/plugins/cache/`, made 2026-07-11 07:31 and never re-synced. Every cached file still carries that mtime.
+
+The README claims "Skills + rules update on the next session start (hook re-reads files)." That is false as installed: `session-start.sh` re-reads `${CLAUDE_PLUGIN_ROOT}/rules/`, and `CLAUDE_PLUGIN_ROOT` **is the frozen cache** — not the source dir. So the hook faithfully re-reads a snapshot.
+
+Measured drift between cache and source right now:
+
+| File | State |
+|---|---|
+| `hooks/block-hive-in-subagents.sh` | missing from cache — and uncommitted in source, so it exists in no commit either |
+| `hooks/hooks.json` | differs (cache has no `PreToolUse`) |
+| `rules/claude-hive-peer.md` | differs |
+| `rules/email-channel-capability-firewall.md` | differs — a security rule |
+| `rules/workflow-conventions.md` | differs |
+
+Three consequences:
+
+1. **Peers have been running 2026-07-11 rules for five days.** Every rule change since — including edits to the email capability firewall — has reached nobody.
+2. **The hive-block hook has never run for any peer.** It's untracked, so it's also one `git checkout` from deletion.
+3. **This PR ships nothing on merge.** The plugin has to be updated from the directory source before any peer gets `writing-editor`. Merging is necessary and not sufficient — worth knowing before anyone concludes the subagent "doesn't work."
+
+Not fixed here: whether the fix is re-installing on a cadence, a symlink install, or a respawn-time sync step is a fleet-operations decision, not this PR's.

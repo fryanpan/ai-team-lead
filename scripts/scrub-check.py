@@ -60,6 +60,29 @@ def repo_root() -> Optional[str]:
         return None
 
 
+def main_repo_name() -> Optional[str]:
+    """Name of the main repo, correct even from inside a linked worktree.
+
+    `--git-common-dir` points at the main repo's `.git` regardless of which
+    worktree we're in, so its parent directory is the real repo name.
+    """
+    try:
+        common = subprocess.run(
+            ["git", "rev-parse", "--git-common-dir"],
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
+    if not common:
+        return None
+    # ".git" -> resolve relative to cwd; "/path/to/repo/.git" -> /path/to/repo
+    git_dir = os.path.abspath(common)
+    if os.path.basename(git_dir) == ".git":
+        return os.path.basename(os.path.dirname(git_dir))
+    # Bare repos: /path/to/repo.git -> repo
+    return os.path.basename(git_dir).removesuffix(".git") or None
+
+
 def find_registry() -> Optional[str]:
     """Local registry.yaml at repo root, else fleet fallback."""
     root = repo_root()
@@ -106,9 +129,15 @@ def load_project_names(registry_path: Optional[str]) -> Set[str]:
 
     # Drop the current repo's own name — a repo's own README / CLAUDE.md / plugin
     # metadata legitimately mentions itself; we don't want to flag self-references.
-    root = repo_root()
-    if root:
-        self_name = os.path.basename(root)
+    #
+    # Use the MAIN repo's name, not the working tree's. In a linked worktree
+    # (`.claude/worktrees/<branch>`), `--show-toplevel` is the worktree path, so
+    # basename() is the branch's dir name and the real repo name never gets
+    # discarded — every self-reference then trips the gate. A gate that cries wolf
+    # in worktrees, where most fleet work happens, trains people into SCRUB_SKIP=1,
+    # which is worse than the false positives.
+    self_name = main_repo_name()
+    if self_name:
         names.discard(self_name)
 
     return names

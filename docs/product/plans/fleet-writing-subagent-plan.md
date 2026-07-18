@@ -70,6 +70,8 @@ Mechanics verified (not guessed) against [plugins-reference](https://code.claude
 
 ### 2. The trigger rule — `plugin/team-lead-fleet/rules/delegate-writing.md`
 
+> **Revised 2026-07-18 (Bryan):** the mandatory trigger was cut, and with it `block-writing-recursion.sh` and the `PreToolUse` hook. Reason: once the universal `communication.md` rule ships fleet-wide, routine docs get written inline well, so forcing every doc through a subagent handoff is friction, not safety. The subagent survives as an *on-demand* tool for involved docs (see the revised deliverable 1), which needs no trigger rule and no recursion gate — an agent reaches for it when a doc is worth its own clean context. The TDD narrative below (RED→GREEN, 4/4 dispatch) is the record of building the trigger that we then removed; it stands as evidence, not as shipped design.
+
 Thin. Routes "doc for others" work to the subagent. Two hard constraints:
 
 - **Budget.** Injected rules are already ~511 lines on this branch / ~661 with the unmerged branch, against a stated ~80-line budget in learnings.md. Note: `alwaysApply:` frontmatter is **vestigial** — `hooks/session-start.sh` concatenates *every* file in `rules/` regardless. New rule target: ≲15 lines.

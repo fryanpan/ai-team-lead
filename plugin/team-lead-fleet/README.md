@@ -19,11 +19,11 @@ Each project picks ONE ship skill via a line in its `CLAUDE.md`:
 `workflow-conventions.md` §Post-Implementation tells the agent how to look it up.
 
 ### Subagents (auto-discovered from `agents/`)
-- `team-lead-fleet:writing-editor` — owns any document other people will read. Peers delegate to it via `delegate-writing.md` rather than writing docs themselves; the craft lives in the agent's own instructions, so it can't be forgotten mid-task the way in-context guidance is. Plugin agents are namespaced — the `subagent_type` is `team-lead-fleet:writing-editor`, not `writing-editor`.
+- `team-lead-fleet:writing-editor` — an **on-demand** fresh context for an involved document (long, external-facing, or written at the tail of an already-loaded session). Not a mandatory handoff: routine docs get written inline, because `communication.md` travels with every agent. Dispatch this when a doc is worth its own clean context. Plugin agents are namespaced — the `subagent_type` is `team-lead-fleet:writing-editor`, not `writing-editor`.
 
 ### Rules (alwaysApply — injected at SessionStart via hook)
 - `claude-hive-peer.md` — peer protocol (set_summary, list_peers, send_message via to_stable_id, /compact after task close)
-- `delegate-writing.md` — route "doc other people will read" work to the `writing-editor` subagent. Gated out for subagents (prose gate + `block-writing-recursion.sh`).
+- `communication.md` — the overriding standard for anything written for a reader (chat, docs, comments, email): pin the exact audience & purpose, size length and format to them, be honest about measured vs. inferred vs. assumed.
 - `workflow-conventions.md` — planning, decision framework, commit discipline, LLM turn efficiency, code review, post-implementation, team-lead-notification
 - `feedback-loop.md` — capture learnings, periodic retros
 - `live-feedback-default.md` — bind markdown / dev-server reviews to the live-feedback widget

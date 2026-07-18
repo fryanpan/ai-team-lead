@@ -72,10 +72,13 @@ When facing a decision during planning or implementation, use this framework to 
 
 ## Autonomy
 
-- When the user has approved a plan, execute all phases without pausing for checkpoint approval. Only stop when you've discovered something that changes the scope or risk of the original request.
+**Killer item — do not pause mid-goal.** Once the user has approved a goal or plan, drive to completion. A mid-goal pause that asks "should I continue?", "want me to proceed?", or surfaces a reversible choice for confirmation is a failure of this rule. The only valid stop conditions are: (a) scope or risk of the original request has changed, (b) a hard-to-reverse decision per the Decision Framework above, or (c) a hard blocker (missing dep, repeated verification failure, instruction genuinely ambiguous).
+
 - When multiple clarifying questions are needed, batch them into a single message. Do not ask one question at a time.
 - Do not re-research information the user has already provided in the current session.
 - Apply the Decision Framework above at every decision point — during brainstorming, planning, implementation, and review. Default to autonomous action for reversible decisions.
+
+> **Anthropic `/goal` primitive (Claude Code 2.1.139, 2026-05-12):** for goal-anchored execution with a self-driven completion classifier, prefer `/goal <objective>` over relying on this rule alone. Supersession status pending P0 test results.
 
 ## Superpowers Overrides
 
@@ -108,6 +111,7 @@ These conventions modify how superpowers plugin skills behave in this project:
 ## Verification
 
 - After implementing UI changes or bug fixes, verify the result before reporting done. Never mark a UI task complete based solely on code being written — state what verification you performed and what you could not verify.
+- **For deploys that change user-facing UI — new screens, layout shifts, interaction changes, mobile behavior — run `/ux-review` BEFORE shipping.** The reviewer walks the change as a real user against the rubric and catches friction the implementer missed. If purely back-end / non-user-facing, skip. If in doubt, run it.
 - At the start of any worktree session involving commits, check whether the worktree is current with its base branch. Report the result before beginning implementation.
 
 ## LLM Turn Efficiency

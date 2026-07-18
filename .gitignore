@@ -12,3 +12,11 @@ __pycache__/
 .envrc
 .claude/discord/
 .claude/reviews/
+docs/state/
+
+# Private ops / internal planning docs (public repo — keep local)
+docs/process/token-control.md
+docs/process/audit-w5.md
+docs/process/goal-primitive-observations.md
+docs/product/plans/
+.claude/skills/weekly-plan/parent.txt

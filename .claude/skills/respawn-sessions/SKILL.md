@@ -1,6 +1,6 @@
 ---
 name: respawn-sessions
-description: Respawn Bryan's long-running Claude Code sessions in detached tmux sessions. Three modes — `missing` (default, fill gaps), `plugin` (kill+respawn anyone lacking the live-feedback plugin), `all` (kill+respawn everyone). Auto-accepts dev-channel permission dialogs and sweeps orphan claude-hive servers.
+description: Respawn Bryan's long-running Claude Code sessions in detached tmux sessions. Three modes — `missing` (default, fill gaps), `plugin` (kill+respawn anyone lacking the live-feedback plugin), `all` (kill+respawn everyone). Auto-accepts dev-channel permission dialogs and sweeps orphan claude-hive servers. Also holds `self-respawn.sh` for the team-lead to cycle its own session (which the modes never kill) onto a new binary/plugin/settings.
 ---
 
 # Respawn Sessions
@@ -86,9 +86,39 @@ Session names are derived from the registry's `session_name` field, lowercased w
 
 ## Team Lead self-protection
 
-The script walks the parent process chain to identify the team-lead's own claude PID and **never kills it**, in any mode. If `--mode plugin` finds the team-lead lacks the plugin, it prints a flag asking the user to restart the team-lead session manually (you can't replace yourself in a process you're running inside).
+The script walks the parent process chain to identify the team-lead's own claude PID and **never kills it**, in any mode. If `--mode plugin` finds the team-lead lacks the plugin, it prints a flag — but you don't need a human to restart the team-lead: use `self-respawn.sh` (next section) to cycle your own session autonomously.
 
 If the parent-walk fails to find a claude PID (`get_self_pid()` returns None), `--mode all` and `--mode plugin` abort with a non-zero exit code rather than risk killing the team-lead.
+
+## Respawning yourself (the team-lead)
+
+Because the modes above never kill self, the team-lead can't ride an `--mode all/plugin` respawn onto a new binary, plugin, or `~/.claude/settings.json` change. Use **`self-respawn.sh`** — it cycles your own session autonomously, no human step:
+
+```bash
+# Discover your own claude PID first: the top-level …/bin/claude ancestor
+# (NOT the hive-mcp child), via the parent-process walk — same logic as
+# respawn.py's get_self_pid. Then:
+bash .claude/skills/respawn-sessions/self-respawn.sh <team-lead-claude-pid>
+```
+
+**How it works:** the team-lead runs as a bare `claude --continue` process and can't revive itself directly (a dying process can't respawn itself, and a detached spawn needs a pty). The script schedules a **detached** respawn via `setsid` — so it survives the team-lead's own death — then kills self. The detached job waits for the old process to exit, then spawns a fresh team-lead into tmux session `team-lead` on the **current** binary + plugin set, resuming this very conversation via `--continue`, and auto-accepts the startup dialogs (dev-channel / MCP / resume-from-summary → this is what compacts you).
+
+- **~10–20s gap** with no team-lead, then back in `tmux:team-lead`, same conversation (compacted), named "Team Lead". Reconnect via `tmux a -t team-lead` or Remote Control — it re-registers on the hive.
+- **Do this LAST** — it ends the current session. Deliver any report and finish any in-flight handoff first.
+- **No `-e DISCORD_STATE_DIR`** — the team-lead keeps its own shell/direnv discord state (unlike peers, which get an explicit override to prevent channel fan-out).
+- **Tell a live human first** if one's mid-conversation — the `--continue` preserves context, but the ~15s gap + reconnect is visible. For a fully-autonomous/off-hours run, just fire it.
+- **Use it to pick up:** a new Claude Code binary (`/self-update` Step 6), the fleet plugin, or any user-scope settings change that only applies on restart.
+
+### Hard-won invariants — do not "simplify" these away
+
+Learned the expensive way (2026-07-11): the first version used `setsid`, **which does not exist on macOS**. The detach failed with `setsid: command not found`, but the script fell through and killed self anyway — the team-lead went down for **~16 hours** with no revival path, until a human noticed and a peer hand-restarted it.
+
+1. **Detach via `python3 -c 'os.setsid()'`, never `setsid(1)`.** macOS has no `setsid` binary. `nohup … & disown` alone is *not* sufficient — it only ignores SIGHUP, it does not escape the dying process's group.
+2. **Never kill self until the detached job proves it armed.** The job's first act is to `touch` a sentinel; the script blocks on that sentinel and **ABORTs (leaving the team-lead alive)** if it never appears. A failed detach must cost nothing.
+
+If you see `ABORT: respawn job never armed`, that is the guard working — the team-lead is still up and nothing was lost. Read `/tmp/tl-selfrespawn.log` and fix the cause; do not bypass the guard.
+
+**The general rule:** any script that kills its own caller must *prove the revival path is live* before pulling the trigger — and you must test it against a dummy victim (with side-effects stubbed) before ever aiming it at yourself.
 
 ## How to add or remove a project from the respawn list
 

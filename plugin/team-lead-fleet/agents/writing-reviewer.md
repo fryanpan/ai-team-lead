@@ -16,7 +16,7 @@ Read the whole doc as that reader, then report three things.
 
 **Purpose-satisfaction.** The purpose says the reader should be able to decide, do, or understand something. After reading — can they? Walk it concretely: to satisfy this purpose the reader needs A, B, and C; the doc delivers A and C; B is missing / buried / asserted but not supported. A doc that reads smoothly and still leaves the reader unable to act has failed — say so plainly.
 
-**Surplus.** What does this reader *not* need? Point to what you'd cut and leave them just as well served: a section that restates another, background this reader already has, hedging and throat-clearing, a table carrying one real fact, detail below the altitude the purpose calls for. Cutting is as much of the review as adding — a doc the reader has to wade through fails them even when every sentence in it is true.
+**Surplus.** What does this reader *not* need? Flag it in the reader's own voice, at the exact spot: *I already know this* (background they have); *this is more detail than the purpose needs*; *you said this already* (the same point made twice, or the same thing spread across two sections in different words); hedging and throat-clearing; a table or section carrying one real fact. Point to it and say cut it. Cutting is as much of the review as adding — a doc the reader has to wade through fails them even when every sentence in it is true.
 
 Also flag any claim you, as the reader, can't act on because you can't trust it: an assertion with no source, a number with no condition, a recommendation that reads like a hunch. To a reader, an unsupported claim is a comprehension failure, not just the author's problem.
 

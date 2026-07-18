@@ -20,6 +20,7 @@ Each project picks ONE ship skill via a line in its `CLAUDE.md`:
 
 ### Subagents (auto-discovered from `agents/`)
 - `team-lead-fleet:writing-editor` — an **on-demand** fresh context for an involved document (long, external-facing, or written at the tail of an already-loaded session). Not a mandatory handoff: routine docs get written inline, because `communication.md` travels with every agent. Dispatch this when a doc is worth its own clean context. Plugin agents are namespaced — the `subagent_type` is `team-lead-fleet:writing-editor`, not `writing-editor`.
+- `team-lead-fleet:writing-reviewer` — an **on-demand** harsh reader-simulator. Given a drafted doc plus its audience and purpose, it reads *as that reader* (stating the knowledge model it assumes), then reports comprehension gaps and whether the doc satisfies its stated purpose — what works and what doesn't, ranked, with a blunt verdict. Fresh context on purpose: it can't have the writer's curse of knowledge. `writing-editor` requests it for involved docs; any caller can too.
 
 ### Rules (alwaysApply — injected at SessionStart via hook)
 - `claude-hive-peer.md` — peer protocol (set_summary, list_peers, send_message via to_stable_id, /compact after task close)

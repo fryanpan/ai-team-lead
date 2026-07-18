@@ -49,9 +49,9 @@ So this repo has evolved over the last few months to help cover all of these goa
 
 ## Getting started
 
-1. Clone this repo`git clone git@github.com:your-username/ai-team-lead.git ~/dev/ai-team-lead`
-2. Start Claude`cd ~/dev/ai-team-lead``claude`
-3. Ask Claude to help you get your projects setup`Help me setup my team lead and projects`
+1. Clone the repo. `git clone git@github.com:your-username/ai-team-lead.git ~/dev/ai-team-lead`
+2. Start Claude Code. `cd ~/dev/ai-team-lead``claude`
+3. Ask Claude to run setup — it'll invoke the /setup skill to enable git hooks, seed registry.yaml, install dependencies, and walk you through optional Discord + Notion config: Please help me do setup
 
 ## Skills
 

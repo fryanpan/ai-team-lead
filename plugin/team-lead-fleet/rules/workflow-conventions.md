@@ -158,16 +158,11 @@ Look in this project's `CLAUDE.md` for a line like:
 
 If `CLAUDE.md` does not declare a ship skill, default to `ship-auto`. Each skill describes its own pause conditions; do not invent additional ones beyond the D-class gates listed there (default-branch breaking change, public deploy of breaking change, external send, irreversible delete, force-push).
 
-## Notifying the Team Lead
+## Do not notify the Team Lead when a task completes
 
-After completing a task (PR merged, research delivered, or work otherwise done), notify the team-lead session via claude-hive:
+Finishing a task is not a reason to message anyone. Ship it and pick up the next thing. The team-lead can see your PRs, your transcript, and your `set_summary` — a "task complete" ping tells it nothing it can't already read, and it costs the team-lead context every time.
 
-1. Call `mcp__claude-hive__list_peers` with `scope: "machine"` to find the team-lead.
-2. Identify the team-lead by its summary containing "Team Lead" (peers set their role via `set_summary` on startup).
-3. Call `mcp__claude-hive__send_message` with `to_stable_id` (preferred over `to_id` — stable IDs survive session restarts) and a brief completion summary:
-   > "Task complete: [one-line description of what was done]. PR: [url if applicable]"
-
-If no team-lead peer is found, skip silently — don't block on it.
+Message the team-lead **only** for a decision you can't make or a blocker you can't clear. See `claude-hive-peer.md`.
 
 ## Diagrams
 

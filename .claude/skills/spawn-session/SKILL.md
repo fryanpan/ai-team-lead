@@ -46,12 +46,13 @@ Check that no peer's `cwd` matches the target. If one exists, stop and delegate 
 /opt/homebrew/bin/tmux new-session -d -s <session-name> \
   -c <absolute_path> \
   -e "DISCORD_STATE_DIR=<right-state-for-this-peer>" \
-  /bin/zsh -ic "claude --continue"
+  /bin/zsh -ic "claude --continue -n '<Display Name>'"
 ```
 
 - `<session-name>` is shell-friendly (lowercase, hyphens — e.g. `my-project`, not `My Project`).
 - `<absolute_path>` is the full project path (e.g. `~/dev/my-project` expanded).
-- For a brand-new project with no prior transcript, drop `--continue` (use bare `claude`) — see `feedback_first_time_spawn.md`.
+- **`-n '<Display Name>'` names the agent on launch (required).** Claude Code's `-n/--name` sets the session's display name — shown in the agent picker (`← for agents`), Remote Control, and the terminal title — so a freshly-spawned agent is identifiable at a glance instead of a generic default. Use the human-friendly name from `registry.yaml`'s `session_name` (e.g. `App Dev For All`, `Finance`, `Job Search`); fall back to a Title-Cased project name if the registry has none. The flag forwards cleanly through the `claude` zsh function (the function appends channel flags but passes `"$@"` through), so unlike the channel flags you DO pass `-n` yourself.
+- For a brand-new project with no prior transcript, drop `--continue` (use bare `claude -n '<Display Name>'`) — see `feedback_first_time_spawn.md`.
 - The `zsh -ic` form is **mandatory**. Bryan's `claude` is a zsh function (sourced from `~/.zshrc`), not an alias — bare `/Users/.../bin/claude` skips the function and runs without the channel flags.
 - Don't inline the channel flags in the command (e.g. `claude --continue --channels ...`). The function will append its own copy and you'll see duplicates in argv.
 

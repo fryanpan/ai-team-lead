@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -111,8 +112,37 @@ DIALOG_PATTERNS = [
     "Use this and all future MCP servers",    # MCP-server approval dialog
     "Enter to confirm",                       # generic confirm dialog footer (catches any dialog with this footer)
 ]
+
+# The resume dialog specifically. Its DEFAULT option is "Resume from summary",
+# i.e. a bare Enter COMPACTS the session. Under --no-compact we arrow down one
+# and take "Resume full session as-is" instead, preserving full context.
+RESUME_DIALOG_PATTERNS = [
+    "Resume from summary",
+    "Resume full session as-is",
+]
 DIALOG_POLL_INTERVAL_SEC = 3.0
 DIALOG_POLL_MAX_ITER = 25  # ~75s of polling — zsh -ic boot is slower than direct binary, dialogs can take 30-50s to appear
+
+# Seconds to wait between spawns.
+#
+# WHY THIS EXISTS (2026-07-13): spawning the whole fleet at once made every session
+# race to start its plugin MCP servers simultaneously. Some handshakes lost the race,
+# Claude gave up on those servers, and their tools were never registered — leaving an
+# MCP child process alive but orphaned and idle. The peer looked healthy from the
+# outside and had silently lost a channel (Octoturtle lost Discord; two peers lost
+# live-feedback). Nobody noticed for days, because "the process is running" was the
+# only thing anyone checked.
+#
+# Staggering is cheap insurance. Do not set this to 0 to "speed up" a fleet respawn.
+SPAWN_STAGGER_SEC = 8.0
+
+# Plugin MCP servers we expect a healthy session to have spoken to. Used by the
+# post-spawn health check, which is advisory: it reports, it does not fail the run.
+EXPECTED_MCP_MARKERS = {
+    "claude-hive": "claude-hive-mcp",
+    "live-feedback": "claude-live-feedback-plugin/packages/plugin/mcp",
+    "discord": "claude-plugins-official/discord",
+}
 
 
 # --- registry.yaml parsing ---------------------------------------------------
@@ -292,7 +322,12 @@ def spawn_session_tmux(session_name: str, path: str) -> bool:
     # Idempotent: kill any pre-existing tmux session with the same name
     subprocess.run([TMUX_BIN, "kill-session", "-t", tmux_name],
                    capture_output=True, timeout=3.0)
-    claude_invocation = "claude --continue" if has_prior_session(path) else "claude"
+    # `-n <name>` sets the session display name (agent picker, Remote Control, terminal
+    # title) so a respawned agent is identifiable on launch. Forwards through the `claude`
+    # zsh function (it passes "$@" after appending channel flags). shlex.quote handles the
+    # spaces in display names like "App Dev For All".
+    name_flag = f" -n {shlex.quote(session_name)}"
+    claude_invocation = ("claude --continue" if has_prior_session(path) else "claude") + name_flag
 
     # Scope DISCORD_STATE_DIR per-peer to prevent discord-channel fan-out.
     ensure_no_discord_state()
@@ -320,16 +355,25 @@ def tmux_capture_pane(session: str) -> str:
     return r.stdout if r.returncode == 0 else ""
 
 
-def tmux_send_enter(session: str) -> bool:
-    r = subprocess.run([TMUX_BIN, "send-keys", "-t", session, "Enter"],
+def tmux_send_keys(session: str, *keys: str) -> bool:
+    r = subprocess.run([TMUX_BIN, "send-keys", "-t", session, *keys],
                        capture_output=True, timeout=3.0)
     return r.returncode == 0
 
 
-def auto_accept_dialogs_tmux(session_names: List[str]) -> Dict[str, int]:
+def tmux_send_enter(session: str) -> bool:
+    return tmux_send_keys(session, "Enter")
+
+
+def auto_accept_dialogs_tmux(session_names: List[str],
+                             no_compact: bool = False) -> Dict[str, int]:
     """Poll each tmux session for known startup dialogs and dismiss them by
     sending Enter (which accepts the safe default in every dialog we know about:
     "resume from summary", "use this MCP server", "trust this folder").
+
+    With no_compact=True, the resume dialog is answered with Down+Enter instead
+    — selecting "Resume full session as-is" rather than the default "Resume from
+    summary", so the peer comes back with its full context intact.
 
     Polls up to DIALOG_POLL_MAX_ITER * DIALOG_POLL_INTERVAL_SEC seconds total.
     Returns {session: enters_sent}."""
@@ -343,11 +387,68 @@ def auto_accept_dialogs_tmux(session_names: List[str]) -> Dict[str, int]:
         for s in pending:
             content = tmux_capture_pane(s)
             if any(p in content for p in DIALOG_PATTERNS):
-                if tmux_send_enter(s):
+                is_resume = any(p in content for p in RESUME_DIALOG_PATTERNS)
+                ok = (tmux_send_keys(s, "Down", "Enter")
+                      if (no_compact and is_resume)
+                      else tmux_send_enter(s))
+                if ok:
                     sent[s] += 1
                 still_pending.add(s)  # dialog may chain into another dialog
         pending = still_pending
     return sent
+
+
+def mcp_health_report() -> List[str]:
+    """List which plugin MCP server processes exist under each claude session.
+
+    READ THIS BEFORE TRUSTING THE OUTPUT: presence in this list is NOT evidence that
+    a plugin's tools registered. It is only evidence that a process was started.
+
+    When Claude fails to complete the MCP handshake with a plugin server, the child
+    process is still spawned and still sits there — it just never gets spoken to. From
+    outside, a broken server is INDISTINGUISHABLE from a healthy one:
+
+      - CPU time?  No. A connected Discord gateway heartbeats at ~0.01s CPU, same as a
+                   process that did nothing. (Tried it; false-positived the healthy peer.)
+      - Sockets?   No. The healthy Discord child held zero ESTABLISHED sockets too.
+      - Logs?      No. The failure is completely silent — no error, no warning, nothing.
+
+    This is exactly how a peer lost its Discord channel for three days while looking
+    perfectly healthy from every external angle (2026-07-13): process up, config valid,
+    token valid, no errors — and simply unreachable.
+
+    **The only reliable check is from INSIDE the session: ask the peer whether its tools
+    actually surfaced.** Use this report to see what SHOULD be there, then confirm.
+    """
+    lines: List[str] = []
+    try:
+        ps = subprocess.run(["ps", "-axww", "-o", "pid=,ppid=,time=,command="],
+                            capture_output=True, text=True, timeout=PS_TIMEOUT_SEC).stdout
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return lines
+
+    kids: List[tuple] = []
+    for row in ps.splitlines():
+        f = row.split(None, 3)
+        if len(f) < 4:
+            continue
+        try:
+            pid, ppid = int(f[0]), int(f[1])
+        except ValueError:
+            continue
+        kids.append((pid, ppid, f[2], f[3]))
+
+    claude = get_running_claude_processes()   # {pid: {"cwd", "argv"}}
+
+    for cpid in sorted(claude):
+        cwd = claude[cpid].get("cwd") or "?"
+        name = os.path.basename(cwd.rstrip("/")) or str(cpid)
+        found = [label
+                 for label, marker in EXPECTED_MCP_MARKERS.items()
+                 if any(ppid == cpid and marker in cmd for (_p, ppid, _t, cmd) in kids)]
+        if found:
+            lines.append(f"  {name:<24} started: {', '.join(found)}")
+    return lines
 
 
 # --- destructive ops ---------------------------------------------------------
@@ -496,6 +597,10 @@ Flags:
                        resume-from-summary),
                      - sweeping orphan claude-hive-mcp servers.
                    Use this if you want to walk through panes by hand.
+  --no-compact     Answer the resume dialog with "Resume full session as-is"
+                   instead of the default "Resume from summary". Peers come back
+                   with their full context intact — nothing is summarized away.
+                   Default (without this flag) is to compact on resume.
 
 Behavior:
   - Reads ~/dev/ai-team-lead/registry.yaml and acts on every project
@@ -519,6 +624,7 @@ def main() -> int:
 
     execute = "--execute" in args
     auto_accept = "--no-auto-accept" not in args
+    no_compact = "--no-compact" in args
 
     mode = "missing"
     if "--mode" in args:
@@ -598,7 +704,12 @@ def main() -> int:
 
     if to_spawn:
         print(f"\n[spawn] Creating {len(to_spawn)} detached tmux session(s) via `zsh -ic` (so the `claude` shell function applies channel flags)...")
-        for name, path in to_spawn:
+        for i, (name, path) in enumerate(to_spawn):
+            # Stagger: never start two sessions' plugin MCP servers at once.
+            # See SPAWN_STAGGER_SEC — simultaneous starts lose the handshake race
+            # and silently strip channels off peers.
+            if i > 0:
+                time.sleep(SPAWN_STAGGER_SEC)
             if spawn_session_tmux(name, path):
                 tmux_name = to_tmux_session_name(name)
                 spawned_tmux_sessions.append(tmux_name)
@@ -613,11 +724,30 @@ def main() -> int:
     # ---- post-spawn auto-accept + cleanup ----
 
     if spawned_tmux_sessions:
-        print(f"\n[accept] Polling {len(spawned_tmux_sessions)} tmux session(s) for startup dialogs (resume-from-summary, MCP approval)...")
-        sent = auto_accept_dialogs_tmux(spawned_tmux_sessions)
+        resume_mode = ("full session as-is (--no-compact)" if no_compact
+                       else "from summary (compacts)")
+        print(f"\n[accept] Polling {len(spawned_tmux_sessions)} tmux session(s) for startup dialogs "
+              f"(MCP approval, dev-channel; resume -> {resume_mode})...")
+        sent = auto_accept_dialogs_tmux(spawned_tmux_sessions, no_compact=no_compact)
         for s, n in sent.items():
             if n:
-                print(f"  Enter x{n} -> tmux:{s}")
+                print(f"  keys x{n} -> tmux:{s}")
+
+    # Post-spawn MCP health. "The process is running" is NOT evidence a plugin's
+    # tools registered — a never-handshaken MCP server looks identical to a healthy
+    # one from the process table. Report what each server has actually DONE.
+    if spawned_tmux_sessions:
+        print("\n[health] Plugin MCP servers STARTED per session:")
+        for line in mcp_health_report():
+            print(line)
+        print("\n  ⚠ This proves a process started — NOT that its tools registered.")
+        print("    A failed MCP handshake leaves the child process running and silent:")
+        print("    no error, no log, same CPU, same sockets as a healthy one. A peer in")
+        print("    that state looks fine from every external angle and is simply unreachable")
+        print("    on its channel. (Cost us a dead Discord channel for 3 days, 2026-07-13.)")
+        print("\n    VERIFY FROM INSIDE: ask each peer whether its tools actually surfaced")
+        print("    (e.g. hive-message it: \"do you have your discord / live-feedback tools?\").")
+        print("    That is the only check that means anything. Do not skip it.")
 
     # Sweep orphan hive servers (only relevant if we killed something).
     if to_kill:

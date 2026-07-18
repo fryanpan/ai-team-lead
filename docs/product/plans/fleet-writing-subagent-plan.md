@@ -81,6 +81,8 @@ Thin. Routes "doc for others" work to the subagent. Two hard constraints:
 
 ### 3. The craft skill — `plugin/team-lead-fleet/skills/writing-for-readers/SKILL.md`
 
+> **Revised 2026-07-17 (Bryan):** the separate skill was cut. It duplicated the agent and most of its items (bold budget, one-ID-scheme, vocabulary primer) were copy-editing nitpicks from a single spike-doc baseline, not generalizable craft. The one piece with no other home — *derive the finding the notes make available, don't just transcribe* — was folded into `agents/writing-editor.md`. The craft now lives inline in the agent; there is no preloaded skill. The RED-baseline reasoning below stands as the record of how the content was chosen.
+
 Scoped **down** to what the evidence supports — the harness's *"readable matters more than concise"* is the premise it builds on, not something to restate. Keep only:
 
 - Emphasis/bold budget (the one axis with zero harness coverage and a measured baseline deficiency).

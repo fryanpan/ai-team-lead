@@ -49,22 +49,39 @@ These all map to the same thing: produce or update today's prioritized review do
    *One sentence: where the day stands overall.*
 
    ## 1. <Goal title from weekly plan>
-   **Owner(s):** <agent name(s) + the user if applicable>
-   **Status:** on-track | slipping | blocked | done
-   **Today:** <one or two lines on what moved / who did what>
-   **Next for the user:** <decision needed | review needed | nothing — keep moving>
-   **Links:** <github.com/...> · <<your-tailnet>.ts.net/...>
+
+   - **Owner**: <agent name(s) + the user if applicable>
+   - **Status**: on-track | slipping | blocked | done
+   - **Today**: <one or two lines on what moved / who did what>
+   - **Next for you**: <decision needed | review needed | nothing — keep moving>
+   - **Link**: <github.com/... or mac-mini.<tailnet>.ts.net/... — only if useful>
 
    ## 2. <Next goal title>
-   …
+
+   - **Owner**: …
+   - **Status**: …
+   - **Today**: …
+   - **Next for you**: …
 
    ## Off-plan
+
    - <thing that came up that isn't a committed goal — in priority order>
 
-   ## Decisions needed from the user
-   1. <decision title> — <one-paragraph background: what's the question, what are the realistic options, what does each cost> — *recommendation if Team Lead has one*
-   2. …
+   ## Decisions needed from you
+
+   ### <Decision 1 title>
+
+   - **Question**: <one sentence>
+   - **Options**: <2-4 options, each one line>
+   - **Cost**: <time / scope / reversibility per option>
+   - **Recommendation**: <Team Lead's call, or "no recommendation">
+
+   ### <Decision 2 title>
+
+   …
    ```
+
+   **Critical**: each field MUST be its own bullet, not run-on prose with inline bold labels. The live-feedback editor renders the doc on Bryan's phone — bullet-per-field stays scannable; prose-with-bold-labels collapses into wall-of-text. See `feedback_live_feedback_doc_structure.md` memory for the rationale.
 
    - Sections are **descending priority** (1 = highest priority committed goal).
    - Within each goal-section, batch *every* type of work (writing, decisions, pings, reviews) for that goal — don't cluster by task type across goals.
@@ -76,19 +93,32 @@ These all map to the same thing: produce or update today's prioritized review do
    - Call `watch_doc(docId)` so thread events arrive as channel notifications.
    - On updates within the same day, the live-feedback editor stays in sync with the file. Don't re-call `create_review_doc`.
 
-6. **Surface the doc to the user.**
-   - Tell him the live-feedback URL (Tailscale-rewritten) — that's how he reads + comments on phone or laptop.
-   - If it's morning: highlight the *first* goal-section as today's start point.
-   - If it's evening: highlight what shipped + tomorrow's first goal.
+6. **Surface the doc to the user — link FIRST, every time.**
+   - **The very first line of your user-facing response MUST be the review URL on its own line**, formatted as a Tailscale link: `http://mac-mini.<your-tailnet>.ts.net:8788/review/daily-review-YYYY-MM-DD`. No preamble, no "here's the review", no apology — just the URL.
+   - This applies on every invocation: first creation, every update / re-run, and any time the user asks "what's next" / "status" / "where are we." The URL is the user's only entry point on phone or laptop; if it's buried, he has to dig for it.
+   - After the URL, you may add a one-sentence pointer (morning: which goal-section to start with; evening: what shipped + tomorrow's first goal).
+   - The URL is non-negotiable. Even if you have nothing else to say, surface the URL.
 
 7. **React to the user's comments + edits.**
    - Thread events arrive as channel notifications — handle them per the live-feedback skill (`feedback-threads` for triage, the `editing-review-docs` skill for any edits to the file).
    - When the user edits a section directly, re-read the file and carry his changes forward into peer dispatches.
    - Resolved threads = decisions made. Reflect them back into the weekly plan if they change goal priority or scope.
 
+## Inline content or Tailscale link — never a forward-reference
+
+Every actionable item in the daily review must be either:
+
+- **Inline**, if it's brief enough to scan in seconds (1-3 sentences), OR
+- **Linked via a Tailscale URL** (`mac-mini.<your-tailnet>.ts.net:...`) to a live-feedback-bound doc or other accessible artifact, if the content is longer.
+
+**Never use forward-references** like "see Decisions §N" or "see below" or "ask <peer> for details." If the user has to scroll/navigate/ping to find what they need, the daily review failed its job. The user reads on phone — every "see X" is a context switch he pays for.
+
+When in doubt: paste the content inline. Better to have a longer bullet than a forward-reference. If a bullet grows past ~5 lines, that's the signal to move the long content to a separate Tailscale-linked doc and inline a 1-2-sentence summary plus the link.
+
 ## What to avoid
 
 - Don't write a free-form narrative. the user scans, doesn't read.
+- Don't forward-reference. See "Inline content or Tailscale link" above.
 - Don't repeat content the weekly plan already has. The review doc references goal titles and reports status — it doesn't re-justify the goals.
 - Don't bury decisions inside goal-sections; promote them to the `Decisions needed` section.
 - Don't include `*.local` URLs. the user reads on phone.

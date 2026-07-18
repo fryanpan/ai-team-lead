@@ -22,6 +22,16 @@ Never edit files in other project repos directly. Always propose changes via Git
 ### Worktree Interaction
 Each project has 2–5 active Team Lead worktrees. The metaproject always reads from the main worktree at `~/dev/{project}`. Feature branch worktrees are not read — they may have uncommitted or in-progress work.
 
+### Agent Lifecycle — keep long-running agents up only when needed
+Default to a **lean fleet**. A peer session should be running only when it has live work — this week's committed goals, an always-up agent, or a task the user just handed it. Idle agents cost cache-read tokens every turn and add noise; don't keep them up "just in case."
+
+**Task-driven spin-up/spin-down.** When the user asks for a specific task and the owning agent isn't up:
+1. **Bring it up** (`/respawn-sessions` mechanics — spawn just that one session; don't wake the whole fleet).
+2. **Hand off the goal** and let it own the loop (no status-report pings — see `feedback_dont_wire_in_status_reports`).
+3. **Spin it back down when the task is done** — coordinate the shutdown (`/shutdown-session`): if the agent is mid-flight, ask it to checkpoint first; for a deploy-gated task, wait for the single "done/deployed" signal, then kill. Track the pending shutdown so it isn't forgotten.
+
+**Exceptions — leave running:** always-up agents (per `project_always_up_agents` memory) and peers actively on this week's committed goals. Don't tear those down as part of task-scoped cleanup; their lifecycle is owned by `/weekly-plan`, not ad-hoc task requests.
+
 ## Skills
 
 ### Team Lead / Registry
@@ -82,6 +92,7 @@ The names and details of managed projects are private. When writing commit messa
 ### Code Style
 - Keep skills focused — one skill per workflow, not monolithic multi-purpose skills
 - Fleet-wide skills + rules live in `plugin/team-lead-fleet/`; Team-Lead-only skills live in `.claude/skills/`
+- **When creating or editing a skill**, follow `superpowers:writing-skills` PLUS `plugin/team-lead-fleet/rules/skill-authoring.md` — the latter adds the fleet steps (research the Claude System Prompt archive to avoid duplicating harness detail; keep it minimal; trigger-only descriptions)
 
 ## Private Files
 

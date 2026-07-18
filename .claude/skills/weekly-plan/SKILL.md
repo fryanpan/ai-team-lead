@@ -19,9 +19,29 @@ Every goal has four parts. Each is required.
 | Title | Specific measurable outcome (the headline IS the outcome — no vague verbs like "work on") | `Live-feedback blog post published to your-blog.com — 1500 words merged` |
 | Due | `Due: <Day> YYYY-MM-DD` | `Due: Wed 2026-05-13` |
 | Estimate | the user-hours hands-on | `Estimate: 3h the user-time` |
+| Lead | `Lead: <owning fleet agent(s)>` — the peer driving this area, plus the user's role where it's a handoff. Every goal names a lead so it's clear who's on point. | `Lead: Blog Assistant · the user owns the voice pass` |
 | Sub-outcomes (only if needed) | `[ ]` checklist of the concrete pieces that prove the title was hit | `[ ] voice pass · [ ] hero image · [ ] PR merged` |
 
 If a goal needs more than ~5 sub-outcomes, it's probably two goals.
+
+## Capacity block (required)
+
+Every plan page opens with a capacity estimate, placed directly under the one-sentence theme and above `## Committed goals`. It is **not optional** — it's the frame the whole plan is judged against (committed hours vs. available hours).
+
+Format: a bold header carrying the week total, then a per-day bullet breakdown with a short context note where a day is unusually light or heavy.
+
+```
+**Capacity: ~Xh hands-on** —
+- Nh Mon — half-day cleanup, evening free while family's out
+- 2h Tue — haircut, meetings, not much extra
+- 2h Wed — logistics
+- 8h each Thu / Fri
+- ~3h weekend
+```
+
+- The bold total is the week's realistic hands-on hours — the user's number; ask if unknown, don't guess.
+- Per-day bullets carry a short reason wherever a day deviates from a normal full day, so the total is legible at a glance.
+- After the plan is set, sanity-check committed hours (sum of goal Estimates) against this total and surface the gap: under-committed leaves headroom (say what the slack is for); over-committed means something must drop or defer.
 
 ## When to invoke
 
@@ -31,9 +51,12 @@ If a goal needs more than ~5 sub-outcomes, it's probably two goals.
 
 ## Steps
 
+0. **Self-update first.** Run `/self-update` before planning — it updates Claude Code to the latest version, pulls the latest `ai-team-lead` (skills/rules/registry), and propagates both to the fleet. Week-start is the right moment (fleet usually idle). Report anything that changed, then continue planning on the current tooling.
+
 1. **Find or create this week's Notion page.**
    - Search for an existing "Weekly Plans" parent (`notion-search "Weekly Plans"`). If none, ask the user for the parent URL once and stash it in `.claude/skills/weekly-plan/parent.txt` (gitignored).
-   - Create child page titled `Week of YYYY-MM-DD` (Monday). One sentence at the top describing the theme of the week — that's the only narrative.
+   - Create child page titled `Week of YYYY-MM-DD (Mon M/D–Sun M/D)` — **weeks run Monday through Sunday**; the `YYYY-MM-DD` is that Monday. One sentence at the top describing the theme of the week — that's the only narrative.
+   - Add the **Capacity block** (see above) directly under the theme sentence, before the goals. Required on every page.
    - Call `notion_watch_page` on the new page with `include_descendants: false` so the user's comments arrive as channel events.
 
 2. **Pull carry-overs from last week's page.**
@@ -59,12 +82,13 @@ If a goal needs more than ~5 sub-outcomes, it's probably two goals.
    - Drop the dropped + defer the deferred. Keep the page lean — only commits show in the final plan.
 
 7. **Expand kept goals.**
-   - For each ✅ goal, add sub-outcomes only if the title isn't already self-evident.
-   - Add a one-line note for any cross-agent dependencies (e.g., "Personal Finance agent owns the prep; the user reviews Wed").
+   - For each ✅ goal, add the **Lead** line (owning fleet agent + the user's role) so every area has a clear point-person.
+   - Add sub-outcomes only if the title isn't already self-evident.
+   - Note any cross-agent dependencies on the Lead line or a one-liner (e.g., "Personal Finance agent owns the prep; the user reviews Wed").
    - Do NOT pre-fill a daily hitlist. The `daily-review` skill handles the day-by-day surface.
 
 8. **Confirm + commit.**
-   - Read the page back to the user: "Week of YYYY-MM-DD: N goals, X hands-on hours total. Top 3: ..."
+   - Read the page back to the user: "Week of YYYY-MM-DD: N goals, ~Xh committed against ~Yh capacity. Top 3: ..." — always state committed-vs-capacity, not just the goal count.
    - Wait for confirmation. Adjust if needed. Then move on.
 
 ## What to avoid

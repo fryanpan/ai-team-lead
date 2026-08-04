@@ -1,0 +1,13 @@
+# Decisions
+
+Reversible decisions made autonomously, logged here rather than raised. See the
+fleet Decision Framework in `workflow-conventions.md` for what belongs here vs.
+what needs the user's input.
+
+Format:
+
+## YYYY-MM-DD — [Decision]
+**Context:** ...
+**Options considered:** ...
+**Decision:** ...
+**Why:** ...

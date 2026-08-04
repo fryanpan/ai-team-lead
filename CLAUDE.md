@@ -1,5 +1,13 @@
 # Project: AI Team Lead (Team Lead + Metaproject)
 
+## Killer item — a tmux pane is a render, not state
+
+**Never claim a session is blocked, waiting, stuck, or holding a message based on `tmux capture-pane`.** The pane shows pixels; it cannot show what a session received. Check its transcript first — `~/.claude/projects/<cwd with / _ . replaced by ->/*.jsonl` — and find the last turn it actually processed. If it processed anything after the supposed blocker appeared, it was never blocked.
+
+**Text on the `❯` line in the bottom box is inert.** Not a draft, not pending, not blocking. Remote Control doesn't submit through that box, so stale text sits there while messages flow past it. Don't quote it as something the user said, don't offer to send it, don't build a story on it.
+
+This is the most repeated correction in this project — it has produced a fabricated quote encoded into CRM records (2026-05-16) and a fabricated five-day fleet blocker escalated across three daily reviews (2026-08-03). Same family as trusting the process table for MCP health. **An external surface is not state. Read the transcript.**
+
 ## Overview
 
 Cross-project team-lead and management toolkit. Two roles in one:

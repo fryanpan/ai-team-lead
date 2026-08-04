@@ -471,6 +471,31 @@ def spawn_session_tmux(session_name: str, path: str) -> bool:
     return True
 
 
+# A live, ready-for-input session draws this footer under its prompt box. No
+# startup dialog draws it — dialogs take the screen. Its presence is the signal
+# that the dialog phase is over and the poller must stop sending Enter.
+LIVE_PROMPT_MARKERS = [
+    "auto mode on",
+    "shift+tab to cycle",
+    "bypass permissions on",
+]
+
+# How many trailing lines of the pane count as "where a dialog would be".
+# Anything above this is scrollback — history, not a live prompt.
+DIALOG_REGION_LINES = 20
+
+
+def session_is_live(pane: str) -> bool:
+    """True when the pane shows a session ready for input, not a dialog."""
+    tail = "\n".join(pane.rstrip().splitlines()[-6:])
+    return any(m in tail for m in LIVE_PROMPT_MARKERS)
+
+
+def dialog_region(pane: str) -> str:
+    """Only the bottom of the pane, where an ACTIVE dialog is drawn."""
+    return "\n".join(pane.rstrip().splitlines()[-DIALOG_REGION_LINES:])
+
+
 def tmux_capture_pane(session: str) -> str:
     r = subprocess.run([TMUX_BIN, "capture-pane", "-t", session, "-p"],
                        capture_output=True, text=True, timeout=3.0)
@@ -508,14 +533,31 @@ def auto_accept_dialogs_tmux(session_names: List[str],
         still_pending = set()
         for s in pending:
             content = tmux_capture_pane(s)
-            if any(p in content for p in DIALOG_PATTERNS):
-                is_resume = any(p in content for p in RESUME_DIALOG_PATTERNS)
+            # STOP as soon as the session is live, whatever the scrollback says.
+            # A dismissed dialog's text stays visible in the pane, so matching
+            # DIALOG_PATTERNS against the whole capture keeps returning True
+            # long after the dialog is gone — the poller then sends Enter every
+            # DIALOG_POLL_INTERVAL_SEC for the rest of the window. On a resumed
+            # session that pre-fills `/compact` in its input box, each surplus
+            # Enter SUBMITS it: 2-4 queued compactions in 5 of 10 sessions on
+            # 2026-08-03, defeating the --no-compact flag that was passed
+            # specifically to preserve context.
+            #
+            # Same root error as the fleet's killer item: a pane is a render,
+            # not state. Scrollback is history, not a live dialog.
+            if session_is_live(content):
+                continue  # drop from pending permanently
+            if any(p in dialog_region(content) for p in DIALOG_PATTERNS):
+                is_resume = any(p in dialog_region(content)
+                                for p in RESUME_DIALOG_PATTERNS)
                 ok = (tmux_send_keys(s, "Down", "Enter")
                       if (no_compact and is_resume)
                       else tmux_send_enter(s))
                 if ok:
                     sent[s] += 1
                 still_pending.add(s)  # dialog may chain into another dialog
+            else:
+                still_pending.add(s)  # not live yet, still booting
         pending = still_pending
     return sent
 

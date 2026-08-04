@@ -20,7 +20,7 @@ When you want the user to review a markdown doc OR a dev server / interactive pr
 
 ## How
 
-**Markdown docs** — bind via `mcp__plugin_live-feedback__create_review_doc(docId, path, title?)`. Share the review URL (`http://mac-mini.<your-tailnet>.ts.net:8788/review/<docId>`) in your message to the user.
+**Markdown docs** — bind via `mcp__plugin_live-feedback__create_review_doc(docId, path, title?)`. Share the review URL (`http://mac-mini.<your-tailnet>.ts.net:8787/review/<docId>`) in your message to the user. Don't hand-build this URL — `create_review_doc` returns the live `reviewUrl`; use that and only rewrite the host to the Tailscale name.
 
 **Dev servers / HTML mockups** — use the `live-feedback:embedding-widget` skill (it covers the `<script>` tags + `setContext` calls).
 

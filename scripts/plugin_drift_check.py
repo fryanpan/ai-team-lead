@@ -115,8 +115,17 @@ def main():
         for l in dirty:
             print(f"          {l}")
 
-    print("\n        Fix: commit, then `/plugin marketplace update team-lead-fleet`")
-    print("        and `/reload-plugins` in each peer (no respawn needed).")
+    print("\n        Fix — ALL FOUR STEPS. A marketplace update alone does nothing:")
+    print("          1. BUMP the version in plugin/team-lead-fleet/.claude-plugin/plugin.json")
+    print("          2. commit + merge to main")
+    print("          3. claude plugin marketplace update team-lead-fleet")
+    print("          4. `/reload-plugins` in each peer (or restart the fleet)")
+    print("\n        Step 1 is the one everybody skips. The installed cache lives at")
+    print("        .../cache/team-lead-fleet/team-lead-fleet/<VERSION>/ — keyed BY VERSION.")
+    print("        Update with an unchanged version and the marketplace reports")
+    print("        'Successfully updated' while copying nothing. That is exactly how the")
+    print("        fleet ran six weeks behind main in July: the files changed, the version")
+    print("        did not, and the success message was believed.")
     return 1
 
 

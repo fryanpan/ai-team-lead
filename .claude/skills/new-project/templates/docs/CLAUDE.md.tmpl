@@ -1,0 +1,57 @@
+# Project: {{project_name}}
+
+<!--
+This is an OUTLINE, not boilerplate. Do not ship it with the placeholders filled in
+mechanically — a CLAUDE.md made of generic filler is worse than a short one, because
+every session pays to read it and learns nothing.
+
+Write each section from what you actually know about the project after talking to the
+user. If you don't know enough to write a section honestly, cut the section. Sections
+can be added the moment they have real content.
+-->
+
+## Overview
+
+{{project_description}} — two or three sentences. What it is, who it's for, and what
+this repo is versus what it isn't (especially if the repo advises on or supports a
+system that lives elsewhere).
+
+Ship skill: {{ship_skill}}
+
+<!-- ship-auto: personal repos, full pipeline through deploy.
+     ship-guarded: production tools the user relies on; regression-risk gate before merge.
+     ship-push-only: advisory or team-owned repos; humans own PR, merge, deploy. -->
+
+## Current state
+
+Where the work actually stands, dated. This is the section that earns its keep — a
+session resuming after a week needs it more than it needs the vision.
+
+## Conventions
+
+Only what is specific to this project. Fleet-wide behavior ships via the
+`team-lead-fleet` plugin and does not belong here.
+
+Worth stating when true:
+
+- **Confidentiality** — if the repo holds client or third-party material, say so plainly
+  and say what must not leave it.
+- **Sensitive data** — if real user, patient, or financial data must never enter the
+  repo, state it as a rule, not a preference.
+- **Sourcing** — if claims here drive decisions (vendor capabilities, API guarantees),
+  require a link and the date read.
+- **Audience** — who reads what this project produces, and what they already know.
+
+## Development setup
+
+{{development_setup}}
+
+<!-- Commands to install, run, and test. Delete this section entirely for a docs-only
+     or research project — an empty setup section is a small lie about what the repo is. -->
+
+## Key directories
+
+| Path | Contents |
+| --- | --- |
+| `docs/process/` | Learnings, retros, how work flows here |
+| `docs/product/` | Vision, decisions |

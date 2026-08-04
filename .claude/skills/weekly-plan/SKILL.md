@@ -12,31 +12,32 @@ The shared context the team lead and the team use to stay on the same page and m
 
 ## Goal shape
 
-Every goal has four parts. Each is required.
+Every goal has these parts. Lead every block with a **bold brief label**, and keep one type of information per bullet — never combine (see `feedback_one_info_type_per_point`). Due and Lead are separate bullets, not one line.
 
-| Field | Format | Example |
+| Block | Format | Notes |
 |------|--------|---------|
-| Title | Specific measurable outcome (the headline IS the outcome — no vague verbs like "work on") | `Live-feedback blog post published to your-blog.com — 1500 words merged` |
-| Due | `Due: <Day> YYYY-MM-DD` | `Due: Wed 2026-05-13` |
-| Estimate | the user-hours hands-on | `Estimate: 3h the user-time` |
-| Lead | `Lead: <owning fleet agent(s)>` — the peer driving this area, plus the user's role where it's a handoff. Every goal names a lead so it's clear who's on point. | `Lead: Blog Assistant · the user owns the voice pass` |
-| Sub-outcomes (only if needed) | `[ ]` checklist of the concrete pieces that prove the title was hit | `[ ] voice pass · [ ] hero image · [ ] PR merged` |
+| Title | `### N. <Value-forward outcome> (~Xh) <tag>` | Names the outcome **AND why it matters** — payoff, deadline, or what it unblocks. **The estimate lives in the title** — there is no separate estimate line. e.g. `### 1. ADFA-4128 Quick Build ready for team review so it lands in CoGo before the HOPE talk (~4–5h) ✅` |
+| Due | `- **Due**: <Day> YYYY-MM-DD` | its own bullet |
+| Lead | `- **Lead**: <agent> · <Bryan's role>` | its own bullet — separate from Due (different info type) |
+| Value | `- **Value:** <why it's worth doing this week — payoff / deadline / what it unblocks>` | one idea; use a fitting label (e.g. **Future Goal:** when it's a deadline) |
+| Tasks | `- **Tasks**` then a **numbered** list of concrete steps | **these become the Asana tasks** (step 9) — short, doable, one action each |
 
-If a goal needs more than ~5 sub-outcomes, it's probably two goals.
+If a goal needs more than ~5–6 subtasks, it's probably two goals. Match every goal to this shape — Goal 1 on the current week's page is the reference.
 
 ## Capacity block (required)
 
 Every plan page opens with a capacity estimate, placed directly under the one-sentence theme and above `## Committed goals`. It is **not optional** — it's the frame the whole plan is judged against (committed hours vs. available hours).
 
-Format: a bold header carrying the week total, then a per-day bullet breakdown with a short context note where a day is unusually light or heavy.
+Format: a `## Capacity: ~Xh` heading carrying the week total, then a clean per-day bullet breakdown Mon→weekend (include the weekend even when it's small), with a short context note where a day is unusually light or heavy.
 
 ```
-**Capacity: ~Xh hands-on** —
-- Nh Mon — half-day cleanup, evening free while family's out
-- 2h Tue — haircut, meetings, not much extra
-- 2h Wed — logistics
-- 8h each Thu / Fri
-- ~3h weekend
+## Capacity: ~15–21h
+- Mon 2h
+- Tue 2h or 8h (depends on Tim)
+- Wed 4h
+- Thu 3h
+- Fri 2h
+- Weekend 2h (kayak camping)
 ```
 
 - The bold total is the week's realistic hands-on hours — the user's number; ask if unknown, don't guess.
@@ -63,6 +64,7 @@ Format: a bold header carrying the week total, then a per-day bullet breakdown w
    - Locate the prior `Week of YYYY-MM-DD` page.
    - List every goal whose sub-outcomes aren't all checked OR that's part of a multi-week sequence.
    - Seed them into a `## Candidate goals (carry-over)` section of the new page, preserving title/due/estimate. Mark explicitly as `(carry-over)`.
+   - **Also review the user's current Asana task list** (Asana reference in step 9): incomplete tasks assigned to him are carry-over candidates too, and note the stragglers to clean up — complete what's actually done, defer/reschedule what's stale — once the new plan is set. Skip family/others' tasks and Medical self-care items.
 
 3. **Surface new candidate goals.**
    - Pull from: this week's open PRs across the fleet (`gh pr list` per repo), peer summaries (`list_peers` + recent transcripts), Linear/Notion items the user flagged, anything the user said this week that sounded like a commitment.
@@ -91,6 +93,13 @@ Format: a bold header carrying the week total, then a per-day bullet breakdown w
    - Read the page back to the user: "Week of YYYY-MM-DD: N goals, ~Xh committed against ~Yh capacity. Top 3: ..." — always state committed-vs-capacity, not just the goal count.
    - Wait for confirmation. Adjust if needed. Then move on.
 
+9. **Break committed goals into Asana tasks — the week's primary task surface.**
+   - **Asana is the user's primary "what do I work on" surface.** Notion holds the high-level goals (this page); Asana holds the detailed tasks under each committed goal, dated across the week. Do this only AFTER the goals are confirmed (step 8) — never before (`feedback_notion_goals_before_asana` memory).
+   - For each ✅ goal, create short, doable Asana tasks: imperative name, assigned to the user, `due_on` a day that has capacity — spread across the week per the Capacity block, don't pile onto one day — and a 1-line note with the relevant link.
+   - **Reconcile, don't duplicate.** Update/complete tasks that already exist; delete tasks belonging to dropped goals; clean up the stragglers flagged in step 2.
+   - **Leave alone:** family/others' tasks (a shared volunteer project, a family member / a family member) and the user's Medical self-care items.
+   - **Asana reference:** workspace Octoturtle `1211390582921761` · project "Bryan's Projects" `1212817868300931` · Bryan (assignee) `3708345653658`. Non-premium plan → use `asana_get_tasks` (`search_tasks` is gated). The `daily-review` skill keeps this list current each morning.
+
 ## What to avoid
 
 - Don't draft a comprehensive plan upfront with all 5+ goals + sub-goals + daily hitlist + retrospective + infrastructure interleave + training table. That's the failure mode this skill replaces.
@@ -104,5 +113,6 @@ Format: a bold header carrying the week total, then a per-day bullet breakdown w
 Once the plan is set, this page is the team's shared anchor for the week:
 - Team Lead watches it via `notion_watch_page` — the user's edits/comments fire as channel events.
 - The `daily-review` skill writes a fresh `.claude/reviews/YYYY-MM-DD.md` each day; it pulls the goal list from this page to anchor priority order.
+- **Asana carries the day-to-day tasks** derived from these goals (the primary task surface); the `daily-review` skill re-syncs Asana's per-day list every morning.
 - When a goal completes, check off all its sub-outcomes and move it to a `## Done` section at the bottom.
 - When a goal slips, update the due date in place and note why in one line.

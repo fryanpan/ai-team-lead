@@ -23,6 +23,7 @@ Exit codes: 0 = fleet matches repo, 1 = drift, 2 = can't tell.
 """
 import hashlib
 import os
+import re
 import subprocess
 import sys
 
@@ -36,15 +37,38 @@ SKIP_NAMES = {".DS_Store"}
 
 
 def cache_dir():
-    """Newest installed version directory, or None."""
+    """The ACTIVE installed version directory, or None.
+
+    Do NOT pick by mtime. `claude plugin update` leaves the old version in place
+    and drops an `.orphaned_at` marker in it — which TOUCHES that directory, so
+    the superseded copy is the newest by mtime and an mtime sort selects exactly
+    the wrong one. Measured 2026-08-04: right after updating 0.2.0 -> 0.3.0 this
+    function returned 0.2.0 and the check reported drift against a version no
+    session loads.
+
+    Skip orphaned dirs, then take the highest semver.
+    """
     if not os.path.isdir(CACHE_ROOT):
         return None
-    versions = [d for d in os.listdir(CACHE_ROOT)
-                if os.path.isdir(os.path.join(CACHE_ROOT, d))]
+    versions = []
+    for d in os.listdir(CACHE_ROOT):
+        full = os.path.join(CACHE_ROOT, d)
+        if not os.path.isdir(full):
+            continue
+        if os.path.exists(os.path.join(full, ".orphaned_at")):
+            continue
+        versions.append(d)
     if not versions:
         return None
-    # Version dirs sort adequately for x.y.z; take the newest by mtime to be safe.
-    versions.sort(key=lambda v: os.path.getmtime(os.path.join(CACHE_ROOT, v)))
+
+    def key(v):
+        parts = []
+        for p in v.split("."):
+            m = re.match(r"(\d+)", p)
+            parts.append(int(m.group(1)) if m else 0)
+        return parts + [0] * (3 - len(parts))
+
+    versions.sort(key=key)
     return os.path.join(CACHE_ROOT, versions[-1])
 
 
@@ -115,17 +139,28 @@ def main():
         for l in dirty:
             print(f"          {l}")
 
-    print("\n        Fix — ALL FOUR STEPS. A marketplace update alone does nothing:")
-    print("          1. BUMP the version in plugin/team-lead-fleet/.claude-plugin/plugin.json")
+    print("\n        Fix — FOUR STEPS, and step 3 is NOT the command you think:")
+    print("          1. BUMP the version in BOTH plugin/team-lead-fleet/.claude-plugin/")
+    print("             plugin.json AND plugin/.claude-plugin/marketplace.json (the")
+    print("             `claude plugin tag` subcommand exists to check they agree)")
     print("          2. commit + merge to main")
-    print("          3. claude plugin marketplace update team-lead-fleet")
-    print("          4. `/reload-plugins` in each peer (or restart the fleet)")
-    print("\n        Step 1 is the one everybody skips. The installed cache lives at")
-    print("        .../cache/team-lead-fleet/team-lead-fleet/<VERSION>/ — keyed BY VERSION.")
-    print("        Update with an unchanged version and the marketplace reports")
-    print("        'Successfully updated' while copying nothing. That is exactly how the")
-    print("        fleet ran six weeks behind main in July: the files changed, the version")
-    print("        did not, and the success message was believed.")
+    print("          3. claude plugin update team-lead-fleet@team-lead-fleet")
+    print("          4. restart each peer (a session reads the cache at startup)")
+    print("\n        Measured 2026-08-04, each of these copies NOTHING:")
+    print("          - claude plugin marketplace update team-lead-fleet")
+    print("              -> '✔ Successfully updated marketplace' and exit 0. It updates")
+    print("                 the MARKETPLACE, not the plugin. Believing this line is how")
+    print("                 the fleet ran six weeks behind main in July.")
+    print("          - claude plugin install team-lead-fleet@team-lead-fleet")
+    print("              -> '✔ already installed'")
+    print("          - starting a fresh session")
+    print("              -> cache untouched")
+    print("        Only `claude plugin update` copies the files. It reports a version")
+    print("        delta ('updated from 0.2.0 to 0.3.0'), so the bump in step 1 is")
+    print("        very likely required for it to act — that part is inferred from the")
+    print("        message, not measured.")
+    print("\n        After updating, the OLD version dir stays behind with an")
+    print("        .orphaned_at marker. Do not select the cache dir by mtime.")
     return 1
 
 

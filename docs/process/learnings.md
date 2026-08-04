@@ -2,6 +2,13 @@
 
 Technical discoveries that should persist across sessions.
 
+## `/reload-plugins` Does Not Re-Fire SessionStart — Only A Restart Delivers Rules (2026-08-04)
+
+- **Measured after deploying 0.4.0 (which added `resume` to the matcher): a peer that ran `/reload-plugins` still reported the new rule text ABSENT from its context.** The reload re-registers hooks — the pane prints a plugin/hook count — but it does not *run* SessionStart. So the four matcher sources (`startup | resume | clear | compact`) are the complete list of ways rules reach a session, and none of them is "the operator pushed an update."
+- **Consequence for any rules rollout: restart, `/clear`, or `/compact`. There is no in-place path.** `compact` being in the matcher is the only passive delivery route, which means an idle peer that never compacts never gets the rule — unbounded delay, not eventual consistency.
+- **After a resume-injection, a peer holds TWO rules blocks and will sometimes answer from the stale one.** Verified on the same rollout: one peer answered ABSENT to "does your context contain `< 200 lines`?" and, asked again, correctly reported the resume-only supersession marker present and **2** blocks in context. Both answers came from the same session; the first was it consulting the superseded copy. The supersession note resolves *precedence*, not *which copy the model happens to read* — so a content-substring question is a weak verification probe. **Verify with a string that exists ONLY in the new copy** (here, the supersession sentence itself); a string common to both cannot distinguish "not delivered" from "read the wrong one."
+- **Third verification trap in two days on the same deploy.** The cache hash can't see it, the drift check can't see it, and now an in-session content probe can answer wrong. Ground truth is a marker unique to the copy you are trying to prove exists.
+
 ## A Skill Referenced A `templates/` Dir That Never Existed (2026-08-03)
 - **`/new-project` instructed eight file copies from `templates/docs/*` and `templates/settings/*`. The directory was never there** — the skill dir held only `SKILL.md`. Nothing failed loudly; the agent just improvised a scaffold each time, so every project got a slightly different shape and nobody noticed for months.
 - **Skills that reference sibling files need those files to exist, and nothing checks.** A skill is prose — a broken path inside it is a silent behavioral change, not an error. When writing or auditing a skill, resolve every path it names.

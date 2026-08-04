@@ -804,6 +804,19 @@ def main() -> int:
             sys.exit("--mode requires a value (missing|plugin|all|running)")
         mode = args[idx + 1]
 
+    # --exclude <substring> (repeatable): leave a session alone even though the
+    # mode would otherwise restart it. Needed because a peer mid-flight should
+    # not be killed for a fleet-wide config rollout — the rollout can wait for
+    # it, and killing it costs whatever it had not checkpointed. Matches
+    # case-insensitively against both the display name and the path, so
+    # `--exclude live-feedback` catches "Live Feedback" and its repo path.
+    excludes: List[str] = []
+    for i, a in enumerate(args):
+        if a == "--exclude":
+            if i + 1 >= len(args):
+                sys.exit("--exclude requires a value (session name or path substring)")
+            excludes.append(args[i + 1].lower())
+
     running = get_running_claude_processes()
     self_pid = get_self_pid()
 
@@ -843,6 +856,19 @@ def main() -> int:
             file=sys.stderr,
         )
         return 2
+
+    if excludes:
+        def is_excluded(name: str, path: str) -> bool:
+            hay = f"{name} {path}".lower()
+            return any(x in hay for x in excludes)
+        kept = [t for t in targets if not is_excluded(t[0], t[1])]
+        dropped = [t for t in targets if is_excluded(t[0], t[1])]
+        for name, path in dropped:
+            print(f"  [exclude] {name} — left running by request")
+        if not kept:
+            print("\n[abort] every target was excluded; nothing to do.", file=sys.stderr)
+            return 1
+        targets = kept
 
     to_spawn, to_kill, skipped = select_targets(mode, targets, running, self_pid)
 

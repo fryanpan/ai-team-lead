@@ -9,6 +9,10 @@ project with `respawn: true`, depending on --mode:
     `claude-live-feedback` plugin loaded (canonical fleet plugin).
   - `all`: kill + respawn every respawn=true session (skipping the team-lead's
     own claude — never kill self).
+  - `running`: kill + respawn every session that is ACTUALLY running, at the
+    path holding its transcript, ignoring the registry entirely. This is the
+    account-switch mode — after a /login, a session keeps the old account's
+    MCP connections, RC registration, and startup env until it restarts.
 
 Launches via tmux (`zsh -ic 'claude --continue'`). The interactive zsh shell
 sources ~/.zshrc, where the `claude` shell function injects the canonical
@@ -135,6 +139,8 @@ DIALOG_POLL_MAX_ITER = 25  # ~75s of polling — zsh -ic boot is slower than dir
 #
 # Staggering is cheap insurance. Do not set this to 0 to "speed up" a fleet respawn.
 SPAWN_STAGGER_SEC = 8.0
+# Discord-bearing sessions start last and slower — see the spawn loop.
+DISCORD_STAGGER_SEC = 25.0
 
 # Plugin MCP servers we expect a healthy session to have spoken to. Used by the
 # post-spawn health check, which is advisory: it reports, it does not fail the run.
@@ -261,6 +267,107 @@ def get_running_claude_processes() -> Dict[int, Dict[str, str]]:
     return out
 
 
+def _tmux_session_for_pids() -> Dict[int, str]:
+    """Map every pid living under a tmux pane -> that pane's session name.
+
+    Walks each claude's parent chain rather than matching pane_pid directly,
+    because the pane's own process is the `zsh -ic` wrapper, not claude.
+    """
+    r = subprocess.run([TMUX_BIN, "list-panes", "-a", "-F", "#{session_name}|#{pane_pid}"],
+                       capture_output=True, text=True, timeout=3.0)
+    pane_owner: Dict[int, str] = {}
+    for ln in r.stdout.splitlines():
+        if "|" in ln:
+            sess, pid = ln.rsplit("|", 1)
+            try:
+                pane_owner[int(pid)] = sess
+            except ValueError:
+                pass
+    return pane_owner
+
+
+def _ancestor_tmux_session(pid: int, pane_owner: Dict[int, str]) -> Optional[str]:
+    cur = pid
+    for _ in range(8):
+        if cur in pane_owner:
+            return pane_owner[cur]
+        try:
+            r = subprocess.run(["ps", "-p", str(cur), "-o", "ppid="],
+                               capture_output=True, text=True, timeout=2.0)
+            cur = int(r.stdout.strip() or "0")
+        except Exception:
+            return None
+        if cur <= 1:
+            return None
+    return None
+
+
+def resolve_home_path(cwd: str) -> str:
+    """Return the path a session must be respawned from to resume its own history.
+
+    Claude Code keys transcripts on the cwd it was launched from, and a worktree
+    session does NOT reliably get its own key: one project's worktree session
+    stores its transcript under the MAIN repo's encoding, while another's
+    stores it under the worktree's. Respawning at the wrong one makes
+    `--continue` find nothing and silently start a BRAND NEW session — the
+    running one's entire context, gone with no error.
+
+    So don't guess from the shape of the path: walk up from the cwd and respawn
+    at the first ancestor that actually has a transcript.
+    """
+    p = os.path.realpath(cwd)
+    stop = os.path.realpath(os.path.expanduser("~/dev"))
+    while True:
+        if has_prior_session(p):
+            return p
+        parent = os.path.dirname(p)
+        if parent == p or p == stop or not p.startswith(stop):
+            return os.path.realpath(cwd)
+        p = parent
+
+
+def collect_running_targets(running: Dict[int, Dict[str, str]],
+                            self_pid: Optional[int]) -> List[Tuple[str, str]]:
+    """Return (display_name, cwd) for every live claude except the team-lead.
+
+    Registry-independent by design. `--mode all` respawns what the registry
+    SAYS should be up, at the registry's canonical path — which is what you
+    want for a fleet reset. An account switch is the opposite problem: you need
+    every session that is *actually* running to cycle, including ones with
+    `respawn: false`, ones in a worktree, and ones the registry never got.
+    Missing any of them leaves that peer bound to the old account's MCP
+    handshakes and running on the previous session's env.
+
+    Order puts a Discord-bearing session LAST so it starts alone, after the
+    fleet has settled — its gateway handshake is the one that loses the
+    startup race (2026-07-24).
+    """
+    pane_owner = _tmux_session_for_pids()
+    targets: List[Tuple[str, str]] = []
+    for pid, info in running.items():
+        if self_pid is not None and pid == self_pid:
+            continue
+        # Other OS users' claude sessions are not ours to touch.
+        if not info["argv"].startswith(os.path.expanduser("~/.local/bin/claude")):
+            continue
+        cwd = info["cwd"]
+        if not cwd or not os.path.isdir(cwd):
+            print(f"[skip] PID {pid}: cwd missing on disk ({cwd or '?'})", file=sys.stderr)
+            continue
+        m = re.search(r"\s-n\s+(.+?)\s*$", info["argv"])
+        display = m.group(1).strip() if m else (
+            _ancestor_tmux_session(pid, pane_owner) or humanize(os.path.basename(cwd)))
+        home = resolve_home_path(cwd)
+        if home != cwd:
+            print(f"[home] {display}: running in {cwd}\n"
+                  f"       but its transcript lives under {home} — respawning there "
+                  f"so --continue resumes it.")
+        targets.append((display, home))
+
+    targets.sort(key=lambda t: discord_state_dir_for(t[1]) != NO_DISCORD_STATE_DIR)
+    return targets
+
+
 def get_self_pid() -> Optional[int]:
     """Walk parent chain to find the team-lead's claude PID, so we never kill it."""
     pid = os.getppid()
@@ -317,7 +424,21 @@ def spawn_session_tmux(session_name: str, path: str) -> bool:
 
     DISCORD_STATE_DIR is scoped per-session via `tmux new-session -e` so the
     peer doesn't accidentally inherit the team-lead's discord state (which
-    would cause one Discord post to fan out to every peer)."""
+    would cause one Discord post to fan out to every peer).
+
+    FEEDBACK_AGENT_NAME rides the same mechanism. Live-feedback attributes a
+    peer's comments and suggested edits to this name with a stable colour;
+    without it every peer posts as the shared "Agent" and a thread with three
+    participants is unreadable. An agent CANNOT set this for itself — the
+    plugin reads it at launch — so it has to come from the launcher, which is
+    here. `session_name` is already the friendly display name the registry
+    carries for each project, so it is the right value with no new field.
+
+    Note the reconnect/restart split: an MCP reconnect re-spawns the child and
+    picks up new tool schemas, but the child inherits the PARENT session's env,
+    which was fixed at session launch. So a reconnected peer can have a new
+    plugin's tools while still reporting the old (or no) agent name. Only a
+    full session restart delivers both."""
     tmux_name = to_tmux_session_name(session_name)
     # Idempotent: kill any pre-existing tmux session with the same name
     subprocess.run([TMUX_BIN, "kill-session", "-t", tmux_name],
@@ -340,6 +461,7 @@ def spawn_session_tmux(session_name: str, path: str) -> bool:
     r = subprocess.run(
         [TMUX_BIN, "new-session", "-d", "-s", tmux_name, "-c", path,
          "-e", f"DISCORD_STATE_DIR={discord_dir}",
+         "-e", f"FEEDBACK_AGENT_NAME={session_name}",
          "/bin/zsh", "-ic", claude_invocation],
         capture_output=True, text=True, timeout=5.0,
     )
@@ -547,7 +669,7 @@ def select_targets(mode: str, targets: List[Tuple[str, str]],
                 skipped.append((name, path))
             else:
                 to_spawn.append((name, path))
-        elif mode == "all":
+        elif mode in ("all", "running"):
             if existing_pid == self_pid and self_pid is not None:
                 skipped.append((name, path))
             else:
@@ -588,6 +710,13 @@ Modes:
                    killed; flagged if it lacks the plugin.
   --mode all       Kill+respawn every respawn=true session, except the
                    team-lead (self).
+  --mode running   Kill+respawn every session that is ACTUALLY running, at its
+                   own cwd, ignoring the registry. This is the account-switch
+                   mode: after Bryan runs /login, every session must restart or
+                   it keeps the old account's MCP handshakes and the previous
+                   session's env (compaction ceilings included). `--mode all`
+                   is not a substitute — it misses respawn:false sessions and
+                   relocates worktree sessions to the registry path.
 
 Flags:
   --execute        Actually perform kills/spawns. Without this it's dry-run.
@@ -630,19 +759,32 @@ def main() -> int:
     if "--mode" in args:
         idx = args.index("--mode")
         if idx + 1 >= len(args):
-            sys.exit("--mode requires a value (missing|plugin|all)")
+            sys.exit("--mode requires a value (missing|plugin|all|running)")
         mode = args[idx + 1]
-
-    targets = collect_targets()
-    if not targets:
-        print("No projects with respawn: true found in registry.yaml", file=sys.stderr)
-        return 1
 
     running = get_running_claude_processes()
     self_pid = get_self_pid()
 
+    if mode == "running":
+        if self_pid is None:
+            print("\n[abort] --mode running kills every live session except the "
+                  "team-lead, and get_self_pid() returned None — it cannot tell "
+                  "which one is itself. Run from inside a claude session.",
+                  file=sys.stderr)
+            return 2
+        targets = collect_running_targets(running, self_pid)
+        if not targets:
+            print("No running peer sessions found.", file=sys.stderr)
+            return 1
+    else:
+        targets = collect_targets()
+        if not targets:
+            print("No projects with respawn: true found in registry.yaml", file=sys.stderr)
+            return 1
+
     print(f"Mode: {mode}")
-    print(f"Registry has {len(targets)} respawn-enabled projects.")
+    print(f"{len(targets)} target(s) "
+          f"{'from the live process table' if mode == 'running' else 'from registry.yaml'}.")
     print(f"Detected {len(running)} running Claude Code session(s); self_pid={self_pid}")
 
     # Self-protection: --mode all and --mode plugin can kill peers. If we
@@ -709,7 +851,11 @@ def main() -> int:
             # See SPAWN_STAGGER_SEC — simultaneous starts lose the handshake race
             # and silently strip channels off peers.
             if i > 0:
-                time.sleep(SPAWN_STAGGER_SEC)
+                # A Discord-bearing session has a gateway handshake to win on top
+                # of the usual plugin MCP handshakes, and it is the one observed
+                # losing the race (2026-07-13, 2026-07-24). Give it a quiet start.
+                has_discord = discord_state_dir_for(path) != NO_DISCORD_STATE_DIR
+                time.sleep(DISCORD_STAGGER_SEC if has_discord else SPAWN_STAGGER_SEC)
             if spawn_session_tmux(name, path):
                 tmux_name = to_tmux_session_name(name)
                 spawned_tmux_sessions.append(tmux_name)

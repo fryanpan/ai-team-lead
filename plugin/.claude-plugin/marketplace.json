@@ -4,13 +4,13 @@
     "name": "Bryan Chan",
     "url": "https://github.com/fryanpan"
   },
-  "description": "the user's team-lead-fleet plugin marketplace — canonical skills, rules, and conventions shared by every peer Claude Code session in the ai-team-lead fleet.",
+  "description": "the user's team-lead-fleet plugin marketplace \u2014 canonical skills, rules, and conventions shared by every peer Claude Code session in the ai-team-lead fleet.",
   "plugins": [
     {
       "name": "team-lead-fleet",
       "source": "./team-lead-fleet",
       "description": "Skills + alwaysApply rules shared across the user's peer Claude Code sessions: ship-it, retro, persist-plan, ux-review skills + workflow-conventions, claude-hive-peer, feedback-loop, live-feedback-default, notion-channel-protocol, notion-mcp, public-content-scrubbing, security-posture rules.",
-      "version": "0.1.0"
+      "version": "0.3.0"
     }
   ]
 }

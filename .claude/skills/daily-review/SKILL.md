@@ -1,6 +1,6 @@
 ---
 name: daily-review
-description: Mid-day or end-of-day status pass. Trigger when the user asks for "daily review", "what to work on", "what to focus on", "where are we", or any near-equivalent. Reviews peer transcripts + hive messages + open PRs + the weekly plan, asks each agent for context where needed, then writes a prioritized review doc to `.claude/reviews/YYYY-MM-DD.md` and brings it under live-feedback so the user can comment from phone or laptop.
+description: Status pass — where are we, what's next. Trigger when the user asks for "daily review", "what to work on", "what to focus on", "where are we", or any near-equivalent. ALSO runs automatically every morning before the user wakes (team-lead daily cron) to produce the day's status + hit list and sync the user's Asana task list. Reviews peer transcripts + hive messages + open PRs + the weekly plan, asks each agent for context where needed, then writes a prioritized review doc to `.claude/reviews/YYYY-MM-DD.md` under live-feedback.
 user-invocable: true
 ---
 
@@ -8,7 +8,7 @@ user-invocable: true
 
 The intra-day "where are we, what's next" pass. Pulls signal from across the fleet, asks agents for clarification where the transcript isn't enough, and writes a single dated file under live-feedback so the user can comment/edit on it from anywhere.
 
-**Output:** `.claude/reviews/YYYY-MM-DD.md` (gitignored). One file per day. Brought under live-feedback via `create_review_doc` so the user can leave anchored comments and edit inline.
+**Output:** `.claude/reviews/YYYY-MM-DD.md` (gitignored). One file per day. Brought under live-feedback via `create_review_doc` so the user can leave anchored comments and edit inline. On the automated morning run, the output also includes the user's Asana task list synced to today's hit list (see `## Automated morning run`).
 
 ## Triggers
 
@@ -19,6 +19,23 @@ Invoke this skill whenever the user says any of:
 - "what's the team doing" / "team status"
 
 These all map to the same thing: produce or update today's prioritized review doc.
+
+**Automated morning run:** this skill also fires **every morning before the user wakes** (team-lead daily cron, ~5:30am local) — no ask needed. See `## Automated morning run` below.
+
+## Automated morning run (fires each morning — no ask)
+
+Each morning the team-lead's daily cron runs this skill automatically so the user wakes to a current status + a ready hit list. Do the normal Steps below, plus:
+
+1. **Frame the output as a status + today's hit list** — the doc leads with where things stand after overnight, then the 2–4 things worth doing *today* (drawn from the committed weekly goals + whatever is newly unblocked or now needs the user).
+2. **Sync the user's Asana so today's tasks match today's hit list.** Asana is the user's primary task surface (populated by `weekly-plan`).
+   - Mark done any task whose work actually shipped overnight (peer summary / merged PR confirms it) via `asana_update_task completed=true`.
+   - Make sure today's hit-list items are the tasks dated today; **shift other tasks for the week to later days** as needed so today isn't overloaded (respect the weekly Capacity block — don't cram).
+   - Add any newly-surfaced must-do that needs the user: short imperative name, dated today, 1-line note + link. Keep the day's list short and doable.
+   - **Leave alone:** family/others' tasks (a shared volunteer project, a family member / a family member) and the user's Medical self-care items.
+   - Asana reference: workspace `1211390582921761` · project "Bryan's Projects" `1212817868300931` · Bryan (assignee) `3708345653658` · non-premium → use `asana_get_tasks`, not `search_tasks`.
+3. **Send one morning push** — `PushNotification`: `"Good morning — today: <2–4 hit-list items>."` Nothing else unless something genuinely can't wait (then flag it in the push).
+
+Keep it cheap and otherwise silent. The review doc + the synced Asana list ARE the morning communication — don't also message the user separately. Still surface the review URL first (step 6) in-session for when the user checks.
 
 ## Steps
 
@@ -117,6 +134,7 @@ When in doubt: paste the content inline. Better to have a longer bullet than a f
 
 ## What to avoid
 
+- **Don't write "blocked on" / "waiting on" / "holding" without checking the peer's transcript.** The tmux pane is a render, not state — it cannot show what a session received. Grep `~/.claude/projects/<encoded-cwd>/*.jsonl` for its last processed turn; if that turn is newer than the supposed blocker, the session was never blocked. Text on the `❯` line is inert, not a pending message. This skill is where a fabricated five-day fleet blocker got escalated three days running (2026-08-03); see the killer item in `CLAUDE.md`.
 - Don't write a free-form narrative. the user scans, doesn't read.
 - Don't forward-reference. See "Inline content or Tailscale link" above.
 - Don't repeat content the weekly plan already has. The review doc references goal titles and reports status — it doesn't re-justify the goals.

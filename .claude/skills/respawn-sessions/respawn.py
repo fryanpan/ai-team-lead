@@ -42,6 +42,7 @@ Ignores nested blocks like `docs:`, `linear:`, `notion:` etc.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shlex
@@ -103,6 +104,73 @@ def discord_state_dir_for(path: str) -> str:
     if os.path.isfile(os.path.join(local, "access.json")):
         return local
     return NO_DISCORD_STATE_DIR
+
+
+# Project-scoped MCP servers that stand in for a broken `plugin:` channel.
+# Background (2026-08-09): every plugin-provided MCP server stopped connecting
+# fleet-wide — Claude Code resolved them into the config and then never
+# attempted the connection. The workaround is to register the same server as an
+# ordinary MCP server (`claude mcp add <name> --scope local -- <same command>`),
+# which uses the code path that still works. But `--channels` in the `claude`
+# zsh function names the PLUGIN server, so the direct copy provides the tools
+# and no inbound push: Discord messages stop waking the session. Declaring the
+# direct server as a channel too is what restores the wake.
+#
+# Keyed off ~/.claude.json rather than hardcoded, so a peer gets the flag only
+# if it actually has the direct registration.
+#
+# live-feedback joined this list on 2026-08-10, for BOTH failure modes at once:
+#   * the intermittent skip above — 6 of 9 nvm-bearing sessions had no
+#     live-feedback child, and a cold probe showed the server missing from the
+#     connection list entirely (resolved, never attempted, no error), and
+#   * a hard PATH bug the plugin shipped in 0.0.2: `"command": "node"`, where
+#     node comes from nvm and so exists only in an interactive zsh. Any other
+#     launch died with `ENOENT: Executable not found in $PATH: "node"`.
+# The direct registration points at ~/.config/team-lead/live-feedback-mcp.sh,
+# which runs under /bin/sh (always present) and resolves node itself — so it
+# depends on neither PATH nor the plugin code path. live-feedback advertises
+# `claude/channel`, so it needs the channel flag for comment events to wake a
+# session, exactly like discord.
+DIRECT_CHANNEL_SERVERS = ["plugin_discord_discord",
+                          "plugin_live-feedback_live-feedback"]
+
+
+def project_config_keys(path: str) -> List[str]:
+    """The ~/.claude.json `projects` keys that could hold this cwd's config.
+
+    Usually just the realpath. But for a GIT WORKTREE, Claude Code keys project
+    config by the MAIN repo rather than the worktree — running `claude mcp add`
+    from inside a worktree writes the entry under the repo that owns the git
+    common dir. Measured 2026-08-10: looking up only the realpath silently found
+    nothing and dropped the channel flag for every worktree session.
+    """
+    keys = [os.path.realpath(path)]
+    common = subprocess.run(["git", "-C", path, "rev-parse", "--git-common-dir"],
+                            capture_output=True, text=True)
+    if common.returncode == 0:
+        main_repo = os.path.dirname(os.path.realpath(
+            os.path.join(path, common.stdout.strip())))
+        if main_repo not in keys:
+            keys.append(main_repo)
+    return keys
+
+
+def direct_channel_flags(path: str) -> str:
+    """Return `--dangerously-load-development-channels server:<name>` flags for
+    any DIRECT_CHANNEL_SERVERS registered project-scoped for this path."""
+    try:
+        with open(os.path.expanduser("~/.claude.json")) as f:
+            cfg = json.load(f)
+    except (OSError, ValueError):
+        return ""
+    projects = cfg.get("projects") or {}
+    registered = {}
+    for key in project_config_keys(path):
+        registered.update((projects.get(key) or {}).get("mcpServers") or {})
+    return "".join(
+        f" --dangerously-load-development-channels server:{name}"
+        for name in DIRECT_CHANNEL_SERVERS if name in registered
+    )
 
 # Substrings that identify known interactive startup dialogs. If any of these
 # appear in a session's captured pane, we send Enter to accept the default
@@ -448,7 +516,11 @@ def spawn_session_tmux(session_name: str, path: str) -> bool:
     # zsh function (it passes "$@" after appending channel flags). shlex.quote handles the
     # spaces in display names like "App Dev For All".
     name_flag = f" -n {shlex.quote(session_name)}"
-    claude_invocation = ("claude --continue" if has_prior_session(path) else "claude") + name_flag
+    claude_invocation = (
+        ("claude --continue" if has_prior_session(path) else "claude")
+        + name_flag
+        + direct_channel_flags(path)
+    )
 
     # Scope DISCORD_STATE_DIR per-peer to prevent discord-channel fan-out.
     ensure_no_discord_state()

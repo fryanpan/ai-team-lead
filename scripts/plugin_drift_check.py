@@ -49,6 +49,14 @@ CLAUDE_BIN = os.path.expanduser("~/.local/bin/claude")
 
 # Files that legitimately differ or don't travel with the plugin.
 SKIP_NAMES = {".DS_Store"}
+# Machine-local config and backups. These are gitignored by construction — a
+# `.env` holds the machine's own secrets and MUST NOT be committed — so the
+# remedy this checker prescribes ("commit, then update") can never apply to
+# them, and flagging them produces a red that no correct action can clear. A
+# permanently-red check is one you learn to ignore, which costs the real drift
+# signal sitting next to it. Fixing a local .env port must not read as "the
+# fleet is running different code."
+SKIP_PATTERNS = (".env", ".env.", ".bak-", ".backup")
 # Never walk these into a content comparison — they are build/VCS noise that the
 # installer does not copy, and including them produces permanent false drift.
 SKIP_DIRS = {".git", "node_modules", ".claude-worktrees", "__pycache__"}
@@ -162,6 +170,8 @@ def tree(root):
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
         for fn in filenames:
             if fn in SKIP_NAMES:
+                continue
+            if fn.startswith(SKIP_PATTERNS) or any(p in fn for p in (".bak-", ".backup")):
                 continue
             full = os.path.join(dirpath, fn)
             out[os.path.relpath(full, root)] = digest(full)

@@ -70,7 +70,7 @@ for _ in \$(seq 1 60); do
 done
 sleep 3
 $TMUX_BIN kill-session -t $TL_SESSION 2>/dev/null
-$TMUX_BIN new-session -d -s $TL_SESSION -c '$TL_DIR' /bin/zsh -ic "claude --continue -n '$TL_NAME'"
+$TMUX_BIN new-session -d -s $TL_SESSION -c '$TL_DIR' /bin/zsh -ic "claude --continue -n '$TL_NAME' --remote-control '$TL_NAME'"
 echo "[\$(date)] spawned tmux:$TL_SESSION (rc=\$?)" >> $LOG
 # Auto-accept startup dialogs.
 # The resume dialog's DEFAULT option is "Resume from summary" — a bare Enter there

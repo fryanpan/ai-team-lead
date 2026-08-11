@@ -7,13 +7,39 @@ Technical discoveries that should persist across sessions.
 - **The whole diagnosis was one word, and I spent hours theorizing before reading it.** `/mcp` reported `Failed to reconnect … ENOENT`. I attributed it to the 2026-08-09 never-attempts-the-connection fault plus a start-time correlation. Bryan pushed back — *"Are you sure that's the problem? Please dig deeper"* — and he was right: `ENOENT` is a **failed spawn**, the opposite of a skipped one. The two faults have opposite signatures in the debug log and I had merged them.
 - **Root cause: the plugin's `.mcp.json` declares `"command": "node"`, and `node` comes from nvm — which is set up by `~/.zshrc`.** So it exists only in an interactive zsh. `claude --debug` prints it exactly: `Connection failed (ENOENT): Executable not found in $PATH: "node"`. Nothing else surfaces anywhere; from inside the session the server is simply absent.
 - **A version's command can regress without the code changing.** 0.0.1 named a PATH-resolved binary; 0.0.2 switched to `node <abs path>` for good reasons (no PATH lookup, no npm-link step). Both are PATH-dependent on this machine. **Deploying a three-month-old pending version is a behavior change, not a catch-up** — I shipped 0.0.2 to fix a stale cache and introduced this.
-- **Two probes, four minutes apart, gave opposite results and both were correct.** With nvm absent: `Starting connection` → ENOENT. With nvm present (`zsh -ic`): live-feedback **does not appear in the connection list at all**. Same files, same plugin root. That is the 08-09 intermittent-skip fault stacked on top of the PATH bug — a session can fail either way, which is why "restart it" fixed some peers and not others.
-- **The fix that removes both dependencies: name `/bin/sh` as the command.** `/bin/sh` always exists. A launcher script under it resolves node itself (newest `~/.nvm/versions/node/*/bin/node`, then homebrew, then PATH) and execs the entrypoint — so it survives an nvm upgrade too, which a hardcoded absolute path would not. Registered as an ordinary MCP server, it also bypasses the flaky plugin code path entirely. Verified with `env -i PATH=/usr/bin:/bin`: full MCP handshake, and `Successfully connected (transport: stdio) in 91ms` in a cold session.
+- **Two probes four minutes apart gave opposite results, and I read the second one wrong.** With nvm absent: `Starting connection` → ENOENT. With nvm present: live-feedback **does not appear in the connection list at all**. I called that a second, independent fault — the 08-09 intermittent skip — and told Bryan the plugin mechanism was broken. **The simpler explanation, which I did not rule out, is that Claude Code cached the first probe's failure and skipped the server afterward**; the same log shows exactly that for another server (`Skipping connection (cached needs-auth)`), and probe 2 ran *after* probe 1. One PATH bug plus a failure cache reproduces everything I saw. Two faults were never needed to explain it.
+- **The fix is `/bin/sh` as the command — and it belongs IN the plugin, not around it.** `/bin/sh` always exists. A launcher under it resolves node itself (newest `~/.nvm/versions/node/*/bin/node`, then homebrew, then PATH) and execs the entrypoint, surviving an nvm upgrade that a hardcoded absolute path would not. Verified with `env -i PATH=/usr/bin:/bin`: full MCP handshake, `Successfully connected (transport: stdio) in 91ms` cold.
+- **I put that launcher in the operator's `~/.config` and registered the server by hand across 24 project paths. That was the wrong shape and Bryan caught it.** A plugin is something people install; a fix that lives in one machine's home directory fixes nobody else's install, and anyone running `claude plugin install` still gets the broken command. The portable form is a `#!/bin/sh` launcher **committed in the plugin repo** and referenced as `${CLAUDE_PLUGIN_ROOT}/bin/…`, so it ships with the plugin. **Test any plugin fix by asking what a stranger's clean install does** — if the answer depends on your dotfiles, it isn't the fix.
+- **Diagnosis was mine to do; the repair was not.** The plugin has an owning agent, and I wrote the shim, the config, and the launcher special-case myself before handing anything over. Team-lead diagnoses across the fleet and delegates the repair to whoever owns the repo — see `feedback_spawn_sessions_dont_self_implement`.
 - **Name the direct registration exactly what the plugin server was named.** Tool names are `mcp__<server>__<tool>`, and a plugin server's are `mcp__plugin_<plugin>_<server>__<tool>`. Naming it `plugin_live-feedback_live-feedback` reproduces the existing prefix byte-for-byte, so rules, docs, and already-approved permission entries keep working. Same lesson as the Discord workaround — a tidier name silently invalidates a permission grant and reads from outside as "still broken."
 - **`claude mcp add --scope local` inside a git WORKTREE writes the entry under the MAIN repo**, not the worktree path — Claude Code keys project config by the repo owning the git common dir. Any lookup keyed on `realpath(cwd)` finds nothing and silently degrades; `respawn.py` was dropping the channel flag for every worktree session because of it.
 - **`ps eww` PATH is a necessary-not-sufficient signal.** Six of nine sessions that DID have nvm on PATH still had no live-feedback child. Correlating the env got me to the PATH bug and would have sent me the wrong way on the rest — the debug log is what separated them. **Correlation across sessions narrows the field; only the log names the failure.**
 
-## Every Plugin-Provided MCP Server Silently Stopped Connecting — Fleet-Wide, Both Binaries (2026-08-09)
+## UNCONFIRMED: A Suspected Fleet-Wide Plugin-MCP Fault (2026-08-09, demoted 2026-08-10)
+
+> **Read this entry as a hypothesis, not a finding.** It originally asserted that
+> Claude Code had stopped connecting *every* plugin-provided MCP server fleet-wide.
+> That framing cost a day on 2026-08-10: I inherited it, matched a live-feedback
+> outage to it on sight, and told Bryan the plugin mechanism was broken. The actual
+> proven cause that day was mundane and specific — the plugin's own `.mcp.json`
+> named `node` as its command, and `node` comes from nvm, so it existed only in an
+> interactive shell. A plugin content bug, not a plugin mechanism bug.
+>
+> **What this entry never established:** that the plugin *path* is at fault, as
+> opposed to the servers it was launching. Every server named below was reached
+> through a command that was itself PATH-dependent on this machine. And Claude Code
+> demonstrably caches a failed server and skips it on later starts — the same debug
+> logs show `MCP server "<name>": Skipping connection (cached needs-auth)` — which
+> reproduces the "resolved but never attempted" signature below without any fault
+> in the plugin mechanism at all. That alternative was never ruled out, and the
+> entry itself records that the problem cleared with nobody bisecting it.
+>
+> **Do not use this entry as grounds for moving a server off the plugin path.**
+> Prove the specific server's spawn command works from a non-interactive shell
+> first; that has been the real cause every time it has been chased to ground.
+> The material below is kept for its measurements, which are real, and for the
+> workaround mechanics, which are correct if a direct registration is ever
+> genuinely needed.
 
 - **Symptom looked Discord-specific and was not.** Octoturtle's Discord had been dark for two days. `/mcp` in any session shows `plugin:discord:discord ✘ failed` — and alongside it every other plugin-provided server (context7, live-feedback, each of the channel-bridge plugins), all failed. Non-plugin MCP servers (`claude-hive`, `mobile-mcp`, `claude-in-chrome`, every claude.ai connector) connect normally in the same session. The dividing line is **plugin-provided vs. not**, nothing else.
 - **Claude Code never attempts the connection.** `claude --debug` writes to `~/.claude/debug/<uuid>.txt` and logs `MCP server "<name>": Starting connection with timeout of 30000ms` for each server it tries. There is **no such line for any `plugin:` server** — they are resolved into the config (the `/mcp` detail pane shows the correct command and args) and then skipped. `/mcp` → Reconnect returns `-32000` and spawns no child process at all.

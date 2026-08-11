@@ -306,6 +306,9 @@ def main():
         print(f"[{stamp}] {header}")
         for r in red:
             print(f"  RED  {r}")
+        if "--verbose" in sys.argv:      # what still passes matters most on a
+            for g in green:              # red run -- it scopes the blast radius
+                print(f"  ok   {g}")
         if not quiet:
             notify(f"Fleet health: {header}", " | ".join(red[:3]))
         return 1

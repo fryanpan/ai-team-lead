@@ -32,7 +32,33 @@ SRC = os.path.join(REPO, "scripts", "fleet_healthcheck.py")
 REGISTRY = os.path.join(REPO, "registry.yaml")
 
 HOME = os.path.expanduser("~")
-STATE_DIR = os.path.join(HOME, "Library", "Application Support", "team-lead")
+
+# Boot-disk deploy root, shared by every launchd-run thing in this fleet.
+#
+# "Put it in $HOME" is NOT sufficient on this machine: ~/.claude, ~/.config,
+# ~/.local and ~/.bun are each a symlink into /Volumes/Data, and a launchd-
+# invoked Apple-signed binary is denied every operation on that volume -- exec,
+# read, even a stat. /opt is genuinely disk3s5, is not shadowed by a symlink
+# anyone might repoint later, and matches where /opt/homebrew already lives.
+#
+# It needs one manual step, because /opt is root-owned:
+#     sudo mkdir -p /opt/fleet && sudo chown "$USER":admin /opt/fleet
+# Until that exists we fall back to ~/Library/Application Support/team-lead,
+# which is real boot disk too -- just a stranger home for executables.
+PREFERRED_ROOT = "/opt/fleet"
+FALLBACK_ROOT = os.path.join(HOME, "Library", "Application Support", "team-lead")
+
+
+def deploy_root():
+    if os.path.isdir(PREFERRED_ROOT) and os.access(PREFERRED_ROOT, os.W_OK):
+        return PREFERRED_ROOT
+    print(f"  ! {PREFERRED_ROOT} not writable -- deploying to {FALLBACK_ROOT}")
+    print(f"  ! to use it: sudo mkdir -p {PREFERRED_ROOT} && "
+          f'sudo chown "$USER":admin {PREFERRED_ROOT}')
+    return FALLBACK_ROOT
+
+
+STATE_DIR = deploy_root()
 DEST = os.path.join(STATE_DIR, "fleet_healthcheck.py")
 CONFIG = os.path.join(STATE_DIR, "healthcheck-config.json")
 OVERLAY = os.path.join(HOME, ".config", "team-lead", "healthcheck-extra.json")
@@ -140,6 +166,85 @@ def registry_sessions():
     return out
 
 
+def plugin_version_checks():
+    """One staleness check per directory-source plugin.
+
+    Generated here rather than hand-listed because this runs interactively and
+    can actually read the plugin repos; the checker itself runs under launchd
+    and cannot open anything on the secondary volume (it delegates those reads
+    to bun at runtime).
+
+    Only directory-source marketplaces are checked — those are the ones whose
+    source tree is a local repo that can silently get ahead of the installed
+    cache. A remote marketplace has no local source to drift from.
+    """
+    known = os.path.join(HOME, ".claude", "plugins", "known_marketplaces.json")
+    if not os.path.exists(known):
+        print("  ! no known_marketplaces.json; skipping plugin checks")
+        return []
+
+    with open(known) as f:
+        data = json.load(f)
+    markets = data.get("marketplaces", data)
+
+    out = []
+    for mkt, meta in (markets.items() if isinstance(markets, dict) else []):
+        src = (meta or {}).get("source") or {}
+        if src.get("source") != "directory":
+            continue
+        root = os.path.realpath(os.path.expanduser(src.get("path", "")))
+        cache_root = os.path.join(HOME, ".claude", "plugins", "cache", mkt)
+        if not os.path.isdir(root) or not os.path.isdir(cache_root):
+            continue
+        for plugin in sorted(os.listdir(cache_root)):
+            if not os.path.isdir(os.path.join(cache_root, plugin)):
+                continue
+            manifest = find_manifest(root, plugin)
+            if not manifest:
+                print(f"  ! {plugin}: no plugin.json found under {root}")
+                continue
+            out.append({
+                "type": "plugin_version", "name": f"plugin: {plugin}",
+                "plugin": plugin, "marketplace": mkt,
+                "cache_dir": os.path.join(cache_root, plugin),
+                "source_manifest": manifest,
+            })
+    return out
+
+
+def find_manifest(root, plugin):
+    """Locate `<...>/.claude-plugin/plugin.json` whose name matches `plugin`.
+
+    Skips git worktrees and takes the SHALLOWEST match. Both matter: the
+    live-feedback repo keeps worktrees under `.claude/worktrees/`, each with a
+    full copy of the plugin pinned at whatever version that branch forked from.
+    A plain walk hit a worktree copy at 0.0.2 first and reported the plugin as
+    current while the fleet ran four versions behind — a staleness check that
+    is silently always-green, which is worse than not having one.
+    """
+    candidates = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames
+                       if d not in (".git", "node_modules", "__pycache__",
+                                    "worktrees", ".claude-worktrees")]
+        if os.path.basename(dirpath) != ".claude-plugin":
+            continue
+        if "plugin.json" not in filenames:
+            continue
+        candidates.append(os.path.join(dirpath, "plugin.json"))
+
+    # Shallowest first, so the main tree beats any nested copy.
+    candidates.sort(key=lambda p: (p.count(os.sep), p))
+    for path in candidates:
+        try:
+            with open(path) as f:
+                if json.load(f).get("name") == plugin:
+                    return path
+        except Exception:
+            continue
+    return candidates[0] if candidates else None
+
+
 def main():
     os.makedirs(STATE_DIR, exist_ok=True)
 
@@ -147,10 +252,23 @@ def main():
     os.chmod(DEST, 0o755)
     print(f"deployed checker -> {DEST}")
 
+    # Leave no second copy behind after a root change -- a stale config in the
+    # old root is a monitor reporting on a config nobody maintains any more.
+    if STATE_DIR != FALLBACK_ROOT:
+        for stale in ("fleet_healthcheck.py", "healthcheck-config.json",
+                      "healthcheck-status.json"):
+            p = os.path.join(FALLBACK_ROOT, stale)
+            if os.path.exists(p):
+                os.remove(p)
+                print(f"  removed stale {p}")
+
     checks = list(BASE_CHECKS)
     sessions = registry_sessions()
+    plugins = plugin_version_checks()
     checks.extend(sessions)
-    print(f"  {len(BASE_CHECKS)} infra checks + {len(sessions)} session checks")
+    checks.extend(plugins)
+    print(f"  {len(BASE_CHECKS)} infra + {len(sessions)} session "
+          f"+ {len(plugins)} plugin checks")
 
     # An overlay entry replaces a base entry with the same name/label, so a
     # daemon can be silenced or retuned locally without editing this file.

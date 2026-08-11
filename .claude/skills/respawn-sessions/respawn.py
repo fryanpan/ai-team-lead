@@ -119,20 +119,15 @@ def discord_state_dir_for(path: str) -> str:
 # Keyed off ~/.claude.json rather than hardcoded, so a peer gets the flag only
 # if it actually has the direct registration.
 #
-# live-feedback joined this list on 2026-08-10, for BOTH failure modes at once:
-#   * the intermittent skip above — 6 of 9 nvm-bearing sessions had no
-#     live-feedback child, and a cold probe showed the server missing from the
-#     connection list entirely (resolved, never attempted, no error), and
-#   * a hard PATH bug the plugin shipped in 0.0.2: `"command": "node"`, where
-#     node comes from nvm and so exists only in an interactive zsh. Any other
-#     launch died with `ENOENT: Executable not found in $PATH: "node"`.
-# The direct registration points at ~/.config/team-lead/live-feedback-mcp.sh,
-# which runs under /bin/sh (always present) and resolves node itself — so it
-# depends on neither PATH nor the plugin code path. live-feedback advertises
-# `claude/channel`, so it needs the channel flag for comment events to wake a
-# session, exactly like discord.
-DIRECT_CHANNEL_SERVERS = ["plugin_discord_discord",
-                          "plugin_live-feedback_live-feedback"]
+# live-feedback was briefly on this list (2026-08-10) and has been removed. Its
+# outage was NOT a plugin-path fault: the plugin shipped `"command": "node"`,
+# and node comes from nvm, so it existed only in an interactive shell. Plugin
+# 0.1.0 fixed that in the right place — a /bin/sh launcher committed in the
+# plugin itself — and a cold session with node absent from PATH now connects the
+# PLUGIN server in 244ms. Reaching for a direct registration was the wrong
+# instinct: check that the server's own spawn command works from a
+# non-interactive shell before concluding the plugin mechanism is at fault.
+DIRECT_CHANNEL_SERVERS = ["plugin_discord_discord"]
 
 
 def project_config_keys(path: str) -> List[str]:

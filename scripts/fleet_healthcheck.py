@@ -41,9 +41,35 @@ import re
 import subprocess
 import sys
 import time
+import traceback
 from datetime import datetime, timedelta
 
-STATE_DIR = os.path.expanduser("~/Library/Application Support/team-lead")
+# Boot-disk deploy root. Everything launchd execs or reads must live under a
+# path that resolves to the boot disk -- and under $HOME most of the dotfile
+# tree does NOT: ~/.claude, ~/.config, ~/.local and ~/.bun are each a symlink
+# into /Volumes/Data on this machine. /opt is genuinely disk3s5.
+DEPLOY_ROOT = "/opt/fleet"
+
+
+def _state_dir():
+    """Where the deployed copy keeps its config and status.
+
+    Resolved rather than hardcoded so the deploy root can move without editing
+    the checker: the script's own directory wins (install_healthcheck.py puts
+    the config beside the copy it deploys), then the known roots in order. Only
+    a directory that actually holds the config counts, so running the repo copy
+    from a checkout still finds the deployed state instead of silently starting
+    with no checks.
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    for d in (here, DEPLOY_ROOT,
+              os.path.expanduser("~/Library/Application Support/team-lead")):
+        if os.path.exists(os.path.join(d, "healthcheck-config.json")):
+            return d
+    return DEPLOY_ROOT
+
+
+STATE_DIR = _state_dir()
 CONFIG = os.path.join(STATE_DIR, "healthcheck-config.json")
 STATUS = os.path.join(STATE_DIR, "healthcheck-status.json")
 
@@ -83,6 +109,114 @@ def claude_sessions():
             continue
         out.append((pid, argv))
     return out
+
+
+BUN = os.path.expanduser("~/.bun/bin/bun")
+
+
+_PLUGIN_PROBE_JS = r"""
+const fs = require("fs");
+// `bun -e` argv is [bunPath, ...args] -- there is no script slot, so this is
+// slice(1), not the slice(2) a node script would use.
+const [cacheDir, manifest] = process.argv.slice(1);
+const out = {live: null, source: null, err: null};
+try {
+  out.live = fs.readdirSync(cacheDir, {withFileTypes: true})
+    .filter(d => d.isDirectory())
+    .map(d => d.name)
+    .filter(n => !fs.existsSync(cacheDir + "/" + n + "/.orphaned_at"));
+} catch (e) { out.err = String(e); }
+try {
+  out.source = JSON.parse(fs.readFileSync(manifest, "utf8")).version || null;
+} catch (e) {}
+console.log(JSON.stringify(out));
+"""
+
+
+def exists_via_bun(path):
+    """Existence test for a path that may resolve onto the secondary volume."""
+    if not os.path.exists(BUN):
+        return os.path.exists(path)
+    r = subprocess.run(
+        [BUN, "-e",
+         # `bun -e` argv is [bunPath, ...args] -- the path is argv[1], not [2].
+         'process.exit(require("fs").existsSync(process.argv[1]) ? 0 : 1)',
+         "--", path],
+        capture_output=True, cwd="/", timeout=30)
+    return r.returncode == 0
+
+
+def probe_plugin_via_bun(cache_dir, source_manifest):
+    """Run the whole plugin-version probe inside bun -- readdir included.
+
+    Under launchd an Apple-signed interpreter cannot touch /Volumes/Data at all:
+    not its own script, not a data file, and not even a directory listing (all
+    three measured). The gate is per-binary rather than per-process-tree, and
+    `bun` is a user install that reaches the volume fine -- which is why the
+    notion and github daemons work at all.
+
+    Delegating only the manifest READ was not enough, and that was the bug: on
+    this machine `~/.claude`, `~/.local` and `~/.bun` are each a symlink into
+    /Volumes/Data, so the plugin cache under `~/.claude/plugins/cache` IS the
+    secondary volume. A path being under $HOME says nothing about which disk it
+    lands on -- resolve it before assuming a boot-disk read is safe.
+
+    Returns (live_version_dirs, source_version). Either may be None, meaning
+    "could not determine" -- never confuse that with "found nothing".
+    """
+    if not os.path.exists(BUN):
+        return None, None
+    r = subprocess.run([BUN, "-e", _PLUGIN_PROBE_JS, "--",
+                        cache_dir, source_manifest],
+                       capture_output=True, text=True, cwd="/", timeout=30)
+    if r.returncode != 0:
+        return None, None
+    try:
+        data = json.loads(r.stdout)
+    except Exception:
+        return None, None
+    return data.get("live"), data.get("source")
+
+
+def _semver(s):
+    out = []
+    for part in str(s).split("."):
+        digits = "".join(c for c in part if c.isdigit())
+        out.append(int(digits) if digits else 0)
+    return tuple(out)
+
+
+def check_plugin_version(spec):
+    """The installed plugin cache must match the version in its source repo.
+
+    This is the "fleet silently runs old code" check. It has bitten twice with
+    no external symptom: the fleet ran six weeks behind main, and writing rules
+    were edited and deployed to nobody. A stale plugin looks exactly like a
+    working one from inside a session.
+
+    Compares the highest non-orphaned version directory in the cache against
+    the source manifest. Note an updated cache leaves the OLD directory behind
+    with an `.orphaned_at` marker, and writing that marker TOUCHES it -- so the
+    superseded copy becomes newest by mtime. Never pick by mtime.
+    """
+    cache_root = os.path.expanduser(spec["cache_dir"])
+    live, source = probe_plugin_via_bun(cache_root, spec["source_manifest"])
+
+    if live is None:
+        return False, f"{spec['name']}: could not read plugin cache at {cache_root}"
+    if not live:
+        return False, f"{spec['name']}: cache has no live version dir"
+    installed = max(live, key=_semver)
+
+    if not source:
+        return True, f"{spec['name']}: {installed} installed (source unreadable)"
+
+    if _semver(source) > _semver(installed):
+        return False, (f"{spec['name']}: STALE — fleet runs {installed}, "
+                       f"repo is {source}; run "
+                       f"`claude plugin update {spec['plugin']}@{spec['marketplace']}` "
+                       f"then respawn (a session reads the cache at startup)")
+    return True, f"{spec['name']}: {installed} matches source"
 
 
 def session_cwd(pid):
@@ -228,10 +362,17 @@ def check_file_present(spec):
 
     Catches the inert-but-running shape: a broker listening happily while its
     token file does not exist, so it never polls anything. Presence only -- this
-    script must never read a secret value.
+    script must never read a secret value, and `test -e` never opens the file.
+
+    Tested via bun rather than os.path.exists because `~/.config` is a symlink
+    onto the secondary volume, where a launchd-invoked Apple interpreter is
+    denied even a stat -- and /usr/bin/test is Apple-signed, so it inherits the
+    same gate. Left as os.path.exists this would have reported MISSING forever,
+    including after the file was created: exactly the permanently-red check this
+    monitor exists to avoid.
     """
     path = os.path.expanduser(spec["path"])
-    if not os.path.exists(path):
+    if not exists_via_bun(path):
         return False, f"{spec['name']}: MISSING {path} -- {spec.get('why', '')}"
     return True, f"{spec['name']}: present"
 
@@ -244,6 +385,7 @@ CHECKS = {
     "session": check_session,
     "channel_flags": check_channel_flags,
     "file_present": check_file_present,
+    "plugin_version": check_plugin_version,
 }
 
 
@@ -293,7 +435,10 @@ def main():
         try:
             ok, detail = fn(spec)
         except Exception as e:                      # a broken check is a RED,
-            ok, detail = False, f"{spec.get('name', spec['type'])}: check raised {e!r}"
+            tb = traceback.extract_tb(sys.exc_info()[2])
+            where = f"{tb[-1].name}:{tb[-1].lineno}" if tb else "?"
+            ok, detail = False, (f"{spec.get('name', spec['type'])}: "
+                                 f"check raised {e!r} at {where}")
         (green if ok else red).append(detail)       # never a silent pass
 
     stamp = datetime.now().isoformat(timespec="seconds")

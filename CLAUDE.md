@@ -122,6 +122,15 @@ git config core.hooksPath .githooks
 
 See `registry.yaml.example` for the registry schema.
 
+## Fleet health check
+
+`scripts/fleet_healthcheck.py` runs 3×/day under launchd (`com.fryanpan.fleet-healthcheck`), silent on green, macOS notification on red. It costs no tokens — no model runs unless something is actually broken.
+
+- **Read current status**: `~/Library/Application Support/team-lead/healthcheck-status.json`, or the log at `~/Library/Logs/fleet-healthcheck.log`. Run it on demand with `/usr/bin/python3 "$HOME/Library/Application Support/team-lead/fleet_healthcheck.py" --verbose`.
+- **After editing the checker or the registry**, run `python3 scripts/install_healthcheck.py` — it redeploys and regenerates the config. **Editing the repo copy alone changes nothing**: a launchd-invoked Apple interpreter cannot read any file on `/Volumes/Data`, so the running copy lives on the boot disk.
+- **Every check asserts an end state, never a PID.** A process being up proved nothing in any real outage — see the 2026-08-11 learnings entry. If you add a check, make it fail when the thing stops *working*, not when it stops *running*.
+- **Add a session check** by setting `always_up: true` on a registry entry. Don't key it on `respawn: true` — that means "bring back on a fleet restart", and most peers are correctly idle.
+
 ## Pre-push leak gate
 
 `.githooks/pre-push` runs `scripts/scrub-check.py` on the diff being pushed and blocks the push if it finds project names (from `registry.yaml`) or denylist patterns. The principle: **once a push lands on GitHub and a PR is opened, the content is public-record forever (PR descriptions and commits can't be removed)** — so the gate has to fire BEFORE the push.

@@ -106,9 +106,11 @@ def load_project_names(registry_path: Optional[str]) -> Set[str]:
         README, CLAUDE.md, plugin metadata, etc).
     """
     names: Set[str] = set()
+    public: Set[str] = set()
     if not registry_path:
         return names
     in_projects = False
+    current: Optional[str] = None
     with open(registry_path) as f:
         for line in f:
             if re.match(r"^projects:\s*$", line):
@@ -118,7 +120,11 @@ def load_project_names(registry_path: Optional[str]) -> Set[str]:
                 continue
             m = re.match(r"^  ([a-zA-Z][a-zA-Z0-9_-]*):\s*$", line)
             if m:
-                names.add(m.group(1))
+                current = m.group(1)
+                names.add(current)
+                continue
+            if current and re.match(r"^    public:\s*true\b", line):
+                public.add(current)
                 continue
             # Hit a non-indented line that isn't blank/comment — projects block ended.
             if line and not line[0].isspace() and not line.lstrip().startswith("#"):
@@ -126,6 +132,18 @@ def load_project_names(registry_path: Optional[str]) -> Set[str]:
 
     # Drop names that are too generic to safely match by themselves.
     names = {n for n in names if "-" in n or len(n) >= 6}
+
+    # Drop projects the registry marks `public: true`. Per the fleet's
+    # public-content-scrubbing rule, a name that already lives in a public
+    # GitHub repo is safe to mention — flagging it protects nothing, and the
+    # cost is real: the fleet's own public tooling (channel plugins, the
+    # live-feedback plugin) is referenced constantly in docs, learnings, and
+    # config, so leaving these in means the gate fires on nearly every push.
+    # That is the SCRUB_SKIP-training failure described above, arriving by a
+    # different door. Marking a project public is a deliberate operator act in
+    # the (gitignored) registry, and it is the same assertion the flip-public
+    # flow already requires.
+    names -= public
 
     # Drop the current repo's own name — a repo's own README / CLAUDE.md / plugin
     # metadata legitimately mentions itself; we don't want to flag self-references.

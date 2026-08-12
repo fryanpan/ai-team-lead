@@ -122,6 +122,29 @@ git config core.hooksPath .githooks
 
 See `registry.yaml.example` for the registry schema.
 
+## Fleet health check
+
+`scripts/fleet_healthcheck.py` runs 3×/day under launchd (`com.fryanpan.fleet-healthcheck`), silent on green, macOS notification on red. It costs no tokens — no model runs unless something is actually broken.
+
+- **Read current status**: `healthcheck-status.json` in the deploy root (below), or the log at `~/Library/Logs/fleet-healthcheck.log`. Run it on demand with `/usr/bin/python3 <deploy-root>/fleet_healthcheck.py --verbose`.
+- **After editing the checker or the registry**, run `python3 scripts/install_healthcheck.py` — it redeploys and regenerates the config. **Editing the repo copy alone changes nothing**: the running copy lives in the deploy root.
+
+### Deploy root for anything launchd runs: `/opt/fleet`
+
+A launchd-invoked Apple-signed binary is denied every operation on `/Volumes/Data` — exec, read, and even a stat. **`$HOME` does not save you**: `~/.claude`, `~/.config`, `~/.local` and `~/.bun` are each a symlink into that volume, so a path that looks like a home-directory path is often the secondary disk. `/opt` is genuinely boot disk (`disk3s5`) and is not shadowed by a symlink anyone might repoint.
+
+Put the program *and* its config/state there; logs go to `~/Library/Logs` (real boot disk). One-time setup, since `/opt` is root-owned:
+
+```bash
+sudo mkdir -p /opt/fleet && sudo chown "$USER":admin /opt/fleet
+```
+
+`install_healthcheck.py` uses `/opt/fleet` when it exists and writable, and otherwise falls back to `~/Library/Application Support/team-lead/` with a printed warning.
+
+When a launchd job genuinely must read the secondary volume (e.g. the plugin cache under `~/.claude`), delegate that read to `~/.bun/bin/bun` — the gate is per-binary, and a user-installed binary is not subject to it.
+- **Every check asserts an end state, never a PID.** A process being up proved nothing in any real outage — see the 2026-08-11 learnings entry. If you add a check, make it fail when the thing stops *working*, not when it stops *running*.
+- **Add a session check** by setting `always_up: true` on a registry entry. Don't key it on `respawn: true` — that means "bring back on a fleet restart", and most peers are correctly idle.
+
 ## Pre-push leak gate
 
 `.githooks/pre-push` runs `scripts/scrub-check.py` on the diff being pushed and blocks the push if it finds project names (from `registry.yaml`) or denylist patterns. The principle: **once a push lands on GitHub and a PR is opened, the content is public-record forever (PR descriptions and commits can't be removed)** — so the gate has to fire BEFORE the push.

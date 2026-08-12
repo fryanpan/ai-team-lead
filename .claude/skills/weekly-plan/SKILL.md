@@ -97,8 +97,8 @@ Format: a `## Capacity: ~Xh` heading carrying the week total, then a clean per-d
    - **Asana is the user's primary "what do I work on" surface.** Notion holds the high-level goals (this page); Asana holds the detailed tasks under each committed goal, dated across the week. Do this only AFTER the goals are confirmed (step 8) — never before (`feedback_notion_goals_before_asana` memory).
    - For each ✅ goal, create short, doable Asana tasks: imperative name, assigned to the user, `due_on` a day that has capacity — spread across the week per the Capacity block, don't pile onto one day — and a 1-line note with the relevant link.
    - **Reconcile, don't duplicate.** Update/complete tasks that already exist; delete tasks belonging to dropped goals; clean up the stragglers flagged in step 2.
-   - **Leave alone:** family/others' tasks (a shared volunteer project, a family member / a family member) and the user's Medical self-care items.
-   - **Asana reference:** workspace Octoturtle `1211390582921761` · project "Bryan's Projects" `1212817868300931` · Bryan (assignee) `3708345653658`. Non-premium plan → use `asana_get_tasks` (`search_tasks` is gated). The `daily-review` skill keeps this list current each morning.
+   - **Leave alone:** family/others' tasks (shared volunteer and family projects) and the user's Medical self-care items.
+   - **Asana reference:** workspace Octoturtle `ASANA_WORKSPACE_GID` · project "Bryan's Projects" `ASANA_PROJECT_GID` · Bryan (assignee) `ASANA_ASSIGNEE_GID`. Non-premium plan → use `asana_get_tasks` (`search_tasks` is gated). The `daily-review` skill keeps this list current each morning.
 
 ## What to avoid
 

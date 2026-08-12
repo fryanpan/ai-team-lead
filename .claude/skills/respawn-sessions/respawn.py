@@ -42,6 +42,7 @@ Ignores nested blocks like `docs:`, `linear:`, `notion:` etc.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shlex
@@ -103,6 +104,68 @@ def discord_state_dir_for(path: str) -> str:
     if os.path.isfile(os.path.join(local, "access.json")):
         return local
     return NO_DISCORD_STATE_DIR
+
+
+# Project-scoped MCP servers that stand in for a broken `plugin:` channel.
+# Background (2026-08-09): every plugin-provided MCP server stopped connecting
+# fleet-wide — Claude Code resolved them into the config and then never
+# attempted the connection. The workaround is to register the same server as an
+# ordinary MCP server (`claude mcp add <name> --scope local -- <same command>`),
+# which uses the code path that still works. But `--channels` in the `claude`
+# zsh function names the PLUGIN server, so the direct copy provides the tools
+# and no inbound push: Discord messages stop waking the session. Declaring the
+# direct server as a channel too is what restores the wake.
+#
+# Keyed off ~/.claude.json rather than hardcoded, so a peer gets the flag only
+# if it actually has the direct registration.
+#
+# live-feedback was briefly on this list (2026-08-10) and has been removed. Its
+# outage was NOT a plugin-path fault: the plugin shipped `"command": "node"`,
+# and node comes from nvm, so it existed only in an interactive shell. Plugin
+# 0.1.0 fixed that in the right place — a /bin/sh launcher committed in the
+# plugin itself — and a cold session with node absent from PATH now connects the
+# PLUGIN server in 244ms. Reaching for a direct registration was the wrong
+# instinct: check that the server's own spawn command works from a
+# non-interactive shell before concluding the plugin mechanism is at fault.
+DIRECT_CHANNEL_SERVERS = ["plugin_discord_discord"]
+
+
+def project_config_keys(path: str) -> List[str]:
+    """The ~/.claude.json `projects` keys that could hold this cwd's config.
+
+    Usually just the realpath. But for a GIT WORKTREE, Claude Code keys project
+    config by the MAIN repo rather than the worktree — running `claude mcp add`
+    from inside a worktree writes the entry under the repo that owns the git
+    common dir. Measured 2026-08-10: looking up only the realpath silently found
+    nothing and dropped the channel flag for every worktree session.
+    """
+    keys = [os.path.realpath(path)]
+    common = subprocess.run(["git", "-C", path, "rev-parse", "--git-common-dir"],
+                            capture_output=True, text=True)
+    if common.returncode == 0:
+        main_repo = os.path.dirname(os.path.realpath(
+            os.path.join(path, common.stdout.strip())))
+        if main_repo not in keys:
+            keys.append(main_repo)
+    return keys
+
+
+def direct_channel_flags(path: str) -> str:
+    """Return `--dangerously-load-development-channels server:<name>` flags for
+    any DIRECT_CHANNEL_SERVERS registered project-scoped for this path."""
+    try:
+        with open(os.path.expanduser("~/.claude.json")) as f:
+            cfg = json.load(f)
+    except (OSError, ValueError):
+        return ""
+    projects = cfg.get("projects") or {}
+    registered = {}
+    for key in project_config_keys(path):
+        registered.update((projects.get(key) or {}).get("mcpServers") or {})
+    return "".join(
+        f" --dangerously-load-development-channels server:{name}"
+        for name in DIRECT_CHANNEL_SERVERS if name in registered
+    )
 
 # Substrings that identify known interactive startup dialogs. If any of these
 # appear in a session's captured pane, we send Enter to accept the default
@@ -354,7 +417,18 @@ def collect_running_targets(running: Dict[int, Dict[str, str]],
         if not cwd or not os.path.isdir(cwd):
             print(f"[skip] PID {pid}: cwd missing on disk ({cwd or '?'})", file=sys.stderr)
             continue
-        m = re.search(r"\s-n\s+(.+?)\s*$", info["argv"])
+        # Stop at the next flag, not at end-of-line. `-n` is not necessarily the
+        # last argument: spawn_session_tmux appends direct_channel_flags AFTER
+        # it, so a greedy match swallowed them into the display name. That name
+        # becomes the tmux session name, the -n display name, and
+        # FEEDBACK_AGENT_NAME -- so the corrupted value meant the pre-existing
+        # tmux session was NOT matched and killed, and the respawn produced a
+        # SECOND session in the same cwd (two writers, colliding stable_ids)
+        # with a garbage agent name and the channel flag applied twice.
+        # Only sessions carrying a direct channel registration were affected,
+        # which is why it survived: the dry run prints the name, and every
+        # session that had ever been checked had -n last.
+        m = re.search(r"\s-n\s+(.+?)(?=\s+--|$)", info["argv"])
         display = m.group(1).strip() if m else (
             _ancestor_tmux_session(pid, pane_owner) or humanize(os.path.basename(cwd)))
         home = resolve_home_path(cwd)
@@ -443,12 +517,40 @@ def spawn_session_tmux(session_name: str, path: str) -> bool:
     # Idempotent: kill any pre-existing tmux session with the same name
     subprocess.run([TMUX_BIN, "kill-session", "-t", tmux_name],
                    capture_output=True, timeout=3.0)
-    # `-n <name>` sets the session display name (agent picker, Remote Control, terminal
-    # title) so a respawned agent is identifiable on launch. Forwards through the `claude`
-    # zsh function (it passes "$@" after appending channel flags). shlex.quote handles the
-    # spaces in display names like "App Dev For All".
+    # TWO names, and NEITHER flag reliably names the session on the phone.
+    #
+    # `-n <name>` is the LOCAL display name only -- pane title, agent picker,
+    # terminal title. `claude --help` says exactly that, and an older comment here
+    # claiming it also covered Remote Control cost a fleet that came back on the
+    # phone as a set of unnamed strangers (`bryans-mac-mini-ticklish-pie` and
+    # friends) sitting beside the previous, still-correctly-named records. The
+    # pane read the right name the whole time, so from the terminal it looked fine.
+    #
+    # `--remote-control <name>` is documented to take a name and MEASURED NOT TO
+    # APPLY IT (2026-08-11): a session launched with
+    # `--remote-control 'ADFA 4128 Quick Build'` registered as
+    # `bryans-mac-mini-abstract-sunbeam`. Proof is the RC title for the session id
+    # printed in that pane -- not the argv, which of course shows what we passed.
+    # Untested whether a name with spaces is what gets rejected; single-token
+    # names were never isolated. `/remote-control` offers no rename either
+    # (Disconnect / QR / Continue only), so the ONLY rename today is by hand in
+    # the claude.ai session list.
+    #
+    # Keep the flag anyway, for the half that DOES work: it connects RC at launch.
+    # Without it every respawned session came up `/rc failed` and had to be
+    # reconnected by hand before it appeared on the phone at all.
+    #
+    # Consequence to warn about before any respawn: a restart always creates a
+    # NEW RC record with a NEW auto name, so it discards whatever the operator
+    # renamed that row to.
     name_flag = f" -n {shlex.quote(session_name)}"
-    claude_invocation = ("claude --continue" if has_prior_session(path) else "claude") + name_flag
+    rc_flag = f" --remote-control {shlex.quote(session_name)}"
+    claude_invocation = (
+        ("claude --continue" if has_prior_session(path) else "claude")
+        + name_flag
+        + rc_flag
+        + direct_channel_flags(path)
+    )
 
     # Scope DISCORD_STATE_DIR per-peer to prevent discord-channel fan-out.
     ensure_no_discord_state()
@@ -761,6 +863,13 @@ Modes:
                    relocates worktree sessions to the registry path.
 
 Flags:
+  --only <substr>  (repeatable) Restrict the mode to matching targets. Matches
+                   the display name and the path, case-insensitively. Use it to
+                   respawn ONE session — the peer the user is about to work in,
+                   or a session that needs a solo retry after losing its
+                   channels to the MCP handshake race.
+  --exclude <substr> (repeatable) Leave a matching session alone even though the
+                   mode would restart it. For peers that are mid-flight.
   --execute        Actually perform kills/spawns. Without this it's dry-run.
   --no-auto-accept After spawning, skip the post-spawn cleanup pass:
                      - polling new tmux panes for startup dialogs and sending
@@ -817,6 +926,27 @@ def main() -> int:
                 sys.exit("--exclude requires a value (session name or path substring)")
             excludes.append(args[i + 1].lower())
 
+    # --only <substring> (repeatable): restrict the mode to these targets.
+    #
+    # This is how you respawn ONE session, and it exists because the two
+    # situations that most need a single restart are the two where a fleet-wide
+    # pass does damage. A peer the user is about to work in should come back
+    # first rather than in stagger order; and a session that lost its channels
+    # to the MCP handshake race has to be retried alone, since retrying it
+    # inside another simultaneous wave just re-runs the race that broke it.
+    # Before this flag both were done by hand, which is how a worktree session
+    # gets respawned at the wrong path and silently starts blank.
+    #
+    # Matches case-insensitively against the display name and the path, same as
+    # --exclude. With --mode running the path is the session's live cwd, so a
+    # worktree substring selects the worktree session specifically.
+    onlys: List[str] = []
+    for i, a in enumerate(args):
+        if a == "--only":
+            if i + 1 >= len(args):
+                sys.exit("--only requires a value (session name or path substring)")
+            onlys.append(args[i + 1].lower())
+
     running = get_running_claude_processes()
     self_pid = get_self_pid()
 
@@ -856,6 +986,21 @@ def main() -> int:
             file=sys.stderr,
         )
         return 2
+
+    if onlys:
+        def is_only(name: str, path: str) -> bool:
+            hay = f"{name} {path}".lower()
+            return any(x in hay for x in onlys)
+        kept = [t for t in targets if is_only(t[0], t[1])]
+        if not kept:
+            print(f"\n[abort] --only {onlys} matched none of the "
+                  f"{len(targets)} target(s). Matched against display name and "
+                  "path; run without --execute to see the target list.",
+                  file=sys.stderr)
+            return 1
+        for name, path in kept:
+            print(f"  [only] {name} — {path}")
+        targets = kept
 
     if excludes:
         def is_excluded(name: str, path: str) -> bool:

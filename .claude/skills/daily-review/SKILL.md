@@ -31,8 +31,8 @@ Each morning the team-lead's daily cron runs this skill automatically so the use
    - Mark done any task whose work actually shipped overnight (peer summary / merged PR confirms it) via `asana_update_task completed=true`.
    - Make sure today's hit-list items are the tasks dated today; **shift other tasks for the week to later days** as needed so today isn't overloaded (respect the weekly Capacity block — don't cram).
    - Add any newly-surfaced must-do that needs the user: short imperative name, dated today, 1-line note + link. Keep the day's list short and doable.
-   - **Leave alone:** family/others' tasks (Good Government project, Joanna / Louise) and the user's Medical self-care items.
-   - Asana reference: workspace `1211390582921761` · project "Bryan's Projects" `1212817868300931` · Bryan (assignee) `3708345653658` · non-premium → use `asana_get_tasks`, not `search_tasks`.
+   - **Leave alone:** family/others' tasks (shared volunteer and family projects) and the user's Medical self-care items.
+   - Asana reference: workspace `ASANA_WORKSPACE_GID` · project "Bryan's Projects" `ASANA_PROJECT_GID` · Bryan (assignee) `ASANA_ASSIGNEE_GID` · non-premium → use `asana_get_tasks`, not `search_tasks`.
 3. **Send one morning push** — `PushNotification`: `"Good morning — today: <2–4 hit-list items>."` Nothing else unless something genuinely can't wait (then flag it in the push).
 
 Keep it cheap and otherwise silent. The review doc + the synced Asana list ARE the morning communication — don't also message the user separately. Still surface the review URL first (step 6) in-session for when the user checks.

@@ -8,17 +8,23 @@ This gate fires at push time so a leak can be caught and fixed before that.
 
 Two sources of patterns:
 1. **Registry**: top-level keys under `projects:` in the repo's `registry.yaml`
-   (or, if not present, the fleet registry at `~/dev/ai-team-lead/registry.yaml`).
+   (or, if not present, the fleet registry — see REGISTRY_CANDIDATES).
    When a new project is added to the registry, its name is automatically protected.
-2. **Denylist**: hand-curated patterns at `~/.config/team-lead/scrub-denylist.txt`.
-   One pattern per line. Plain strings match literally (case-insensitive). Prefix
-   with `/` for a regex. Lines starting with `#` are comments.
+2. **Denylist**: hand-curated patterns (see DENYLIST_CANDIDATES). One pattern per
+   line. Plain strings match literally (case-insensitive). Prefix with `/` for a
+   regex. Lines starting with `#` are comments.
+
+Either source can be pointed elsewhere with `SCRUB_REGISTRY` / `SCRUB_DENYLIST`.
+A source that was expected and did not resolve is a HARD FAILURE (exit 2) — see
+the comment on the candidate lists for why silence is the dangerous option.
 
 Usage:
   scrub-check.py file [file...]            # scan named files
   scrub-check.py --diff-range A..B          # scan files changed in range
   scrub-check.py --staged                   # scan files in git index
   scrub-check.py --scan-all-tracked         # scan every tracked file (audit)
+
+This tool does NOT read stdin; piping a diff at it is an error, not a scan.
 
 Exit codes: 0 = clean, 1 = leaks found, 2 = setup error.
 
@@ -33,8 +39,56 @@ import subprocess
 import sys
 from typing import List, Optional, Set, Tuple
 
-FLEET_REGISTRY = os.path.expanduser("~/dev/ai-team-lead/registry.yaml")
-DENYLIST_PATH = os.path.expanduser("~/.config/team-lead/scrub-denylist.txt")
+# Both pattern sources are CANDIDATE LISTS, current location first.
+#
+# These paths move. The fleet repo was renamed once already, and the constant
+# pointing at the old path did not fail loudly — `find_registry()` simply
+# returned None, zero project names compiled, and every push passed the
+# project-name check by not running it. Nothing surfaced it, because the only
+# guard fired when the pattern list was COMPLETELY empty and the hand-curated
+# denylist kept it non-empty. A scanner that can't see anything must say so;
+# silently scanning nothing and exiting 0 is the worst behavior available.
+#
+# An env override is AUTHORITATIVE — it replaces the candidate list rather
+# than heading it. Falling back from an explicit override to a machine path
+# would let the self-test silently pass against the real fleet config, which
+# is the same "I scanned something, just not what you think" failure this
+# whole change exists to remove.
+REGISTRY_CANDIDATES = (
+    [os.environ["SCRUB_REGISTRY"]]
+    if os.environ.get("SCRUB_REGISTRY")
+    else [
+        os.path.expanduser("~/dev/ai-team-lead/registry.yaml"),
+        os.path.expanduser("~/dev/ai-project-support/registry.yaml"),
+    ]
+)
+DENYLIST_CANDIDATES = (
+    [os.environ["SCRUB_DENYLIST"]]
+    if os.environ.get("SCRUB_DENYLIST")
+    else [
+        os.path.expanduser("~/.config/team-lead/scrub-denylist.txt"),
+        os.path.expanduser("~/.config/conductor/scrub-denylist.txt"),
+    ]
+)
+
+# Collected at import, printed by main() — resolving at import keeps the
+# module-level constants other functions read, but a warning printed on
+# `--help` would be noise.
+_SOURCE_WARNINGS: List[str] = []
+
+
+def _resolve_source(label: str, candidates: List[Optional[str]]) -> Optional[str]:
+    """First candidate that exists on disk, or None with a warning recorded."""
+    for path in candidates:
+        if path and os.path.isfile(path):
+            return path
+    tried = ", ".join(p for p in candidates if p) or "(nothing configured)"
+    _SOURCE_WARNINGS.append(f"no {label} found — tried: {tried}")
+    return None
+
+
+FLEET_REGISTRY = _resolve_source("fleet registry", REGISTRY_CANDIDATES)
+DENYLIST_PATH = _resolve_source("denylist", DENYLIST_CANDIDATES)
 
 # Text file extensions we scan. Everything else is skipped (binaries, lockfiles).
 SCAN_EXTS = {
@@ -43,10 +97,15 @@ SCAN_EXTS = {
     ".toml", ".env", ".envrc",
 }
 
-# Specific paths to never scan (the scanner's own data files, gitignored docs).
+# Specific paths to never scan. The scanner's own files (scrub-check.py,
+# scrub-haiku.py) must be skipped because they intentionally mention denylist
+# keywords as examples of what to flag — scanning them would block their own
+# propagation. Likewise the scanner's data files and gitignored docs.
 SKIP_PATHS = {
     "docs/process/aggregation-log.md",
     "registry.yaml",
+    "scripts/scrub-check.py",
+    "scripts/scrub-haiku.py",
 }
 
 
@@ -90,9 +149,8 @@ def find_registry() -> Optional[str]:
         local = os.path.join(root, "registry.yaml")
         if os.path.isfile(local):
             return local
-    if os.path.isfile(FLEET_REGISTRY):
-        return FLEET_REGISTRY
-    return None
+    # Already existence-checked by _resolve_source.
+    return FLEET_REGISTRY
 
 
 def load_project_names(registry_path: Optional[str]) -> Set[str]:
@@ -106,7 +164,7 @@ def load_project_names(registry_path: Optional[str]) -> Set[str]:
         README, CLAUDE.md, plugin metadata, etc).
     """
     names: Set[str] = set()
-    public: Set[str] = set()
+    cleared: Set[str] = set()
     if not registry_path:
         return names
     in_projects = False
@@ -123,8 +181,8 @@ def load_project_names(registry_path: Optional[str]) -> Set[str]:
                 current = m.group(1)
                 names.add(current)
                 continue
-            if current and re.match(r"^    public:\s*true\b", line):
-                public.add(current)
+            if current and re.match(r"^    (public|mentionable):\s*true\b", line):
+                cleared.add(current)
                 continue
             # Hit a non-indented line that isn't blank/comment — projects block ended.
             if line and not line[0].isspace() and not line.lstrip().startswith("#"):
@@ -133,17 +191,26 @@ def load_project_names(registry_path: Optional[str]) -> Set[str]:
     # Drop names that are too generic to safely match by themselves.
     names = {n for n in names if "-" in n or len(n) >= 6}
 
-    # Drop projects the registry marks `public: true`. Per the fleet's
-    # public-content-scrubbing rule, a name that already lives in a public
-    # GitHub repo is safe to mention — flagging it protects nothing, and the
-    # cost is real: the fleet's own public tooling (channel plugins, the
-    # live-feedback plugin) is referenced constantly in docs, learnings, and
-    # config, so leaving these in means the gate fires on nearly every push.
-    # That is the SCRUB_SKIP-training failure described above, arriving by a
-    # different door. Marking a project public is a deliberate operator act in
-    # the (gitignored) registry, and it is the same assertion the flip-public
-    # flow already requires.
-    names -= public
+    # Drop projects the registry has cleared, under either of two keys. They
+    # mean different things and the difference is load-bearing:
+    #
+    #   public: true       — the GitHub repo is public TODAY. A statement of
+    #                        fact other tooling (the flip-public flow) relies
+    #                        on, so it has to stay literally true.
+    #   mentionable: true  — the operator has cleared the name for public
+    #                        mention while the repo is still private (a flip is
+    #                        planned, or the name goes in a blog post first).
+    #
+    # The gate only ever asks "is this name safe to say", so both drop out. The
+    # split exists so that answering that question never requires asserting a
+    # private repo is public — a falsehood the next reader of the field would
+    # inherit. Either key is a deliberate operator act in the (gitignored)
+    # registry, the same assertion the flip-public flow already requires.
+    #
+    # Not dropping them is its own failure: the fleet's public tooling gets
+    # referenced in docs, learnings, and config constantly, so a gate that
+    # fires on nearly every push trains people into SCRUB_SKIP=1.
+    names -= cleared
 
     # Drop the current repo's own name — a repo's own README / CLAUDE.md / plugin
     # metadata legitimately mentions itself; we don't want to flag self-references.
@@ -164,7 +231,7 @@ def load_project_names(registry_path: Optional[str]) -> Set[str]:
 def load_denylist() -> List[Tuple[str, bool]]:
     """Return (pattern, is_regex) tuples. Missing file => empty list."""
     out: List[Tuple[str, bool]] = []
-    if not os.path.isfile(DENYLIST_PATH):
+    if not DENYLIST_PATH:
         return out
     with open(DENYLIST_PATH) as f:
         for raw in f:
@@ -284,6 +351,17 @@ def main() -> int:
         files = all_tracked_files()
     else:
         files = args
+        if not args:
+            # This tool does NOT read stdin. Piping a diff into it used to scan
+            # nothing and exit 0 — a clean-looking pass that established
+            # nothing, which is the stale-source bug wearing a third costume.
+            # Silence is what let all of them run for weeks.
+            print(
+                "[scrub-check] no files given, and this tool does not read stdin.\n"
+                "  Pass file paths, or --diff-range A..B / --staged / --scan-all-tracked.",
+                file=sys.stderr,
+            )
+            return 2
 
     # Filter: keep only files we'd scan and that exist on disk.
     files = [f for f in files if should_scan(f) and os.path.isfile(f)]
@@ -292,16 +370,49 @@ def main() -> int:
         return 0
 
     registry = find_registry()
+
+    # Fail closed on a source that was expected and didn't resolve.
+    #
+    # "Expected" is inferred rather than declared, so this needs no new config
+    # file: if EITHER source resolved, this is a configured machine and the
+    # other one going missing is a broken gate, not a design. If NEITHER
+    # resolved, this is a stranger's clone of a public repo with no fleet
+    # config to be missing — get out of their way. `SCRUB_REQUIRE_SOURCES=1`
+    # makes even that case hard, for CI that must never scan blind.
+    resolved = sum(1 for s in (registry, DENYLIST_PATH) if s)
+    if resolved == 0 and os.environ.get("SCRUB_REQUIRE_SOURCES") != "1":
+        print(
+            "[scrub-check] no registry and no denylist on this machine — nothing to scan against.\n"
+            "  (Set SCRUB_REQUIRE_SOURCES=1 to make this an error instead.)",
+            file=sys.stderr,
+        )
+        return 0
+    if _SOURCE_WARNINGS:
+        print("[scrub-check] pattern source missing — refusing to pass:", file=sys.stderr)
+        for w in _SOURCE_WARNINGS:
+            print(f"  {w}", file=sys.stderr)
+        print(
+            "  A half-configured scanner reports a clean push it never performed.\n"
+            "  Fix the path, or point SCRUB_REGISTRY / SCRUB_DENYLIST at the right file.",
+            file=sys.stderr,
+        )
+        return 2
+
     project_names = load_project_names(registry)
     denylist = load_denylist()
     patterns = build_patterns(project_names, denylist)
 
     if not patterns:
+        # Sources exist but yielded nothing: an empty denylist plus a registry
+        # whose every project is cleared, or a parser that stopped matching the
+        # file format. Either way we would scan for nothing and say "clean".
         print(
-            "[scrub-check] no patterns configured (no registry.yaml, no denylist) — skipping.",
+            "[scrub-check] sources resolved but compiled zero patterns — refusing to pass.\n"
+            f"  registry: {registry or '(none)'}\n"
+            f"  denylist: {DENYLIST_PATH or '(none)'}",
             file=sys.stderr,
         )
-        return 0
+        return 2
 
     total = 0
     files_with_findings = set()

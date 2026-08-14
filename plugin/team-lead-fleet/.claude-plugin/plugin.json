@@ -1,6 +1,6 @@
 {
   "name": "team-lead-fleet",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Skills + alwaysApply rules shared across the user's peer Claude Code sessions. Replaces per-project propagation: peers enable this plugin once and pick up updates by pulling ai-team-lead.",
   "author": {
     "name": "Bryan Chan",

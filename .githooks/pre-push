@@ -18,6 +18,21 @@ script="$repo_root/scripts/scrub-check.py"
 # Not installed in this repo — silently no-op so peer repos without the script aren't blocked.
 [ ! -f "$script" ] && exit 0
 
+# Prove the gate can still see BEFORE trusting it on this push. The failure this
+# guards against is not a wrong flag, it's a scanner that resolves no patterns
+# and exits 0 — which looks exactly like a clean push. CI never runs this hook,
+# so the check has to live here too.
+selftest="$repo_root/scripts/scrub-selftest.py"
+if [ -f "$selftest" ]; then
+  if ! python3 "$selftest" > /tmp/scrub-selftest.$$ 2>&1; then
+    cat /tmp/scrub-selftest.$$ >&2
+    rm -f /tmp/scrub-selftest.$$
+    echo "[scrub-check] self-test failed — the leak gate is not working. Push blocked." >&2
+    exit 1
+  fi
+  rm -f /tmp/scrub-selftest.$$
+fi
+
 ZERO_SHA="0000000000000000000000000000000000000000"
 exit_code=0
 

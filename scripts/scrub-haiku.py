@@ -28,8 +28,13 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
+from typing import Optional
 
 MODEL = "claude-haiku-4-5-20251001"
+# Where the key actually lives on this machine. `security add-generic-password
+# -a "$USER" -s scrub-haiku-api-key -w` (omit the value; it prompts, so the key
+# stays out of shell history).
+KEYCHAIN_SERVICE = "scrub-haiku-api-key"
 API_URL = "https://api.anthropic.com/v1/messages"
 API_TIMEOUT_SEC = 30
 # Approx chars-to-tokens (Anthropic English ~3.5 chars/token; be conservative at 4).
@@ -58,6 +63,11 @@ SYSTEM_PROMPT = """You are a sensitive-content scanner. You will be shown a git 
 - Generic placeholders: <user>, <your-tailnet>, your-username/example, my-project, the user
 - Function/variable/class names, programming jargon, code comments about the code itself
 - Standard package descriptions ("a Python module that does X")
+- **Anything on a line starting with `-`.** Those lines are being REMOVED by
+  this push. A commit that deletes a leak is the fix, not the leak; flagging it
+  blocks the one change that improves the situation. Judge only added lines
+  (`+`) and, for context, unchanged ones. If a name appears on a `-` line and
+  not on any `+` line, that is a removal — say nothing.
 
 **Output format — respond in EXACTLY this shape:**
 
@@ -73,13 +83,48 @@ LEAKS:
 Be conservative — when borderline, flag it. The human can override with SCRUB_SKIP=1 after reviewing your reasoning."""
 
 
+def read_keychain(service: str) -> Optional[str]:
+    """Read a generic-password entry from the macOS Keychain.
+
+    The Keychain is preferred over an exported env var because every Claude
+    Code session on this machine runs as the same user and inherits the same
+    environment — an exported key is readable by every agent in the fleet, and
+    this one is billed. So the key is stored where it isn't exported, which
+    means a scanner that only reads env vars finds nothing and skips.
+
+    Returns None (never raises) on any failure: a missing entry, a locked
+    Keychain, or a non-Darwin machine all mean "fall through to the env vars",
+    and a scrub layer must never be the reason a push dies.
+    """
+    try:
+        proc = subprocess.run(
+            ["security", "find-generic-password", "-a", os.environ.get("USER", ""),
+             "-s", service, "-w"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    return proc.stdout.strip() or None
+
+
 def call_haiku(diff_content: str) -> int:
-    # Prefer SCRUB_HAIKU_API_KEY so this layer can use a key separate from
-    # general-purpose Anthropic usage (better audit + isolated billing).
-    api_key = os.environ.get("SCRUB_HAIKU_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
+    # Keychain first, then the env vars. SCRUB_HAIKU_API_KEY is preferred over
+    # ANTHROPIC_API_KEY so this layer can use a key separate from
+    # general-purpose Anthropic usage (better audit + isolated billing); the
+    # env forms stay supported for CI and one-off runs.
+    api_key = (
+        read_keychain(KEYCHAIN_SERVICE)
+        or os.environ.get("SCRUB_HAIKU_API_KEY")
+        or os.environ.get("ANTHROPIC_API_KEY")
+    )
     if not api_key:
         print(
-            "[scrub-haiku] no API key (SCRUB_HAIKU_API_KEY or ANTHROPIC_API_KEY) — skipping Haiku check.",
+            f"[scrub-haiku] no API key (Keychain `{KEYCHAIN_SERVICE}`, SCRUB_HAIKU_API_KEY, "
+            "or ANTHROPIC_API_KEY) — skipping Haiku check.",
             file=sys.stderr,
         )
         return 2

@@ -27,3 +27,10 @@ When you want the user to review a markdown doc OR a dev server / interactive pr
 **Apply the user's comments via the live-feedback edit tools** — once a doc is bound, NEVER edit the .md file directly with Write/Edit. Use `find_and_replace`, `rewrite_thread_region`, `insert_blocks_after_thread`, etc. The plugin serializes the live doc back to disk ~1s after every change; direct filesystem edits get silently clobbered by the next flush. See the `live-feedback:editing-review-docs` skill for the full pattern.
 
 **Watch for comments** via `watch_doc(docId)` — comment events arrive as `<channel source="live-feedback" doc_id="..." thread_id="..." event="...">` blocks. Resolve threads when you've addressed the feedback (`resolve_thread`).
+
+**Working from a workspace board** — if a session has a live-feedback
+workspace (a `workspaceId`, `next_tasks`, "the board is your task list"), read
+the `live-feedback:working-a-workspace-board` skill and follow it. It is the
+contract for whoever is working a board: priority order, fanning out on what
+can run in parallel, keeping the board current, asking your questions as task
+comments, and not stopping between tasks.

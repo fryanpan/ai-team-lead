@@ -2,6 +2,17 @@
 
 Technical discoveries that should persist across sessions.
 
+## Two `set_doc_content` Calls In One Session Is How You Delete The User's Live Edits (2026-08-17)
+
+- **`set_doc_content` is a block-level diff, which makes it safe against *concurrent* edits and completely unsafe against *interleaved* ones.** Unchanged blocks keep their thread anchors, so the tool feels non-destructive. But it applies *your* full markdown: any block the user added that is not in your copy is deleted, silently and without a `syncError`. I called it twice within four minutes while Bryan was actively editing the same doc, and he lost work — *"hey, why are you deleting my content?"*
+- **The window is the gap between your read and your write, and it is invisible.** `get_doc` → compose → `set_doc_content` looks atomic from the agent side. It is not; a person typing in the editor during those two minutes has their blocks overwritten by a document that predates them. The second call is the dangerous one, because you now believe you know the doc's contents and skip the re-read.
+- **The doc is gitignored, so there is no recovery.** `.claude/reviews/` is not tracked and LF keeps no version the MCP surface exposes. The only reconstruction path was asking Bryan what he had written.
+- **Use the block-scoped tools instead, and accept that they are fiddlier:** `find_and_replace` for prose, `create_anchor` + `delete_block_at_anchor` / `insert_blocks_at_anchor` for structure, `delete_section` for a whole heading region. Reserve `set_doc_content` for a doc nobody else has open.
+- **Two traps in the block-scoped tools, both of which bit on the way out of this:**
+  - **`insert_blocks_at_anchor` inherits the anchored block's list nesting.** Anchoring on a bullet and inserting a `##` heading produces a heading nested inside a list item — it renders as a list item and `delete_section` then refuses it with `not-a-heading`. Anchor on a top-level heading or paragraph when inserting top-level structure.
+  - **`find_and_replace` matches PLAIN TEXT — bold markers are marks, not characters.** Match `Value: …`, never `**Value:** …`. And a replacement spanning a mark boundary inherits formatting unpredictably; match only the unformatted run.
+- **`delete_section` takes `heading:` (not `headingText:`) and wants the text WITHOUT the `###`.** It returns `409 no-match` for both wrong forms, which is indistinguishable from "that heading isn't there."
+
 ## `grep -r` Silently Skips The Private Files, Because Every One Of Them Is A Symlink (2026-08-17)
 
 - **`grep -rl "weekly.review" --include="*.yaml" .` returns nothing in this repo; `grep -l "weekly-review" registry.yaml` returns a hit.** `grep -r` does not follow symlinks encountered during recursion — only `-R` does. And per the "Private Files" section of `CLAUDE.md`, *every* gitignored private file here is a symlink from the main worktree: `registry.yaml`, `docs/process/retrospective.md`, `docs/process/propagation-log.md`. So the highest-value files in the repo are exactly the ones a recursive grep cannot see.

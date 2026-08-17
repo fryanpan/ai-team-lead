@@ -49,7 +49,7 @@ The user had to say this twice in one session, the second time watching it happe
 
 | Element | Limit |
 |---|---|
-| Whole goal body (everything under the `###` title) | **≤ 8 lines** |
+| Whole goal body (everything under the `###` title) | **≤ 10 lines** — Due, Lead, an optional Constraint, the `Key stops` label, and at most 5 stops. **No other blocks.** |
 | A key stop | **one line, ≤ 25 words** — `<when> — <what>`, plus at most one short clause of why |
 | Constraint | **one line**, and only when a real operating limit exists |
 | Committed-vs-capacity header | **one or two sentences** — the totals and the single biggest structural risk |

@@ -112,7 +112,8 @@ Keep it cheap and otherwise silent. The review doc + the synced Asana list ARE t
    - On updates within the same day, the live-feedback editor stays in sync with the file. Don't re-call `create_review_doc`.
 
 6. **Surface the doc to the user — link FIRST, every time.**
-   - **The very first line of your user-facing response MUST be the review URL on its own line**, formatted as a Tailscale link: `http://mac-mini.<your-tailnet>.ts.net:8788/review/daily-review-YYYY-MM-DD`. No preamble, no "here's the review", no apology — just the URL.
+   - **The very first line of your user-facing response MUST be the WORKSPACE URL on its own line**: `http://mac-mini.<your-tailnet>.ts.net:8787/workspaces/<workspace_id>` (the Team Lead workspace id lives in `.claude/skills/weekly-plan/parent.txt`). No preamble, no "here's the review", no apology — just the URL.
+   - **Never surface a bare `/review/<docId>` link.** `create_review_doc` returns a `reviewUrl` and pasting it is the easy mistake, but it opens the document by itself — no goal bands, no task board, none of the surface the review is meant to be read against. Attach the doc to the workspace and link the workspace.
    - This applies on every invocation: first creation, every update / re-run, and any time the user asks "what's next" / "status" / "where are we." The URL is the user's only entry point on phone or laptop; if it's buried, he has to dig for it.
    - After the URL, you may add a one-sentence pointer (morning: which goal-section to start with; evening: what shipped + tomorrow's first goal).
    - The URL is non-negotiable. Even if you have nothing else to say, surface the URL.

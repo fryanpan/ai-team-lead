@@ -41,6 +41,24 @@ An eleven-item task list under one goal is a task board, not a goal. *"Ultimatel
 - **Surface the decisions the owning agent needs from the user, at the top of the week rather than on the due date.** A stop that is serialized behind a ten-minute decision is a whole-week risk.
 - **Link the owning agent's board rather than mirroring its tasks.** If a detail is not something the user acts on, it does not belong in his plan.
 
+### Hard length limits — the doc gets leaner over the week, never denser (set 2026-08-17)
+
+The user had to say this twice in one session, the second time watching it happen live: *"I already see you breaking the formatting and adding more detailed unnecessary crap to section 2. Please request a very lean planning doc, bake it into the template, and do what you need to do to keep everything lean."*
+
+**The limits are numeric so they can't be negotiated:**
+
+| Element | Limit |
+|---|---|
+| Whole goal body (everything under the `###` title) | **≤ 8 lines** |
+| A key stop | **one line, ≤ 25 words** — `<when> — <what>`, plus at most one short clause of why |
+| Constraint | **one line**, and only when a real operating limit exists |
+| Committed-vs-capacity header | **one or two sentences** — the totals and the single biggest structural risk |
+| Key stops per goal | **≤ 5** |
+
+**The failure mode is relaying, not writing.** Every over-long block in this doc came from a peer sending good analysis and it being pasted in. A peer's reasoning is for the thread; only its **conclusion** belongs in the plan. When an agent sends three paragraphs on why a date moved, the plan gets the moved date and the thread gets the paragraphs — never both.
+
+**Applies to edits, not just the first draft.** A goal that was lean on Monday and is six bullets deep by Wednesday has failed this rule the same way. Before adding anything to a goal mid-week, delete something or put it on the thread.
+
 ## Capacity block (required)
 
 Every plan page opens with a capacity estimate, placed directly under the one-sentence theme and above `## Committed goals`. It is **not optional** — it's the frame the whole plan is judged against (committed hours vs. available hours).

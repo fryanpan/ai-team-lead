@@ -53,7 +53,8 @@ Keep it cheap and otherwise silent. The review doc + the synced Asana list ARE t
    - Don't ping peers that have been silent and aren't on a committed goal.
 
 3. **Anchor priority on the weekly plan.**
-   - Read this week's Notion page (the one `weekly-plan` skill set up). Pull the committed goals in priority order.
+   - Read this week's plan doc, `.claude/reviews/weekly-YYYY-MM-DD.md` (the one `weekly-plan` set up, bound to the Team Lead workspace as docId `weekly-YYYY-MM-DD`). Pull the committed goals in priority order. **Not Notion** — weekly planning moved to the workspace on 2026-08-17.
+   - Cross-check against the workspace board (`get_workspace` for goal order, `next_tasks` for what's ready). The board is where goal priority actually lives; the doc is the narrative.
    - The review doc's outline = those goals, in the same order, plus a final section for things off-plan.
 
 4. **Write or update `.claude/reviews/YYYY-MM-DD.md`.**

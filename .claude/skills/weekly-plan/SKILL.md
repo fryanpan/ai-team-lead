@@ -78,6 +78,14 @@ Format: a `## Capacity: ~Xh` heading carrying the week total, then a clean per-d
 - Per-day bullets carry a short reason wherever a day deviates from a normal full day, so the total is legible at a glance.
 - After the plan is set, sanity-check committed hours (sum of goal Estimates) against this total and surface the gap: under-committed leaves headroom (say what the slack is for); over-committed means something must drop or defer.
 
+### Compare against last week's PLANNED number too, not just capacity (set 2026-08-17)
+
+Capacity is what the calendar allows; the previous plan's committed total is what he has actually proven he does. On 2026-08-17 those told opposite stories — 28h read as "just inside 30h capacity," and read as **1.5x last week's 18h plan, which he hit to within an hour (18.8h delivered)**. The second framing is the informative one and it takes one number to compute.
+
+- **Pull the prior plan's committed total in step 2** and carry it into the header line.
+- **When the prior plan was accurate, say so** — it makes his own estimating a usable instrument instead of something re-argued each week.
+- **A big jump over a proven-accurate plan is the finding**, and it is not fixed by capacity headroom. Name it and let him decide; do not quietly trim goals.
+
 ### Derive the number from the calendar — don't ask (set 2026-08-17)
 
 **Read the user's calendar and compute the capacity yourself.** He asked for this explicitly, in place of the old "ask him for the number" step: *"please instead review my calendar each week and guess at how many hours I might have depending on whether we have any trips or other meetings booked."*

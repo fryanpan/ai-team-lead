@@ -42,9 +42,27 @@ Format: a `## Capacity: ~Xh` heading carrying the week total, then a clean per-d
 - Weekend 2h (kayak camping)
 ```
 
-- The bold total is the week's realistic hands-on hours — the user's number; ask if unknown, don't guess.
 - Per-day bullets carry a short reason wherever a day deviates from a normal full day, so the total is legible at a glance.
 - After the plan is set, sanity-check committed hours (sum of goal Estimates) against this total and surface the gap: under-committed leaves headroom (say what the slack is for); over-committed means something must drop or defer.
+
+### Derive the number from the calendar — don't ask (set 2026-08-17)
+
+**Read the user's calendar and compute the capacity yourself.** He asked for this explicitly, in place of the old "ask him for the number" step: *"please instead review my calendar each week and guess at how many hours I might have depending on whether we have any trips or other meetings booked."*
+
+The rule, in his words:
+
+> Assume by default 7h available each weekday to start, and subtract one for each hour between 9-5PM that I'm booked for a meeting. That assumes I have 1h free for lunch and other sundries and that we get Bea to school on time at 8:40AM every weekday and pick her up on time between 5-6PM also.
+
+Mechanics:
+
+- Pull **both** `fryanpan@gmail.com` (primary) and `Bryan's Work Calendar` (`4426rmvudfbaebrkmtj4jhep3g@group.calendar.google.com`) for Mon–Sun. Meetings land on either.
+- Only count hours **inside 9am–5pm**. An early or evening call does not reduce the number; the 7h baseline already reserves that time.
+- **A medication or self-care reminder is not a meeting.** Don't subtract for it.
+- **Prorate the current day.** Planning usually happens Monday partway through — a 7h Monday that starts at noon is really ~4h. Check the clock (`date`), don't assume a full day.
+- **Travel, PTO, and all-day events zero out the day.** Say which event did it.
+- Show the derivation in the doc, not just the total, so he can correct the inputs rather than argue with the output.
+
+**Where the user's own number disagrees with the rule, keep his and flag the gap.** He may know about a commitment the calendar doesn't carry — that is information you don't have, not an error to fix. Name the discrepancy in one line and move on.
 
 ## When to invoke
 
@@ -84,7 +102,7 @@ Format: a `## Capacity: ~Xh` heading carrying the week total, then a clean per-d
    - Be honest, not aspirational. If you don't know, say `?` and ask the user.
 
 6. **the user picks.**
-   - Tell the user how many hands-on hours are realistic this week (default 12-15h unless he's said otherwise; ask if unclear).
+   - Tell the user the capacity you derived from his calendar (see `## Capacity block`) and show the derivation — don't ask him for the number.
    - the user tags each goal: ✅ commit / ❌ drop / 📦 defer (with target week).
    - Drop the dropped + defer the deferred. Keep the page lean — only commits show in the final plan.
 

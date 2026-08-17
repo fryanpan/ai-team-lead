@@ -24,6 +24,15 @@ Never surface the baseline alone — an unconverted pre-LLM number is the failur
 - **Non-software work** (ops, admin, writing, design chores) compresses about **half** as much. Halve both multipliers, or estimate hands-on directly.
 - **Unplanned or ill-specified work** doesn't hit these numbers. Say the work needs scoping first — don't quietly pad the estimate to cover the ambiguity.
 
+## What the divisor does NOT apply to
+
+The multipliers convert *work an agent can absorb*. Two kinds of time on a plan are not that, and dividing them produces a confident fake number.
+
+- **Irreducible human time — the user IS the input.** Reading a document before his name goes on it, making seven product judgement calls, deciding a rate, doing a voice pass on his own writing. An agent can prepare the decision — a confirm-or-override sheet instead of a blank page — but it cannot make the deciding faster. Estimate this directly in his hours and say why it can't be divided.
+- **Third-party clocks — waiting is not effort.** Filing turnaround, an EIN, a bank account opening, insurance binding, another team's review pace. These get their own row with no division and, usually, no date he owns. Folding them into a divided estimate makes a queue look like work and hands him a deadline he cannot hit.
+
+The tell that this went wrong: an estimate that reads as achievable while every hour in it belongs to someone else. Surfaced by an owning agent on 2026-08-17, unprompted, on a goal where a ÷20 would have been applied mechanically.
+
 ## Calibration
 
 Measured across 711 recorded tasks (Apr–Jun 2026), each carrying a baseline estimate plus actual hands-on and wall-clock time:

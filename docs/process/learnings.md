@@ -2,6 +2,33 @@
 
 Technical discoveries that should persist across sessions.
 
+## The Pre-Push Scrub Gate Exists In 2 Of ~40 Fleet Repos, And I Told A Peer It Protected Its Repo (2026-08-17)
+
+- **`CLAUDE.md` documents the gate in a way that reads fleet-wide, and it is per-repo opt-in.** It says the hook "runs `scrub-check.py` on the diff being pushed and blocks the push," then mentions `SCRUB_FLEET_REGISTRY` as the "cross-repo fleet check … so the gate works in peer repos too." That last line is the trap: the env var makes the gate *scan for fleet names* in a peer repo, but only if the hook is installed there. It never is. The one-time `git config core.hooksPath .githooks` is listed under this repo's own setup and nothing propagates it.
+- **Measured, not assumed:** across ~40 repos in `~/dev`, exactly **`ai-team-lead`** and the **`claude-live-feedback-plugin`** family (4 worktrees/clones) have a pre-push hook that references the scrubber. Everything else — the repos holding client material, contact data, people's names, health information — has nothing.
+- **Two failure shapes make the absence look like presence, and both are worse than an unset config.** `writing-assistant` sets `hooksPath=.githooks` and that directory contains only a `post-checkout` — configured-looking, no pre-push at all. Seven repos explicitly set `hooksPath` to their **own `.git/hooks`**, which is the default and empty; an audit that greps for "is hooksPath set" scores those as configured. **Check for the hook file, never for the config.**
+- **The cost was a false safety claim to a peer that was about to push.** I told the weekly-review agent the gate would block a project-name leak automatically. It checked, found no `.githooks/` and no `core.hooksPath`, scrubbed by hand anyway, and pushed back: *"Please don't tell another peer that gate protects them — that belief is exactly how something ships."* It was right, and a false claim of protection is strictly more dangerous than no claim, because it removes the manual pass that would otherwise happen.
+- **What actually protected that repo was `.gitignore`, not the gate** — `docs/data/` excluded, keeping ~1.5 MB of raw transcript excerpts and the user's own messages out of the tree. Worth knowing which mechanism is load-bearing before crediting the one you built.
+- **Reusable ordering, from the same agent: scrub BEFORE the squash, not after.** Content removed pre-squash never enters pushed history, so no force-push is needed. Scrubbing after means force-pushing content that has already been on GitHub, which does not reliably remove it — the same "public-record forever" reasoning that motivates the gate in the first place.
+- **Detect by testing for an executable pre-push at the RESOLVED path, never by reading config.** Both false-positive shapes above defeat a config-based audit; this does not:
+
+  ```bash
+  p=$(git config core.hooksPath || echo .git/hooks)
+  [ -x "$p/pre-push" ] && echo "GATE: $p/pre-push" || echo "NO GATE"
+  ```
+
+  Run per repo, from inside it. Measured across `~/dev` this way: **6 gated, 33 ungated** — and the 6 are one repo plus five checkouts sharing a single hook dir. **A fleet-wide claim about safety should ship with the command that verifies it**, given how this one started.
+- **Two techniques from the peer that caught this, both worth more than the finding:**
+  - **Check the pushed base before deciding how to scrub.** `git grep <term> origin/<branch>` decides which situation you're in. Clean base + everything sensitive in the unpushed range → scrub the working tree, then squash, and the rewrite drops the old text with no force-push. Dirty base → rewriting published history, which is a different conversation entirely. Scrubbing *after* squashing has already thrown away the easy path.
+  - **`git grep` searches tracked files only, so a clean result is a false negative about scope.** Pair it with a filesystem `grep -r`; the difference between the two is exactly what `.gitignore` is protecting, and that difference is where the real exposure lives when auditing a repo for a public flip. In the repo above it was ~1.5 MB of raw transcript excerpts under an excluded `docs/data/`.
+- **Same family as the two-inert-layers entry below**, with the failure moved one level out: there, both halves of the gate were misconfigured and reported clean; here the gate is simply absent almost everywhere while the documentation reads as though it is universal. **Before telling anyone a check protects them, run the check's own precondition.**
+
+## A "Commits Ahead" Number Is Meaningless Without Naming The Branch (2026-08-17)
+
+- **A fleet scan said `weekly-review` was 3 ahead; the agent working in it reported 82.** Both correct. The scan measured `~/dev/weekly-review` on `main` against `origin/main`; the agent was in a `.claude/worktrees/v1-impl` worktree on `feat/rework-detection-clean`, 84 ahead of *that* branch's upstream. Different branch, different upstream, no contradiction — but published side by side they read as one of the two being broken, and I spent a round asking which.
+- **A per-repo scan that walks `~/dev/*/` sees whatever branch each main worktree happens to be parked on, which is usually not where the work is.** In a fleet that works in linked worktrees, the main checkout is the least informative place to measure.
+- **Report `<repo>@<branch>: N ahead of <upstream>`, or don't report N.** The bare number invites a peer to correct a discrepancy that doesn't exist.
+
 ## `delete_blocks_in_range` Reported `deleted: 1` And Removed A Whole Section Body (2026-08-17)
 
 - **The count is not a block count you can reason from.** Called with `startFind` = the first item of an 11-item task list and `endFind` = the last, it returned `{"ok": true, "deleted": 1}` — and removed the goal's `Due`, `Lead`, `Constraint`, the `Tasks` label and all eleven items, leaving a bare heading. A `1` after a destructive range call reads as "nothing much happened"; here it meant the opposite.

@@ -43,4 +43,13 @@ At the **top** of any doc you write, before the content:
 
 This applies to analyses, methodology docs, research writeups, and reviews — anything where the reader's next question is "says who, from what?" Skip it for a plan or agenda the user co-authors.
 
+## A live-feedback URL is not a durable address — never cite one inside a document
+
+**The review URL embeds a workspace id, and that id changes when the workspace is recreated.** Every link written against the old one dies silently — no error, no redirect, and dead for *you* as well as for the reader. One agent found 32 of them across two client-facing docs on 2026-08-17, 19 of which sat in the research writeup a client would open first.
+
+- **In a durable doc** — anything committed, exported, or sent to someone — cite **relative repo paths** or GitHub URLs. They survive a workspace being rebuilt.
+- **In live chat** — a message, a thread reply, a hand-off — an LF URL is correct and is what the user wants, because he's clicking it now.
+
+The failure is invisible at write time: the link works when you paste it, and rots later without touching the doc.
+
 **Watch for comments** via `watch_doc(docId)` — comment events arrive as `<channel source="live-feedback" doc_id="..." thread_id="..." event="...">` blocks. Resolve threads when you've addressed the feedback (`resolve_thread`).

@@ -2,6 +2,14 @@
 
 Technical discoveries that should persist across sessions.
 
+## `delete_blocks_in_range` Reported `deleted: 1` And Removed A Whole Section Body (2026-08-17)
+
+- **The count is not a block count you can reason from.** Called with `startFind` = the first item of an 11-item task list and `endFind` = the last, it returned `{"ok": true, "deleted": 1}` — and removed the goal's `Due`, `Lead`, `Constraint`, the `Tasks` label and all eleven items, leaving a bare heading. A `1` after a destructive range call reads as "nothing much happened"; here it meant the opposite.
+- **It also ignores `startAnchorId`/`endAnchorId`** — it 400s with `startFind and endFind are required` even when valid anchor ids are passed. So the safer anchored form isn't available, and you are matching on raw text with no preview of what the range resolves to.
+- **The file on disk lags, so the obvious verification lies.** A `sed` over the bound `.md` immediately after the call still showed all eleven items; the flush is ~1s behind. I read that as "the call did nothing," planned five `find_and_replace` edits against those items, and got `409 no-match` on all five — which was the first true signal. **Sleep before reading the file back, or read the live doc.**
+- **Prefer per-block deletes for anything inside a section you want to keep.** `create_anchor` + `delete_block_at_anchor` names what it removed in its response (`"deleted": {"tag": ..., "snippet": ...}`), which is checkable; the range call names nothing.
+- **Same family as the `✔ Successfully updated marketplace` entry below** — a success payload that describes the tool's own bookkeeping rather than the change you asked for. Verify the artifact.
+
 ## Two `set_doc_content` Calls In One Session Is How You Delete The User's Live Edits (2026-08-17)
 
 - **`set_doc_content` is a block-level diff, which makes it safe against *concurrent* edits and completely unsafe against *interleaved* ones.** Unchanged blocks keep their thread anchors, so the tool feels non-destructive. But it applies *your* full markdown: any block the user added that is not in your copy is deleted, silently and without a `syncError`. I called it twice within four minutes while Bryan was actively editing the same doc, and he lost work — *"hey, why are you deleting my content?"*

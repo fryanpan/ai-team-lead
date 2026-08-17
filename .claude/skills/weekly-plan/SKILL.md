@@ -18,13 +18,28 @@ Every goal has these parts. Lead every block with a **bold brief label**, and ke
 
 | Block | Format | Notes |
 |------|--------|---------|
-| Title | `### N. <Value-forward outcome> (~Xh) <tag>` | Names the outcome **AND why it matters** — payoff, deadline, or what it unblocks. **The estimate lives in the title** — there is no separate estimate line. e.g. `### 1. ADFA-4128 Quick Build ready for team review so it lands in CoGo before the HOPE talk (~4–5h) ✅` |
+| Title | `### N. <outcome, and why it matters> (~Xh) <tag>` | Carries the outcome **AND** the reason, in one line. **The estimate lives in the title.** e.g. `### 5. Job search shortlist finalized, so the search becomes a few real conversations instead of cold applications (~2h) ✅` |
 | Due | `- **Due**: <Day> YYYY-MM-DD` | its own bullet |
-| Lead | `- **Lead**: <agent> · <Bryan's role>` | its own bullet — separate from Due (different info type) |
-| Value | `- **Value:** <why it's worth doing this week — payoff / deadline / what it unblocks>` | one idea; use a fitting label (e.g. **Future Goal:** when it's a deadline) |
-| Tasks | `- **Tasks**` then a **numbered** list of concrete steps | **these become the workspace tasks (step 9) and the user's Asana tasks (step 11)** — short, doable, one action each |
+| Lead | `- **Lead**: <agent> · <the user's role>` | its own bullet — separate from Due (different info type) |
+| Constraint | `- **Constraint:** <one line>` | **only when a real operating limit exists** (e.g. "agents draft, you send"). Not a place for context. |
+| Key stops | `- **Key stops**` then a **numbered** list, **at most 5** | each stop is `<when> — <what>`, plus one clause of why it has to happen then. These become the workspace tasks (step 9) and the user's Asana tasks (step 11). |
 
-If a goal needs more than ~5–6 subtasks, it's probably two goals. Match every goal to this shape — Goal 1 on the current week's doc is the reference.
+### There is no Value block — the title carries the value (set 2026-08-17)
+
+The user removed it as wasted space: *"Do you see what I wrote in the goal title? That's the goal. And we should going forward in this template have the title reflect the goal. No separate 'Value' section."*
+
+- **Put the why in the title.** If the title only names an artifact ("Job search shortlist finalized"), it is not finished — say what it buys.
+- **The one exception is a brand-new goal** whose reasoning genuinely will not fit a title. He used exactly this on the goal he added himself, opening it with *"This item is new this week, so wanted to just be more clear about value."* One line, once, on its first week — then it folds into the title.
+- **Whatever the value is, it comes from the record, not from Monday-morning invention.** Carry it forward from the last plan that had the goal, or ask the owning agent. See `feedback_goal_value_is_world_value`.
+
+### Five key stops, and the detail lives in the owning agent's workspace (set 2026-08-17)
+
+An eleven-item task list under one goal is a task board, not a goal. *"Ultimately, we should have one top level goal here managed in the Team Lead workspace, and then that should branch into multiple subgoals in the [owning agent's] workspace, but we don't need to manage them all the details here."*
+
+- **Ask the owning agent for the stops — don't compose them yourself.** It knows the real sequence and the real dates. Hand it the goal and the deadline; let it come back with ≤5 chunks and where it thinks the deadline is at risk.
+- **Date the stops backwards from the deadline, with any external party's turnaround carved out first.** Review time you don't control is the scarcest resource in the week; a plan dated forwards from what the fleet can finish silently spends it.
+- **Surface the decisions the owning agent needs from the user, at the top of the week rather than on the due date.** A stop that is serialized behind a ten-minute decision is a whole-week risk.
+- **Link the owning agent's board rather than mirroring its tasks.** If a detail is not something the user acts on, it does not belong in his plan.
 
 ## Capacity block (required)
 
@@ -84,7 +99,8 @@ Mechanics:
    - Add the **Capacity block** (see above) directly under the theme sentence, before the goals. Required on every plan.
    - Bind it: `create_review_doc(docId: "weekly-YYYY-MM-DD", path: <absolute path>, title: "Week of YYYY-MM-DD", hubWorkspaceId: <Team Lead workspace id>)`. That call both creates the review URL and files the doc under the workspace, and it auto-subscribes you to thread events — no separate `attach_doc` or `watch_doc` needed.
    - **Surface the WORKSPACE URL, not the doc's `reviewUrl`** — `http://mac-mini.<your-tailnet>.ts.net:8787/workspaces/<workspace_id>` (in `parent.txt`). The plan is meant to be read next to the goal bands and the task board; a bare `/review/<docId>` link opens the document alone, stripped of the surface the user asked us to move onto. `create_review_doc` returns a `reviewUrl` and it is tempting to paste it — don't.
-   - **Once bound, never `Write`/`Edit` the .md again.** Route every later change through the live-feedback edit tools (`find_and_replace`, `set_doc_content` for a whole-doc rewrite) — a direct file write races the ~1s flush and gets silently clobbered.
+   - **Once bound, never `Write`/`Edit` the .md again.** Route every later change through the live-feedback edit tools — a direct file write races the ~1s flush and gets silently clobbered.
+   - **Never `set_doc_content` on a plan the user might have open.** It is a block-level diff that applies *your* full markdown, so any block he added between your read and your write is deleted with no error. Two calls four minutes apart destroyed his live edits on 2026-08-17, and `.claude/reviews/` is gitignored so there is no recovery. Use `find_and_replace` for prose, `create_anchor` + `delete_block_at_anchor` / `insert_blocks_at_anchor` for structure, `delete_section` for a whole heading region.
 
 2. **Pull carry-overs from last week's doc.**
    - Locate the prior `.claude/reviews/weekly-YYYY-MM-DD.md`.
@@ -146,6 +162,8 @@ Mechanics:
 - Don't pre-compute infrastructure / housekeeping items unless they're load-bearing for a committed goal.
 - Don't expand dropped or deferred goals.
 - Don't invent goals to fill the page. Fewer is better.
+- **Don't write explanatory text, and don't narrate how the plan got here.** No background paragraphs, no "I originally had this as two goals," no justification of an estimate. The user's words, 2026-08-17: *"You added too much random crap to the goals. Please keep it high level, focused on value, due date, key stops. Don't bother with explanatory text, or how we got there."* If something genuinely needs explaining, it goes in a thread reply, not in the plan.
+- **Keep the committed-vs-capacity line to one or two sentences** — the totals and the single biggest structural risk. It is a header, not an analysis.
 - **Don't make already-finished work a goal, and don't make a five-minute task a goal.** A goal is a measurable outcome that still needs the user's hours. Recording something he already did — or something that costs him minutes — inflates the committed total and buries the goals that matter. Set 2026-08-17, after "Weekly planning moved from Notion to this workspace" was listed at ~0.5h for work that was already done: *"We already did this. It took 5 minutes of my hands on time. Don't make it a goal."*
 - **When a goal is dropped mid-plan, check whether its tasks are still live before deleting its board band.** Dropping the band strands them into Chores. Rename the band to something honest (e.g. "This week's planning loop (process, not a goal)") and keep it below the real goals.
 

@@ -79,7 +79,7 @@ Mechanics:
    - Open with `# Week of YYYY-MM-DD (Mon M/D–Sun M/D)` and one sentence describing the theme of the week — that's the only narrative.
    - Add the **Capacity block** (see above) directly under the theme sentence, before the goals. Required on every plan.
    - Bind it: `create_review_doc(docId: "weekly-YYYY-MM-DD", path: <absolute path>, title: "Week of YYYY-MM-DD", hubWorkspaceId: <Team Lead workspace id>)`. That call both creates the review URL and files the doc under the workspace, and it auto-subscribes you to thread events — no separate `attach_doc` or `watch_doc` needed.
-   - Surface the returned `reviewUrl` to the user, rewriting the host to the Tailscale name.
+   - **Surface the WORKSPACE URL, not the doc's `reviewUrl`** — `http://mac-mini.<your-tailnet>.ts.net:8787/workspaces/<workspace_id>` (in `parent.txt`). The plan is meant to be read next to the goal bands and the task board; a bare `/review/<docId>` link opens the document alone, stripped of the surface the user asked us to move onto. `create_review_doc` returns a `reviewUrl` and it is tempting to paste it — don't.
    - **Once bound, never `Write`/`Edit` the .md again.** Route every later change through the live-feedback edit tools (`find_and_replace`, `set_doc_content` for a whole-doc rewrite) — a direct file write races the ~1s flush and gets silently clobbered.
 
 2. **Pull carry-overs from last week's doc.**

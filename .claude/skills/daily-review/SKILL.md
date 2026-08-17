@@ -37,6 +37,20 @@ Each morning the team-lead's daily cron runs this skill automatically so the use
 
 Keep it cheap and otherwise silent. The review doc + the synced Asana list ARE the morning communication — don't also message the user separately. Still surface the review URL first (step 6) in-session for when the user checks.
 
+## Say it out loud when the week is going off track (set 2026-08-17)
+
+The user asked for this directly: *"let's see how this week goes -- you can put it in your notes to ping me when you do daily review if it looks like we're off track."*
+
+**The failure this exists to catch is a week that ends with four goals at zero and nobody having said so on Wednesday.** Writing "Status: slipping" into the doc does not count — he may not open it, and a status field reads as bookkeeping. Say it in the push, in one sentence, naming what to drop.
+
+Check these every run, against this week's plan:
+
+- **Has a committed goal moved at all?** A goal with no evidence of movement by midweek is off track regardless of its due date. The measure of a slipping week is a goal at zero, not a goal that is behind.
+- **Is one goal absorbing the week?** The recurring pattern is that one large goal takes everything and the small ones were booked as if it wouldn't. If the big goal's share is running away, the small ones are already lost — say so while there is still room to protect a slot.
+- **Did a day disappear?** Illness, a flare, unplanned logistics. He will usually mention it in passing rather than as a planning input. Treat it as one: redo the capacity block and name which goal comes off.
+
+**Wednesday is the deadline for saying it**, not Friday. By Friday the only available move is to write the week off; on Wednesday there is still a choice about what to cut.
+
 ## Steps
 
 1. **Collect raw signal.**

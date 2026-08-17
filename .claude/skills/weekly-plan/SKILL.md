@@ -145,11 +145,17 @@ Mechanics:
 
 ## Reviewing why a week slipped
 
-When the user asks why he's behind — or whenever a goal carries over a second time — **measure where the hours went before accepting anyone's account of it, including his.** A plan page records intent, not outcome, and the goal that ate the week is often the one that looks quiet.
+### Delegate the measurement to Weekly Review — do not roll your own (set 2026-08-17)
 
-- **Read the transcripts, not the plan page.** For each project, the session transcript under `~/.claude/projects/<encoded-cwd>/*.jsonl` is the only record of what actually happened.
-- **Count only turns the user typed.** Filter out `<channel>`, `<task-notification>`, `<teammate-message>`, `<agent-message>`, `Another Claude session sent a message:` and skill/system injections. Left unfiltered these inflate a week 2–3× and make an idle project look busy.
-- **Report shares, not absolute hours.** The hands-on model in `plugin/team-lead-fleet/skills/retro/scripts/analyze_transcript.py` charges the user reading time for output produced while he was elsewhere, so its totals overshoot real capacity. The relative split between projects is the trustworthy part.
+**The `weekly-review` project owns this analysis. Spawn it and hand it the goal; do not write a transcript rollup in the team-lead's own context.** It has developed handling for subagent transcripts and for merging sessions that a fresh script will not reproduce, and the team-lead's job here is to administer, not to implement. This is the second time a scratch rollup got written and the user asked for it to stop — *"Above all else, please delegate. That's in your prime directives."*
+
+- Spawn it with `respawn.py --mode missing --only weekly-review --execute`, hand it the goal, let it own the loop, and spin it down when the analysis lands.
+- Give it the window, where the doc lives, and what the current draft claims — then say its methodology wins over anything already written.
+- **Don't hand it filters, constants, or a method.** Raw context about the data is fair; prescribing how to measure is the reinvention the user is objecting to.
+
+The bullets below are for reading its output, not for producing your own:
+
+- **Report shares, not absolute hours** unless Weekly Review says otherwise. Turn-based time models charge the user reading time for output produced while he was elsewhere, so totals overshoot real capacity while the relative split stays trustworthy. Sanity-check any absolute against the derived calendar capacity.
 - **Check PR activity as a cross-check, not as the measure.** A repo with zero PRs in the window can still have absorbed the week — deep investigation, benchmarking, and review all leave no PR trail. Never conclude "nothing happened here" from an empty `gh pr list`.
 - **Separate an estimate miss from an execution miss.** A goal that came in at 140% of its estimate and still isn't done is an estimating problem; a goal that never got started is a prioritization problem. They need different fixes, and conflating them produces advice that helps neither.
 - **Name dependencies the plan hid.** Two goals due the same week where one gates the other were never two goals. That is a planning defect worth fixing in the next plan, not a performance problem.

@@ -1,12 +1,14 @@
 ---
 name: weekly-plan
-description: Set this week's goals with the user in a Notion page the team-lead is listening to. Carry over unfinished work from last week, surface candidate goals, prioritize, estimate hands-on hours, the user picks, then expand kept goals. Each goal title is a specific measurable outcome with a due date and an estimate.
+description: Set this week's goals with the user in a markdown doc bound to the Team Lead live-feedback workspace. Carry over unfinished work from last week, surface candidate goals, prioritize, estimate hands-on hours, the user picks, then expand kept goals. Each goal title is a specific measurable outcome with a due date and an estimate.
 user-invocable: true
 ---
 
 # Weekly Plan
 
-The shared context the team lead and the team use to stay on the same page and move toward the user's top goals each week. Lives in Notion so the user and Team Lead can both read + edit it; Team Lead subscribes via notion-channel so comments come in as channel events.
+The shared context the team lead and the team use to stay on the same page and move toward the user's top goals each week. Lives as a markdown doc bound to the **Team Lead live-feedback workspace**, so the user and Team Lead can both read + edit it and the user's comments arrive as channel events.
+
+**Not Notion.** The user moved weekly planning off Notion on 2026-08-17 — it was too heavy-weight and the workspace is where the work already lives. Do not create a Notion page for the weekly plan, and do not call `notion_watch_page` for it. Existing Notion weekly pages stay where they are as history; nothing needs migrating.
 
 **Design intent — keep it simple.** Goals pages have grown too dense to be useful. This skill's job is the opposite: surface fewer, clearer goals that you can scan in 30 seconds.
 
@@ -20,9 +22,9 @@ Every goal has these parts. Lead every block with a **bold brief label**, and ke
 | Due | `- **Due**: <Day> YYYY-MM-DD` | its own bullet |
 | Lead | `- **Lead**: <agent> · <Bryan's role>` | its own bullet — separate from Due (different info type) |
 | Value | `- **Value:** <why it's worth doing this week — payoff / deadline / what it unblocks>` | one idea; use a fitting label (e.g. **Future Goal:** when it's a deadline) |
-| Tasks | `- **Tasks**` then a **numbered** list of concrete steps | **these become the Asana tasks** (step 9) — short, doable, one action each |
+| Tasks | `- **Tasks**` then a **numbered** list of concrete steps | **these become the workspace tasks (step 9) and the user's Asana tasks (step 11)** — short, doable, one action each |
 
-If a goal needs more than ~5–6 subtasks, it's probably two goals. Match every goal to this shape — Goal 1 on the current week's page is the reference.
+If a goal needs more than ~5–6 subtasks, it's probably two goals. Match every goal to this shape — Goal 1 on the current week's doc is the reference.
 
 ## Capacity block (required)
 
@@ -54,20 +56,23 @@ Format: a `## Capacity: ~Xh` heading carrying the week total, then a clean per-d
 
 0. **Self-update first.** Run `/self-update` before planning — it updates Claude Code to the latest version, pulls the latest `ai-team-lead` (skills/rules/registry), and propagates both to the fleet. Week-start is the right moment (fleet usually idle). Report anything that changed, then continue planning on the current tooling.
 
-1. **Find or create this week's Notion page.**
-   - Search for an existing "Weekly Plans" parent (`notion-search "Weekly Plans"`). If none, ask the user for the parent URL once and stash it in `.claude/skills/weekly-plan/parent.txt` (gitignored).
-   - Create child page titled `Week of YYYY-MM-DD (Mon M/D–Sun M/D)` — **weeks run Monday through Sunday**; the `YYYY-MM-DD` is that Monday. One sentence at the top describing the theme of the week — that's the only narrative.
-   - Add the **Capacity block** (see above) directly under the theme sentence, before the goals. Required on every page.
-   - Call `notion_watch_page` on the new page with `include_descendants: false` so the user's comments arrive as channel events.
+1. **Create this week's plan doc and bind it to the workspace.**
+   - Write `.claude/reviews/weekly-YYYY-MM-DD.md` — **weeks run Monday through Sunday**; the `YYYY-MM-DD` is that Monday. That directory is already gitignored, which matters because this repo is public and the plan names private projects.
+   - Open with `# Week of YYYY-MM-DD (Mon M/D–Sun M/D)` and one sentence describing the theme of the week — that's the only narrative.
+   - Add the **Capacity block** (see above) directly under the theme sentence, before the goals. Required on every plan.
+   - Bind it: `create_review_doc(docId: "weekly-YYYY-MM-DD", path: <absolute path>, title: "Week of YYYY-MM-DD", hubWorkspaceId: <Team Lead workspace id>)`. That call both creates the review URL and files the doc under the workspace, and it auto-subscribes you to thread events — no separate `attach_doc` or `watch_doc` needed.
+   - Surface the returned `reviewUrl` to the user, rewriting the host to the Tailscale name.
+   - **Once bound, never `Write`/`Edit` the .md again.** Route every later change through the live-feedback edit tools (`find_and_replace`, `set_doc_content` for a whole-doc rewrite) — a direct file write races the ~1s flush and gets silently clobbered.
 
-2. **Pull carry-overs from last week's page.**
-   - Locate the prior `Week of YYYY-MM-DD` page.
+2. **Pull carry-overs from last week's doc.**
+   - Locate the prior `.claude/reviews/weekly-YYYY-MM-DD.md`.
    - List every goal whose sub-outcomes aren't all checked OR that's part of a multi-week sequence.
-   - Seed them into a `## Candidate goals (carry-over)` section of the new page, preserving title/due/estimate. Mark explicitly as `(carry-over)`.
-   - **Also review the user's current Asana task list** (Asana reference in step 9): incomplete tasks assigned to him are carry-over candidates too, and note the stragglers to clean up — complete what's actually done, defer/reschedule what's stale — once the new plan is set. Skip family/others' tasks and Medical self-care items.
+   - Seed them into a `## Candidate goals (carry-over)` section of the new doc, preserving title/due/estimate. Mark explicitly as `(carry-over)`.
+   - **Check the carry-over against evidence, don't just re-list it.** A goal can look untouched on the page and have absorbed most of the week — see `## Reviewing why a week slipped` below.
+   - **Also review the user's current Asana task list** (Asana reference in step 11): incomplete tasks assigned to him are carry-over candidates too, and note the stragglers to clean up — complete what's actually done, defer/reschedule what's stale — once the new plan is set. Skip family/others' tasks and Medical self-care items.
 
 3. **Surface new candidate goals.**
-   - Pull from: this week's open PRs across the fleet (`gh pr list` per repo), peer summaries (`list_peers` + recent transcripts), Linear/Notion items the user flagged, anything the user said this week that sounded like a commitment.
+   - Pull from: this week's open PRs across the fleet (`gh pr list` per repo), peer summaries (`list_peers` + recent transcripts), open tasks and decisions already on the workspace board, anything the user said this week that sounded like a commitment.
    - Add them to a `## Candidate goals (new)` section in the same goal shape.
 
 4. **Prioritize.**
@@ -93,12 +98,24 @@ Format: a `## Capacity: ~Xh` heading carrying the week total, then a clean per-d
    - Read the page back to the user: "Week of YYYY-MM-DD: N goals, ~Xh committed against ~Yh capacity. Top 3: ..." — always state committed-vs-capacity, not just the goal count.
    - Wait for confirmation. Adjust if needed. Then move on.
 
-9. **Break committed goals into Asana tasks — the week's primary task surface.**
-   - **Asana is the user's primary "what do I work on" surface.** Notion holds the high-level goals (this page); Asana holds the detailed tasks under each committed goal, dated across the week. Do this only AFTER the goals are confirmed (step 8) — never before (`feedback_notion_goals_before_asana` memory).
-   - For each ✅ goal, create short, doable Asana tasks: imperative name, assigned to the user, `due_on` a day that has capacity — spread across the week per the Capacity block, don't pile onto one day — and a 1-line note with the relevant link.
-   - **Reconcile, don't duplicate.** Update/complete tasks that already exist; delete tasks belonging to dropped goals; clean up the stragglers flagged in step 2.
-   - **Leave alone:** family/others' tasks (shared volunteer and family projects) and the user's Medical self-care items.
-   - **Asana reference:** workspace Octoturtle `ASANA_WORKSPACE_GID` · project "Bryan's Projects" `ASANA_PROJECT_GID` · Bryan (assignee) `ASANA_ASSIGNEE_GID`. Non-premium plan → use `asana_get_tasks` (`search_tasks` is gated). The `daily-review` skill keeps this list current each morning.
+9. **Mirror the committed goals onto the workspace board.**
+   - Do this only AFTER the goals are confirmed (step 8) — never before (`feedback_notion_goals_before_asana` memory; the rule survives the move off Notion, only the surface changed).
+   - `set_goal_list` with one band per ✅ goal, in priority order. A goal that is really a chain of outcomes (build → decide → publish) is one parent band with subgoals, not three peers — peers hide the dependency.
+   - `create_tasks` for the work **the fleet owns**, one batch, each row with a body someone not in this conversation could pick up. Use `after` / `afterEnforce` to encode the chain rather than relying on the reader to infer it.
+   - **Create tasks for yourself (Team Lead) for anything handled in the ai-team-lead project.** That is the point of the board — the user should not be the only one with a task list.
+   - Leave anything not tied to a committed goal in Chores.
+
+10. **Communicate the plan to the team.**
+    - Only after the user has reviewed the doc.
+    - Message each peer that leads a committed goal via claude-hive `send_message`: the goal, its due date, and its dependencies. Goal and context only — no prescriptive checklists, no "report back when done" (`feedback_delegating_to_peers`, `feedback_dont_wire_in_status_reports`).
+    - Spin up any owning agent that isn't running; spin it back down when its task is done.
+
+11. **Refresh the user's own Asana day list.**
+    - **Asana remains the user's personal "what do I work on today" surface.** The workspace board carries the team's work; Asana carries his. Keep them from drifting — every Asana task should trace to a committed goal.
+    - For each ✅ goal, create short, doable Asana tasks: imperative name, assigned to the user, `due_on` a day that has capacity — spread across the week per the Capacity block, don't pile onto one day — and a 1-line note with the relevant link.
+    - **Reconcile, don't duplicate.** Update/complete tasks that already exist; delete tasks belonging to dropped goals; clean up the stragglers flagged in step 2.
+    - **Leave alone:** family/others' tasks (shared volunteer and family projects) and the user's Medical self-care items.
+    - **Asana reference:** workspace Octoturtle `ASANA_WORKSPACE_GID` · project "Bryan's Projects" `ASANA_PROJECT_GID` · Bryan (assignee) `ASANA_ASSIGNEE_GID`. Non-premium plan → use `asana_get_tasks` (`search_tasks` is gated). The `daily-review` skill keeps this list current each morning.
 
 ## What to avoid
 
@@ -108,11 +125,23 @@ Format: a `## Capacity: ~Xh` heading carrying the week total, then a clean per-d
 - Don't expand dropped or deferred goals.
 - Don't invent goals to fill the page. Fewer is better.
 
-## Daily life of the page
+## Reviewing why a week slipped
 
-Once the plan is set, this page is the team's shared anchor for the week:
-- Team Lead watches it via `notion_watch_page` — the user's edits/comments fire as channel events.
-- The `daily-review` skill writes a fresh `.claude/reviews/YYYY-MM-DD.md` each day; it pulls the goal list from this page to anchor priority order.
-- **Asana carries the day-to-day tasks** derived from these goals (the primary task surface); the `daily-review` skill re-syncs Asana's per-day list every morning.
+When the user asks why he's behind — or whenever a goal carries over a second time — **measure where the hours went before accepting anyone's account of it, including his.** A plan page records intent, not outcome, and the goal that ate the week is often the one that looks quiet.
+
+- **Read the transcripts, not the plan page.** For each project, the session transcript under `~/.claude/projects/<encoded-cwd>/*.jsonl` is the only record of what actually happened.
+- **Count only turns the user typed.** Filter out `<channel>`, `<task-notification>`, `<teammate-message>`, `<agent-message>`, `Another Claude session sent a message:` and skill/system injections. Left unfiltered these inflate a week 2–3× and make an idle project look busy.
+- **Report shares, not absolute hours.** The hands-on model in `plugin/team-lead-fleet/skills/retro/scripts/analyze_transcript.py` charges the user reading time for output produced while he was elsewhere, so its totals overshoot real capacity. The relative split between projects is the trustworthy part.
+- **Check PR activity as a cross-check, not as the measure.** A repo with zero PRs in the window can still have absorbed the week — deep investigation, benchmarking, and review all leave no PR trail. Never conclude "nothing happened here" from an empty `gh pr list`.
+- **Separate an estimate miss from an execution miss.** A goal that came in at 140% of its estimate and still isn't done is an estimating problem; a goal that never got started is a prioritization problem. They need different fixes, and conflating them produces advice that helps neither.
+- **Name dependencies the plan hid.** Two goals due the same week where one gates the other were never two goals. That is a planning defect worth fixing in the next plan, not a performance problem.
+
+## Daily life of the plan
+
+Once the plan is set, this doc is the team's shared anchor for the week:
+- Team Lead is auto-subscribed from `create_review_doc` — the user's comments fire as channel events on the doc's threads.
+- The `daily-review` skill writes a fresh `.claude/reviews/YYYY-MM-DD.md` each day; it pulls the goal list from this doc to anchor priority order.
+- **The workspace board carries the team's tasks**; Asana carries the user's own day list. The `daily-review` skill re-syncs Asana every morning.
+- Apply the user's comments with the live-feedback edit tools, never by writing the file.
 - When a goal completes, check off all its sub-outcomes and move it to a `## Done` section at the bottom.
 - When a goal slips, update the due date in place and note why in one line.

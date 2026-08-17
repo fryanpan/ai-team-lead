@@ -2,11 +2,15 @@
 
 ## Killer item — a tmux pane is a render, not state
 
-**Never claim a session is blocked, waiting, stuck, or holding a message based on `tmux capture-pane`.** The pane shows pixels; it cannot show what a session received. Check its transcript first — `~/.claude/projects/<cwd with / _ . replaced by ->/*.jsonl` — and find the last turn it actually processed. If it processed anything after the supposed blocker appeared, it was never blocked.
+**Never claim a session is blocked, waiting, stuck, holding a message, or BUSY / mid-task based on `tmux capture-pane`.** The pane shows pixels; it cannot show what a session received. Check its transcript first — `~/.claude/projects/<cwd with / _ . replaced by ->/*.jsonl` — and find the last turn it actually processed. If it processed anything after the supposed blocker appeared, it was never blocked. **"esc to interrupt" in the footer is a render like everything else** — reading it as "busy" made a peer get skipped as mid-task while it sat idle with `Still blocked on /mcp reconnect` on its own screen (2026-08-13).
 
-**Text on the `❯` line in the bottom box is inert.** Not a draft, not pending, not blocking. Remote Control doesn't submit through that box, so stale text sits there while messages flow past it. Don't quote it as something the user said, don't offer to send it, don't build a story on it.
+**Text on the `❯` line is not the editor — it is usually a GHOST over an empty one.** Not a draft, not pending, not blocking, and frequently not *there*. Measured 2026-08-13: a box rendering `Cancelled Fantastic` had an empty editor — typing `X` yielded `X`, and one BSpace restored the ghost; `C-u`, `C-e`+`C-u` and `C-a`+`C-k` had all done nothing because there was nothing to delete. **The only way to know is to type one sentinel character and read back whether it replaced or appended.** Until you do, say "the pane renders X", never "the user has unsent text."
 
-This is the most repeated correction in this project — it has produced a fabricated quote encoded into CRM records (2026-05-16) and a fabricated five-day fleet blocker escalated across three daily reviews (2026-08-03). Same family as trusting the process table for MCP health. **An external surface is not state. Read the transcript.**
+**Never bake pane-inference into a script.** A wrong reading in conversation costs one turn; the same reading compiled into a tool keeps making the error automatically, forever. `pane_is_busy()` in `.claude/skills/mcp-reconnect/` was exactly this and had to come out.
+
+**Driving a pane is riskier than reading one.** Typing `/` opens the command palette, and a stray Down+Enter fires whatever is highlighted — that is how `/superpowers:brainstorming` got submitted into a peer's session (2026-08-13).
+
+This is the most repeated correction in this project — it has produced a fabricated quote encoded into CRM records (2026-05-16), a fabricated five-day fleet blocker escalated across three daily reviews (2026-08-03), six non-existent "unsent messages" reported to the user as his own words, and an idle peer skipped as busy three times in one hour (both 2026-08-13). Same family as trusting the process table for MCP health. **An external surface is not state. Read the transcript.**
 
 ## Overview
 
@@ -54,7 +58,7 @@ Default to a **lean fleet**. A peer session should be running only when it has l
 ### Team coordination
 | Skill | Purpose |
 | --- | --- |
-| `/weekly-plan` | Set this week's goals with the user in a Notion page Team Lead watches. Carry over unfinished work, prioritize, estimate hands-on hours, the user picks, then expand kept goals. Each goal title is a measurable outcome with due date + estimate. |
+| `/weekly-plan` | Set this week's goals with the user in a markdown doc bound to the Team Lead live-feedback workspace (**not Notion** — moved 2026-08-17). Carry over unfinished work, prioritize, estimate hands-on hours, the user picks, then expand kept goals. Each goal title is a measurable outcome with due date + estimate. |
 | `/daily-review` | Intra-day status pass. Pulls peer transcripts + hive messages + open PRs + weekly-plan progress, asks each agent for clarification where needed, writes a prioritized review doc to `.claude/reviews/YYYY-MM-DD.md` brought under live-feedback for inline comments. |
 
 ### Agent Operations (used by peer sessions working on tickets)

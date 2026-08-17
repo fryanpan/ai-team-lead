@@ -56,11 +56,15 @@ The rule, in his words:
 Mechanics:
 
 - Pull **both** `fryanpan@gmail.com` (primary) and `Bryan's Work Calendar` (`4426rmvudfbaebrkmtj4jhep3g@group.calendar.google.com`) for Mon–Sun. Meetings land on either.
+- **Only subtract for meetings he has ACCEPTED — read his own `responseStatus` in the attendee list.** `accepted` counts; `needsAction` and `declined` do not. An invitation on the calendar is not a commitment, and treating a recurring standing invite as attendance is how a real working day gets written off. He said it plainly: *"Don't assume I'm going to [the] meeting and write general rules for it. Just look at my calendar and check if I said yes or not."* If he is the organizer, that counts as accepted.
 - Only count hours **inside 9am–5pm**. An early or evening call does not reduce the number; the 7h baseline already reserves that time.
 - **A medication or self-care reminder is not a meeting.** Don't subtract for it.
+- **Weekend is always 2h, unless he is booked on a trip.** Not zero, and not derived from meetings.
 - **Prorate the current day.** Planning usually happens Monday partway through — a 7h Monday that starts at noon is really ~4h. Check the clock (`date`), don't assume a full day.
 - **Travel, PTO, and all-day events zero out the day.** Say which event did it.
 - Show the derivation in the doc, not just the total, so he can correct the inputs rather than argue with the output.
+
+**The failure mode to avoid is generalizing from an event's existence.** Both corrections above came from the same mistake on 2026-08-17: seeing a recurring meeting on the calendar and writing a rule about it, instead of reading the one field that says whether he is going.
 
 **Where the user's own number disagrees with the rule, keep his and flag the gap.** He may know about a commitment the calendar doesn't carry — that is information you don't have, not an error to fix. Name the discrepancy in one line and move on.
 
@@ -142,6 +146,8 @@ Mechanics:
 - Don't pre-compute infrastructure / housekeeping items unless they're load-bearing for a committed goal.
 - Don't expand dropped or deferred goals.
 - Don't invent goals to fill the page. Fewer is better.
+- **Don't make already-finished work a goal, and don't make a five-minute task a goal.** A goal is a measurable outcome that still needs the user's hours. Recording something he already did — or something that costs him minutes — inflates the committed total and buries the goals that matter. Set 2026-08-17, after "Weekly planning moved from Notion to this workspace" was listed at ~0.5h for work that was already done: *"We already did this. It took 5 minutes of my hands on time. Don't make it a goal."*
+- **When a goal is dropped mid-plan, check whether its tasks are still live before deleting its board band.** Dropping the band strands them into Chores. Rename the band to something honest (e.g. "This week's planning loop (process, not a goal)") and keep it below the real goals.
 
 ## Reviewing why a week slipped
 

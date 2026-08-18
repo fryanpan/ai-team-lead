@@ -54,6 +54,15 @@ Bold for emphasis on plain text (no link inside) is fine in chat messages and in
 
 The separate live-feedback doc structure rule (use `##` headings + flat bullets, not prose-with-bold-labels-collapsing-into-paragraphs) is about phone-screen readability, not the bold marker itself. It lives in per-agent memory `feedback_live_feedback_doc_structure.md`.
 
+## A bullet has a hard ceiling — three sentences, and an edit that breaks it SPLITS rather than appends
+
+**Killer item — the wall of text is never written, it ACCUMULATES.** A daily review is amended all day; each correction gets appended to the bullet it corrects, every individual edit looks reasonable, and nobody re-reads the whole block. One bullet in the 2026-08-18 review reached **3,600 characters** that way, across five appends. Bryan's response was *"What the shit is this mass of text. This is actively harmful for a daily review — how am I supposed to use this?"*
+
+- **Three sentences, roughly 300 characters, is the ceiling for any bullet on a surface he reads on a phone.** This is a checkable limit, not a matter of taste — you can count it.
+- **After ANY edit to a block, re-read the whole block, not your diff.** The rule the writing guidance never had: it governs authoring and says nothing about amending, and amending is what these docs get all day.
+- **If your correction doesn't fit, it is a NEW bullet with its own bold label.** A retraction, a superseding number, a follow-up finding — each is its own information type, so by the one-type-per-bullet rule above it was never allowed to share a bullet in the first place.
+- **Never write "Correction, and it supersedes what I wrote here" inside an existing bullet.** That sentence is the tell that you are appending to something that should have been replaced or split. Replace the stale text, or add a bullet labelled **Retracted**.
+
 ## Self-check before publishing
 
 Before binding a review doc, sending a hive message, or sending a chat reply:

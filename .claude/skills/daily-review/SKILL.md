@@ -155,6 +155,16 @@ Every actionable item in the daily review must be either:
 
 When in doubt: paste the content inline. Better to have a longer bullet than a forward-reference. If a bullet grows past ~5 lines, that's the signal to move the long content to a separate Tailscale-linked doc and inline a 1-2-sentence summary plus the link.
 
+## Amending the doc during the day — where the wall of text comes from
+
+A daily review is edited all day as corrections land. **The failure is never a bullet written too long; it is a bullet appended to five times.** Each edit looks reasonable in isolation and the block is never re-read as a whole.
+
+- **Ceiling: three sentences (~300 characters) per bullet.** Countable, not a matter of taste.
+- **After any `find_and_replace`, re-read the whole block you touched** — not just your replacement.
+- **A correction that doesn't fit becomes its own bullet** with its own bold label (**Retracted**, **Superseded**, **New number**). It is a different information type, so it was never eligible to share a bullet.
+- **If a bullet is already over the ceiling, restructure instead of editing**: `create_anchor` on the section HEADING, `insert_blocks_at_anchor` the full replacement list, then delete the old blocks. Anchoring on a list item makes the inserted bullets CHILDREN of that item, and deleting the parent then destroys them — cost several wasted rounds on 2026-08-18.
+- **Verify by measuring, before you declare it fixed**: `awk 'length($0)>300 {print length($0)}' .claude/reviews/YYYY-MM-DD.md` should print nothing.
+
 ## What to avoid
 
 - **Don't write "blocked on" / "waiting on" / "holding" without checking the peer's transcript.** The tmux pane is a render, not state — it cannot show what a session received. Grep `~/.claude/projects/<encoded-cwd>/*.jsonl` for its last processed turn; if that turn is newer than the supposed blocker, the session was never blocked. Text on the `❯` line is inert, not a pending message. This skill is where a fabricated five-day fleet blocker got escalated three days running (2026-08-03); see the killer item in `CLAUDE.md`.

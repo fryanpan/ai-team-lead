@@ -2,6 +2,23 @@
 
 Technical discoveries that should persist across sessions.
 
+## A Worktree Outlived The Session That Entered It, And `from_cwd` Kept Reporting It An Hour After The Exit (2026-08-18)
+
+- **Nobody entered the worktree during the session that was in it.** Parsed every transcript for that repo: across all of them there is **exactly one `EnterWorktree` call ever**, on 2026-07-17, in a *different* session. The peer that spent 2026-08-17 operating from a nested worktree never called it — the state was inherited across a session boundary while the reasoning that created it was not. `ExitWorktree` was available the whole time and one call cleared it. **An agent cannot revisit a decision that isn't in its history**, so this persists silently until someone outside notices the path.
+- **`from_cwd` on claude-hive is registration-time, not live — it is useless as a detection signal in BOTH directions.** It reported the worktree path in messages sent **55 minutes after** a verified `ExitWorktree`, with the process demonstrably in the primary checkout. So it cannot tell you a session is in a worktree, and it cannot tell you it left. The check that works is `lsof -a -p <pid> -d cwd`, corroborated by asking the session. Same family as the killer item: an external surface is a render of when it was written, not of what is true now.
+- **Reading it as live cost a whole wrong plan.** Because `from_cwd` disagreed with reality I concluded the peer had been *spawned* into a worktree, and proposed killing it, appending a 215MB transcript, and respawning at main. The transcript didn't exist either. The actual repair was one tool call the peer could make itself without losing context.
+- **The count came from the path shape, which owns nothing.** The cwd read as two nested worktrees so I said two `ExitWorktree`. Only the inner one was session-level; the outer predated the session and the tool refuses worktrees it didn't create. **A path is a string, not an ownership record.**
+- **I nearly wrote a false finding from a grep that could not have matched.** `grep '"name":"EnterWorktree"'` returned zero and I was one step from publishing "nobody ever entered it" — which happened to be *true* and was not *evidenced*. The raw file has 27 textual hits and, once JSON-parsed, **2 tool calls, neither of them `EnterWorktree`**. Grep a structure and a confident absence is what you get; parse the format. Same shape as the `grep -r` symlink entry below.
+
+### What separated the correct measurements from the wrong ones, in one evening
+
+Three confident measurements from one peer were wrong that night (a destructive `mv`, a 215MB/1MB transcript pair, the direction of a disk-vs-live sync call) and several were exactly right and load-bearing (a 24-commit deploy gap, an env var absent from a checkout, a merge-base spent on two different questions).
+
+- **The right ones quoted the output of a command that read the thing itself** — a commit count, a symbol grep against the built bundle, a file that was or wasn't in a tree.
+- **The wrong ones inferred from what something was CALLED or WHERE IT SAT** — a path shape became a worktree count, two files sharing a name became a canonical-plus-copy pair, and a tool named `reparse_from_disk` was assumed to push *to* disk.
+- **The tell, and it is checkable before you speak: if the claim is about what something IS and the evidence is what it's NAMED or where it LIVES, it is a guess.** Both of my own errors above are the same shape, so this is not a peer problem.
+- **Self-correction is what kept all three off the user's plate** — the peer retracted two unprompted, and I caught the third only because I checked it. Worth preserving as the actual safety mechanism: none of these were caught by review.
+
 ## The Pre-Push Scrub Gate Exists In 2 Of ~40 Fleet Repos, And I Told A Peer It Protected Its Repo (2026-08-17)
 
 - **`CLAUDE.md` documents the gate in a way that reads fleet-wide, and it is per-repo opt-in.** It says the hook "runs `scrub-check.py` on the diff being pushed and blocks the push," then mentions `SCRUB_FLEET_REGISTRY` as the "cross-repo fleet check … so the gate works in peer repos too." That last line is the trap: the env var makes the gate *scan for fleet names* in a peer repo, but only if the hook is installed there. It never is. The one-time `git config core.hooksPath .githooks` is listed under this repo's own setup and nothing propagates it.

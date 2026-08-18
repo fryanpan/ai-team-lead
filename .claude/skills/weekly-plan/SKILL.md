@@ -195,11 +195,11 @@ Mechanics:
 
 ## Reviewing why a week slipped
 
-### Delegate the measurement to Weekly Review — do not roll your own (set 2026-08-17)
+### Delegate the measurement to the owning project — do not roll your own (set 2026-08-17)
 
-**The `weekly-review` project owns this analysis. Spawn it and hand it the goal; do not write a transcript rollup in the team-lead's own context.** It has developed handling for subagent transcripts and for merging sessions that a fresh script will not reproduce, and the team-lead's job here is to administer, not to implement. This is the second time a scratch rollup got written and the user asked for it to stop — *"Above all else, please delegate. That's in your prime directives."*
+**The registry project that owns this analysis owns it. Spawn it and hand it the goal; do not write a transcript rollup in the team-lead's own context.** It has developed handling for subagent transcripts and for merging sessions that a fresh script will not reproduce, and the team-lead's job here is to administer, not to implement. This is the second time a scratch rollup got written and the user asked for it to stop — *"Above all else, please delegate. That's in your prime directives."*
 
-- Spawn it with `respawn.py --mode missing --only weekly-review --execute`, hand it the goal, let it own the loop, and spin it down when the analysis lands.
+- Spawn it with `respawn.py --mode missing --only <its registry key> --execute`, hand it the goal, let it own the loop, and spin it down when the analysis lands.
 - Give it the window, where the doc lives, and what the current draft claims — then say its methodology wins over anything already written.
 - **Don't hand it filters, constants, or a method.** Raw context about the data is fair; prescribing how to measure is the reinvention the user is objecting to.
 

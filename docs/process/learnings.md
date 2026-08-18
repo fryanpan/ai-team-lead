@@ -2,22 +2,44 @@
 
 Technical discoveries that should persist across sessions.
 
-## A Worktree Outlived The Session That Entered It, And `from_cwd` Kept Reporting It An Hour After The Exit (2026-08-18)
+## `ExitWorktree` Renamed A Session's Transcript Onto Its Parent Encoding And Destroyed 215MB Of History (2026-08-18)
 
-- **Nobody entered the worktree during the session that was in it.** Parsed every transcript for that repo: across all of them there is **exactly one `EnterWorktree` call ever**, on 2026-07-17, in a *different* session. The peer that spent 2026-08-17 operating from a nested worktree never called it — the state was inherited across a session boundary while the reasoning that created it was not. `ExitWorktree` was available the whole time and one call cleared it. **An agent cannot revisit a decision that isn't in its history**, so this persists silently until someone outside notices the path.
-- **`from_cwd` on claude-hive is registration-time, not live — it is useless as a detection signal in BOTH directions.** It reported the worktree path in messages sent **55 minutes after** a verified `ExitWorktree`, with the process demonstrably in the primary checkout. So it cannot tell you a session is in a worktree, and it cannot tell you it left. The check that works is `lsof -a -p <pid> -d cwd`, corroborated by asking the session. Same family as the killer item: an external surface is a render of when it was written, not of what is true now.
-- **Reading it as live cost a whole wrong plan.** Because `from_cwd` disagreed with reality I concluded the peer had been *spawned* into a worktree, and proposed killing it, appending a 215MB transcript, and respawning at main. The transcript didn't exist either. The actual repair was one tool call the peer could make itself without losing context.
-- **The count came from the path shape, which owns nothing.** The cwd read as two nested worktrees so I said two `ExitWorktree`. Only the inner one was session-level; the outer predated the session and the tool refuses worktrees it didn't create. **A path is a string, not an ownership record.**
-- **I nearly wrote a false finding from a grep that could not have matched.** `grep '"name":"EnterWorktree"'` returned zero and I was one step from publishing "nobody ever entered it" — which happened to be *true* and was not *evidenced*. The raw file has 27 textual hits and, once JSON-parsed, **2 tool calls, neither of them `EnterWorktree`**. Grep a structure and a confident absence is what you get; parse the format. Same shape as the `grep -r` symlink entry below.
+- **Killer item — `ExitWorktree` is a destructive operation on transcript history, and nothing warns you.** When a session's transcript lives under a worktree-encoded project dir and the parent-repo encoding already holds a transcript, exiting the worktree **renames the worktree file onto the parent path**, silently overwriting whatever was there. Measured here: a 214,967,259-byte transcript — roughly seven weeks of one peer's history — was replaced by a 9.7MB file. No error, no prompt, no backup. **Before calling `ExitWorktree`, copy the parent encoding's `*.jsonl` somewhere else.**
+- **The evidence is a directory mtime pair, and it is unambiguous.** Both the worktree-encoded dir and the parent-repo dir carry mtime `2026-08-17 16:07:55` — the same second as the `ExitWorktree` tool call at `2026-08-17T23:07:55.039Z`. That is the signature of `rename(2)`: the source directory is stamped when the entry is removed, the destination when it is created. Corroborating, the file now standing at the parent path has the *worktree* file's birthtime to the second, which an intra-filesystem rename preserves.
+- **Ruled out, by measurement rather than by argument: no agent moved it.** Parsing every session transcript on the machine for `mv`/`cp`/`rm` touching a `.jsonl` inside the loss window returned **zero**. The window itself was pinned by two quoted outputs an hour apart — an `ls -l` at `22:09:39Z` showing the 215MB file alive, and a `find -size +50M` at `23:08:52Z` showing it gone. `ExitWorktree` at `23:07:55Z` is the only recorded event between them, 57 seconds before the search that found it missing.
+- **Retraction, and it is the reason this entry exists: I reported to the user that the 215MB transcript "doesn't exist."** The peer had described it accurately; I ran a search *after* the deletion, found nothing, and concluded the file had never been there. **Absence now is equally well explained by destruction as by non-existence, and I only considered one of them.** The peer inverted my premise the same evening and was right. The `ls -l` proving it was in a transcript I already had.
+- **Retraction 2: "nobody entered the worktree" is no longer supported, because the evidence was inside the file the exit destroyed.** The claim was drawn from parsing the surviving transcript for `EnterWorktree`; that transcript begins after the session was already in the worktree. The peer put it best — *"I can't answer what put me there and kept me there from evidence, because the evidence was in the file the plan destroyed."* **An audit that runs after a destructive step cannot cite its own result.**
+- **Exposure check — compare sizes across the encodings before anyone exits anything:**
+
+  ```bash
+  P=~/.claude/projects            # note: ~/.claude is a symlink; -L or an explicit path
+  for d in "$P"/*worktrees*/; do
+    wt=$(ls -1S "$d"*.jsonl 2>/dev/null | head -1) || continue
+    base=${d%%--claude-worktrees*}                 # parent-repo encoding
+    pf=$(ls -1S "$base"*.jsonl 2>/dev/null | head -1)
+    [ -n "$wt" ] && [ -n "$pf" ] && [ "$(stat -f %z "$pf")" -gt "$(stat -f %z "$wt")" ] \
+      && echo "AT RISK: exiting would overwrite $(stat -f %z "$pf") bytes — $base"
+  done
+  ```
+
+  Run 2026-08-18: one dormant landmine (a 3MB worktree file against a **131MB** parent, no live process in it) and no live session in the destructive direction. Two peers are process-homed in worktrees; one has no worktree-encoded transcript at all, and the other's directory is a plain sibling rather than a Claude-managed worktree, so neither is exposed to this specific rename.
+- **There is no recovery path on this machine, and that is the larger finding.** `tmutil listlocalsnapshots /` returns nothing and `tmutil destinationinfo` reports no destinations configured. **No APFS snapshots, no Time Machine — zero backup coverage for anything outside git.** Transcripts are an analysis input, not merely a log: the retro tooling and the weekly pipeline both mine them, so losing them removes evidence, not just record. A 168MB copy of the two largest exposed transcripts now sits in `~/Library/Application Support/team-lead/transcript-backups/` as a stopgap; it is not a backup system.
+
+### The secondary finding: `from_cwd` is registration-time and useless in both directions
+
+- **It reported a worktree path in messages sent 55 minutes after a verified exit,** with the process demonstrably in the primary checkout. So it cannot tell you a session is in a worktree, and it cannot tell you it left. The check that works is `lsof -a -p <pid> -d cwd`, corroborated by asking the session — kernel state, not a rendered surface, which is what makes it legitimate to automate where pane inference is not.
+- **Reading it as live cost a whole wrong plan** — kill the peer, append a transcript, respawn at main — when the repair was one tool call the peer could make itself without losing context. The irony is exact: the plan I abandoned would have preserved the file that the plan I adopted destroyed.
+- **The count came from the path shape, which owns nothing.** The cwd read as two nested worktrees so I said two `ExitWorktree`. Only the inner one was session-level; the outer predated the session, and the tool refuses worktrees it didn't create.
+- **`grep '"name":"EnterWorktree"'` returned zero and I nearly published that as a finding.** The raw file has 27 textual hits and, once JSON-parsed, 2 tool calls. **Grep a structure and a confident absence is what you get** — parse the format. Same shape as the `grep -r` symlink entry below.
 
 ### What separated the correct measurements from the wrong ones, in one evening
 
-Three confident measurements from one peer were wrong that night (a destructive `mv`, a 215MB/1MB transcript pair, the direction of a disk-vs-live sync call) and several were exactly right and load-bearing (a 24-commit deploy gap, an env var absent from a checkout, a merge-base spent on two different questions).
+Several confident claims that night were wrong (a destructive `mv` that never ran, a transcript declared non-existent, the direction of a disk-vs-live sync call) and several were exactly right and load-bearing (a 24-commit deploy gap, an env var absent from a checkout, a merge-base spent on two different questions).
 
-- **The right ones quoted the output of a command that read the thing itself** — a commit count, a symbol grep against the built bundle, a file that was or wasn't in a tree.
-- **The wrong ones inferred from what something was CALLED or WHERE IT SAT** — a path shape became a worktree count, two files sharing a name became a canonical-plus-copy pair, and a tool named `reparse_from_disk` was assumed to push *to* disk.
-- **The tell, and it is checkable before you speak: if the claim is about what something IS and the evidence is what it's NAMED or where it LIVES, it is a guess.** Both of my own errors above are the same shape, so this is not a peer problem.
-- **Self-correction is what kept all three off the user's plate** — the peer retracted two unprompted, and I caught the third only because I checked it. Worth preserving as the actual safety mechanism: none of these were caught by review.
+- **My first rule for telling them apart was itself wrong, and the peer refuted it.** I proposed "the right ones quoted command output; the wrong ones inferred from a name or a location." But the `find` behind "the transcript doesn't exist" *was* quoted output, run correctly, against the right path.
+- **The rule that survives: check whether the observation and the claim are about the same moment and the same object.** A search run after a deletion is a true statement about now and a false one about then. A path shape is a true statement about a name and a false one about ownership. Both failures are timing-and-referent errors, not evidence-quality errors.
+- **Corollary, from the same peer, and it is what made tonight solvable: quote the measurement into the message.** The `ls -l` output was only checkable twelve hours later because someone had pasted the actual bytes rather than summarizing them. A number in prose is a claim; a pasted command output is evidence with a timestamp attached.
+- **Self-correction, not review, is what caught every one of these.** Two were retracted unprompted by the peer; the third I caught only by checking my own. None surfaced through anyone reviewing anyone.
 
 ## The Pre-Push Scrub Gate Exists In 2 Of ~40 Fleet Repos, And I Told A Peer It Protected Its Repo (2026-08-17)
 

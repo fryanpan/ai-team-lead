@@ -146,6 +146,13 @@ Every actionable item in the daily review must be either:
 
 **Never use forward-references** like "see Decisions §N" or "see below" or "ask <peer> for details." If the user has to scroll/navigate/ping to find what they need, the daily review failed its job. The user reads on phone — every "see X" is a context switch he pays for.
 
+**Link the noun, not the bullet.** A trailing `- **Link**: <url>` still makes him hunt — he reads "PR #1669 still reads DRAFT" and has to scroll to find it. Put the link on the phrase itself, at first mention (Bryan, 2026-08-18: *"Please give me inline links in the daily review wherever possible. so I don't have to hunt them down"*). Keep the trailing Link bullet only for the section's home surface.
+
+- Link every artifact you name, individually — each PR, not "PRs #187, #213 and #214" as bare text; a settings change straight to the settings page.
+- One link per bullet — he skims bullet → click → return → next.
+- **Verify every URL resolves before it goes in** (`gh pr view`, an API call). Where you don't have one, name what to open and ask him to paste it once. A dead link costs him more than a missing one, because he only finds out after the context switch.
+- Watch for a link that is correct but points at the wrong state — a GitHub file link whose relevant content is still on an unpushed branch opens a version without it.
+
 When in doubt: paste the content inline. Better to have a longer bullet than a forward-reference. If a bullet grows past ~5 lines, that's the signal to move the long content to a separate Tailscale-linked doc and inline a 1-2-sentence summary plus the link.
 
 ## What to avoid

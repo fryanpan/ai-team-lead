@@ -94,6 +94,15 @@ BASE_CHECKS = [
     {"type": "http", "name": "github broker", "expect": '"ok":true',
      "url": "http://127.0.0.1:7902/health"},
 
+    # --- the machine itself. Added 2026-08-18 after Bryan reported it feeling
+    #     slow: 13GB was swapped out on a 16GB machine and nothing anywhere
+    #     said so. Every one of these reads kernel state and names no process,
+    #     so it goes red when the machine is short rather than when some
+    #     particular program is large. ---
+    {"type": "swap", "name": "swap", "max_used_gb": 8.0},
+    {"type": "free_memory", "name": "free memory", "min_free_pct": 15},
+    {"type": "load", "name": "load", "max_per_core": 1.5},
+
     # --- alive and failing: the shape no process check can see ---
     {"type": "log_errors", "name": "email watcher", "max": 0,
      "path": "~/Library/Logs/email-channel-watcher.log",

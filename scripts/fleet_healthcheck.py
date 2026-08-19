@@ -377,6 +377,71 @@ def check_file_present(spec):
     return True, f"{spec['name']}: present"
 
 
+def _sysctl(name):
+    """One kernel read. sysctl is not subject to the secondary-volume gate that
+    blocks an Apple-signed interpreter from touching /Volumes/Data -- it reads
+    kernel state, not a file, so it works identically under launchd."""
+    out = sh(f"/usr/sbin/sysctl -n {name}")
+    return out.strip() if out else ""
+
+
+def check_free_memory(spec):
+    """Free-memory percentage, the number the OS itself acts on.
+
+    kern.memorystatus_level is what /usr/bin/memory_pressure prints as
+    "System-wide memory free percentage" -- the same value the kernel uses to
+    decide when to start killing processes. This asserts an end state: no
+    process is named, nothing is assumed about who is using the memory, and it
+    goes red when the machine is actually short rather than when some particular
+    program is large.
+    """
+    raw = _sysctl("kern.memorystatus_level")
+    if not raw.isdigit():
+        return False, f"{spec['name']}: PROBE-FAILED (kern.memorystatus_level -> {raw!r})"
+    free = int(raw)
+    floor = spec.get("min_free_pct", 15)
+    if free < floor:
+        return False, f"{spec['name']}: {free}% free (floor {floor}%)"
+    return True, f"{spec['name']}: {free}% free"
+
+
+def check_swap(spec):
+    """Absolute swap in use, not a percentage of the swap file.
+
+    macOS grows the swap file on demand, so "percent of swap used" is
+    self-correcting and says nothing -- it sits near full right up until the
+    kernel allocates more. The meaningful quantity is how many GB the machine
+    has pushed out of RAM, measured against physical memory.
+    """
+    raw = _sysctl("vm.swapusage")
+    m = re.search(r"used\s*=\s*([\d.]+)M", raw)
+    if not m:
+        return False, f"{spec['name']}: PROBE-FAILED (vm.swapusage -> {raw[:80]!r})"
+    used_gb = float(m.group(1)) / 1024.0
+    ceiling = spec.get("max_used_gb", 8.0)
+    if used_gb > ceiling:
+        return False, (f"{spec['name']}: {used_gb:.1f}GB swapped out "
+                       f"(ceiling {ceiling}GB) -- the machine is paging, "
+                       f"which is what 'feels slow' is")
+    return True, f"{spec['name']}: {used_gb:.1f}GB swapped out"
+
+
+def check_load(spec):
+    """1-minute load average per core. Sustained >1.0/core means work is
+    queueing for CPU rather than running."""
+    raw = _sysctl("vm.loadavg")
+    m = re.search(r"\{\s*([\d.]+)", raw)
+    ncpu = _sysctl("hw.ncpu")
+    if not m or not ncpu.isdigit():
+        return False, f"{spec['name']}: PROBE-FAILED (vm.loadavg -> {raw[:60]!r})"
+    per_core = float(m.group(1)) / int(ncpu)
+    ceiling = spec.get("max_per_core", 1.5)
+    if per_core > ceiling:
+        return False, (f"{spec['name']}: {per_core:.2f} per core over {ncpu} cores "
+                       f"(ceiling {ceiling})")
+    return True, f"{spec['name']}: {per_core:.2f} per core"
+
+
 CHECKS = {
     "launchd": check_launchd,
     "port": check_port,
@@ -386,6 +451,9 @@ CHECKS = {
     "channel_flags": check_channel_flags,
     "file_present": check_file_present,
     "plugin_version": check_plugin_version,
+    "free_memory": check_free_memory,
+    "swap": check_swap,
+    "load": check_load,
 }
 
 

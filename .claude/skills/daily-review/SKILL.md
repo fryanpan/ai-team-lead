@@ -60,6 +60,7 @@ Check these every run, against this week's plan:
    - Fleet PRs: `gh pr list --json number,title,state,reviewDecision,updatedAt --repo <repo>` per registered repo (parallel via Bash background).
    - Live-feedback threads on the weekly plan + other watched docs: `list_threads`.
    - Discord messages: `fetch_messages` since last review.
+   - **Fleet health: read `~/Library/Application Support/team-lead/healthcheck-status.json`.** Every RED goes in the review. This is the step that owns the outcome — the checker writes a log and fires a notification, and until this bullet existed, nothing anywhere was defined as reading either. It ran 22 times with 116 RED lines and three failures red on *every single run* before anyone looked (2026-08-18).
 
 2. **Ask peers for context only where the transcript isn't enough.**
    - For each peer working a committed goal, decide: is what they did today obvious from the transcript? If yes, skip the ping.
@@ -136,6 +137,14 @@ Check these every run, against this week's plan:
    - Thread events arrive as channel notifications — handle them per the live-feedback skill (`feedback-threads` for triage, the `editing-review-docs` skill for any edits to the file).
    - When the user edits a section directly, re-read the file and carry his changes forward into peer dispatches.
    - Resolved threads = decisions made. Reflect them back into the weekly plan if they change goal priority or scope.
+
+## Every RED health check gets an owner and an age
+
+A RED that appears in the review with no owner is the same as a RED nobody read. For each one, say **who can clear it** — you, Bryan, or a named peer — and **how many consecutive runs it has been red**. Age is the part that distinguishes a new outage from furniture.
+
+- **Red for the first time** → treat as an outage; diagnose it in the review.
+- **Red every run for days** → it is blocked on someone. Name them and say what specifically they have to do. "The email watcher's Google Cloud project is deleted; only you can recreate it" is actionable. "email watcher: RED" is furniture.
+- **Blocked on Bryan** → it belongs in `## Decisions needed from you`, not buried in Off-plan.
 
 ## Inline content or Tailscale link — never a forward-reference
 

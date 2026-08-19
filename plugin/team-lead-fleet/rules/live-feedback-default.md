@@ -22,9 +22,9 @@ When you want the user to review a markdown doc OR a dev server / interactive pr
 
 **Markdown docs** — bind via `mcp__plugin_live-feedback__create_review_doc(docId, path, title?)`, passing `hubWorkspaceId` if your project has a hub workspace.
 
-**If the doc belongs to a workspace, link the WORKSPACE, not the doc.** `http://mac-mini.<your-tailnet>.ts.net:8787/workspaces/<workspace_id>`. The doc is meant to be read next to its goal bands and task board; a bare `/review/<docId>` link opens it stripped of all of that. `create_review_doc` returns a `reviewUrl` and pasting it is the easy mistake — resist it whenever a workspace exists.
+**Link the thing you are asking him to look at.** If you say "here is the diff", the link goes to the diff. `create_review_doc` returns a `reviewUrl` — use it, rewriting only the host to the Tailscale name. His words, 2026-08-18: *"When you give me a thing to review, give me a link directly to that thing. Not the workspace!"*
 
-**Only for a standalone doc with no workspace**, share the `reviewUrl` the call returned (`http://mac-mini.<your-tailnet>.ts.net:8787/review/<docId>`). Don't hand-build it — use what the tool returned and only rewrite the host to the Tailscale name.
+**Link the workspace only when the workspace is the subject** — "here is where the week stands", a board-level pass, a pointer to everything at once. A workspace link in place of a doc link makes him hunt for the doc you just described, which is the same failure as a forward-reference.
 
 **Dev servers / HTML mockups** — use the `live-feedback:embedding-widget` skill (it covers the `<script>` tags + `setContext` calls).
 

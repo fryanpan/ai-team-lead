@@ -24,6 +24,10 @@ Above all else, **know exactly who the audience is and the purpose of your writi
   - When the doc makes a recommendation, the first section states the decision, the criteria it turns on, and the recommendation — criteria before the recommendation, so the reader can judge it rather than just read it
 - *Actions*
   - End with one consolidated checklist of actions. Don't scatter action items across sections.
+- *Bullets*
+  - One link or reference per bullet — split a bullet that would cite two things.
+  - Never nest bold with a link in either direction (`**[x](url)**`, `[**x**](url)`); renderers leave literal `**` behind.
+  - Three sentences (~300 characters) is the ceiling for a bullet. If an edit breaks it, split into a new bullet with its own label — never append a correction to an existing one — and re-read the whole block after any edit.
 
 ## Truth
 

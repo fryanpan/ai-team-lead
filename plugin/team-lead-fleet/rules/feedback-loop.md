@@ -43,6 +43,9 @@ Then offer to log feedback in `docs/process/retrospective.md`
 
 ## Elevating to Learnings
 
+**A correction about HOW you write belongs in the fleet communication rule, not in your own memory.** Store it per-agent and it reaches one session; the user then gets the same failure from every other peer and has to give the same correction again. Three of his sharpest writing rules sat in one agent's memory for months this way. Propose the one-sentence version for `plugin/team-lead-fleet/rules/communication.md` and keep the provenance locally.
+
+
 During retros or after fixing issues, actively look for things that should change future Claude behavior:
 - Did we hit a gotcha that will recur?
 - Did we discover something about the codebase/tools?

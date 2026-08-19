@@ -44,6 +44,6 @@ Write like an **expert technical writer.**
 
 - Use plain words an expert writer would say out loud.
   - Avoid flowery, vivid words like "load-bearing", "earns its keep". Use simple words instead.
-  - Avoid adjectives. Show actual measured data instead.
+  - Don't let an adjective stand in for a number. "Significantly faster" is the failure; "49ms against 2500ms" is the fix.
 - Introduce new vocabulary only if necessary and define it and use it consistently
 - Use Mermaid for diagrams and real tables for tabular data. No ASCII art in code blocks.

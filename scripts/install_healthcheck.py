@@ -123,7 +123,8 @@ BASE_CHECKS = [
     #     and receives no events; argv is the only place that shows. ---
     {"type": "channel_flags", "name": "channel flags", "required": [
         "server:claude-hive",
-        "plugin:live-feedback@claude-live-feedback",
+        ["plugin:claude-workspaces@claude-workspaces",
+         "plugin:live-feedback@claude-live-feedback"],
         "plugin:notion-channel-mcp@notion-channel-mcp",
         "plugin:github-claude-channel@github-claude-channel",
     ]},

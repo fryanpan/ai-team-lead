@@ -345,10 +345,17 @@ def check_channel_flags(spec):
     no flag, so no event could reach anybody -- and from inside a session that
     looks completely normal. This check reads argv, which is where the truth is.
     """
-    required = spec["required"]
+    # A required entry may be a list, meaning "any one of these spellings".
+    # That is what carries a plugin rename: during the rollout the old and new
+    # install keys are both live -- a session emits the new one only after it
+    # restarts onto the new bundle -- so demanding a single exact string would
+    # mark every migrated session as missing its wake, fleet-wide, and the red
+    # would be loudest exactly when the rollout was working.
+    required = [r if isinstance(r, list) else [r] for r in spec["required"]]
     missing = []
     for pid, argv in claude_sessions():
-        absent = [f for f in required if f not in argv]
+        absent = [alts[0] for alts in required
+                  if not any(f in argv for f in alts)]
         if absent:
             cwd = session_cwd(pid) or "?"
             missing.append(f"{os.path.basename(cwd)}({pid}) missing {','.join(absent)}")

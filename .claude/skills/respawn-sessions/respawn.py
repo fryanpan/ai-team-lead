@@ -6,7 +6,9 @@ Reads `registry.yaml` from the parent ai-team-lead repo. For each
 project with `respawn: true`, depending on --mode:
   - `missing` (default): spawn only if no claude is running with that cwd.
   - `plugin`: kill + respawn any session that does not have the
-    `claude-live-feedback` plugin loaded (canonical fleet plugin).
+    canonical fleet plugin loaded, under either install key
+    (`claude-workspaces@claude-workspaces` or the pre-rename
+    `live-feedback@claude-live-feedback`).
   - `all`: kill + respawn every respawn=true session (skipping the team-lead's
     own claude — never kill self).
   - `running`: kill + respawn every session that is ACTUALLY running, at the
@@ -57,9 +59,25 @@ REGISTRY_PATH = os.path.join(REPO_ROOT, "registry.yaml")
 LSOF_TIMEOUT_SEC = 5.0
 PS_TIMEOUT_SEC = 5.0
 
-# Marker substring in claude argv that indicates the live-feedback plugin
-# is loaded. Used by --mode=plugin to detect sessions that need an upgrade.
-PLUGIN_MARKER = "plugin:live-feedback@claude-live-feedback"
+# Marker substrings in claude argv indicating the canonical fleet plugin is
+# loaded. Used by --mode=plugin to detect sessions that need an upgrade.
+#
+# BOTH spellings are accepted, and this is load-bearing during the
+# live-feedback -> claude-workspaces rename (2026-08-18). A session emits the
+# new install key only after it restarts onto the new bundle, so the two
+# coexist across the fleet for the whole transition. Matching only one spelling
+# would make --mode=plugin classify every session on the other side of the
+# rollout as "missing the plugin" and kill+respawn the entire fleet -- the most
+# expensive possible false positive, since the fix looks exactly like the work.
+PLUGIN_MARKERS = (
+    "plugin:claude-workspaces@claude-workspaces",
+    "plugin:live-feedback@claude-live-feedback",
+)
+
+
+def has_fleet_plugin(argv: str) -> bool:
+    """True if argv carries the fleet plugin under EITHER name."""
+    return any(m in argv for m in PLUGIN_MARKERS)
 
 TMUX_BIN = "/opt/homebrew/bin/tmux"
 
@@ -209,7 +227,10 @@ DISCORD_STAGGER_SEC = 25.0
 # post-spawn health check, which is advisory: it reports, it does not fail the run.
 EXPECTED_MCP_MARKERS = {
     "claude-hive": "claude-hive-mcp",
-    "live-feedback": "claude-live-feedback-plugin/packages/plugin/mcp",
+    # Matches either checkout dir name across the rename: the repo is
+    # claude-workspaces-plugin, the older local clone is
+    # claude-live-feedback-plugin. The tail is identical in both.
+    "workspaces": "-plugin/packages/plugin/mcp",
     "discord": "claude-plugins-official/discord",
 }
 
@@ -389,6 +410,49 @@ def resolve_home_path(cwd: str) -> str:
         p = parent
 
 
+_REGISTRY_PATHS_CACHE: Optional[List[str]] = None
+
+
+def registry_home_for(path: str) -> Optional[str]:
+    """Return the registry path of the project that CONTAINS `path`, if any.
+
+    A peer's home is its registry path; a worktree is temporary scratch. Nothing
+    else in this script enforces that, and `resolve_home_path` above cannot: it
+    is defined to find where the transcript LIVES, so if a session relocated its
+    own transcript into a worktree, the walk stops there on the first iteration
+    and faithfully returns the worktree. Both behaviours are correct in
+    isolation and the outcome — a peer staying at its registered home — was
+    owned by no step, so a misplacement got copied forward on every respawn.
+    Measured 2026-08-17: a peer had lived in a doubly-nested worktree since
+    09:20 and the account-switch respawn reproduced it exactly.
+
+    This does the ownership half. It deliberately does NOT relocate anything:
+    moving a transcript is how the misplacement happened in the first place, and
+    respawning at a path whose transcript is elsewhere silently starts a blank
+    session. It reports, and a human decides.
+
+    Matches every registry project, not just `respawn: true` ones — a peer with
+    `respawn: false` is exactly the kind that gets cycled by `--mode running`.
+    """
+    global _REGISTRY_PATHS_CACHE
+    if _REGISTRY_PATHS_CACHE is None:
+        paths = []
+        for fields in parse_registry(REGISTRY_PATH).values():
+            raw = fields.get("path", "")
+            if not raw:
+                continue
+            p = os.path.realpath(os.path.expanduser(raw))
+            if os.path.isdir(p):
+                paths.append(p)
+        # Longest first so a nested project wins over its parent.
+        _REGISTRY_PATHS_CACHE = sorted(paths, key=len, reverse=True)
+    real = os.path.realpath(path)
+    for project in _REGISTRY_PATHS_CACHE:
+        if real == project or real.startswith(project + os.sep):
+            return project
+    return None
+
+
 def collect_running_targets(running: Dict[int, Dict[str, str]],
                             self_pid: Optional[int]) -> List[Tuple[str, str]]:
     """Return (display_name, cwd) for every live claude except the team-lead.
@@ -436,6 +500,15 @@ def collect_running_targets(running: Dict[int, Dict[str, str]],
             print(f"[home] {display}: running in {cwd}\n"
                   f"       but its transcript lives under {home} — respawning there "
                   f"so --continue resumes it.")
+        registry_home = registry_home_for(home)
+        if registry_home and registry_home != os.path.realpath(home):
+            print(f"[misplaced] {display}: home is {home}\n"
+                  f"            but its registry path is {registry_home}.\n"
+                  f"            Respawning where it is, so --continue keeps its context —\n"
+                  f"            but this session lives in a worktree and every respawn will\n"
+                  f"            reproduce that until its transcript is migrated. See\n"
+                  f"            'Misplaced session home' in the respawn-sessions SKILL.md.",
+                  file=sys.stderr)
         targets.append((display, home))
 
     targets.sort(key=lambda t: discord_state_dir_for(t[1]) != NO_DISCORD_STATE_DIR)
@@ -563,6 +636,10 @@ def spawn_session_tmux(session_name: str, path: str) -> bool:
     r = subprocess.run(
         [TMUX_BIN, "new-session", "-d", "-s", tmux_name, "-c", path,
          "-e", f"DISCORD_STATE_DIR={discord_dir}",
+         # Both spellings. The plugin dual-reads permanently and lets the
+         # new name win, so setting both is correct before AND after the
+         # rename -- no flag-day ordering dependency on this file.
+         "-e", f"CW_AGENT_NAME={session_name}",
          "-e", f"FEEDBACK_AGENT_NAME={session_name}",
          "/bin/zsh", "-ic", claude_invocation],
         capture_output=True, text=True, timeout=5.0,
@@ -825,10 +902,10 @@ def select_targets(mode: str, targets: List[Tuple[str, str]],
                 to_spawn.append((name, path))
             elif existing_pid == self_pid:
                 # Team Lead: never kill ourselves; flag if we lack the plugin
-                if PLUGIN_MARKER not in running[existing_pid]["argv"]:
+                if not has_fleet_plugin(running[existing_pid]["argv"]):
                     print(f"  [self] {name}: team-lead lacks plugin — restart this session manually to upgrade")
                 skipped.append((name, path))
-            elif PLUGIN_MARKER in running[existing_pid]["argv"]:
+            elif has_fleet_plugin(running[existing_pid]["argv"]):
                 skipped.append((name, path))
             else:
                 to_kill.append(existing_pid)
@@ -849,7 +926,7 @@ Usage:
 
 Modes:
   --mode missing   (default) Spawn only for projects whose claude isn't running.
-  --mode plugin    Kill+respawn any session lacking the `claude-live-feedback`
+  --mode plugin    Kill+respawn any session lacking the fleet workspaces
                    plugin (canonical fleet plugin). Team Lead (self) is never
                    killed; flagged if it lacks the plugin.
   --mode all       Kill+respawn every respawn=true session, except the

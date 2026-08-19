@@ -52,4 +52,14 @@ This applies to analyses, methodology docs, research writeups, and reviews — a
 
 The failure is invisible at write time: the link works when you paste it, and rots later without touching the doc.
 
-**Watch for comments** via `watch_doc(docId)` — comment events arrive as `<channel source="live-feedback" doc_id="..." thread_id="..." event="...">` blocks. Resolve threads when you've addressed the feedback (`resolve_thread`).
+**Watch for comments** via `watch_doc(docId)` — comment events arrive as `<channel source="..." doc_id="..." thread_id="..." event="...">` blocks. Resolve threads when you've addressed the feedback (`resolve_thread`).
+
+## Match BOTH channel-source spellings — this is a rollout blocker, not a cleanup task
+
+The plugin is being renamed from `live-feedback` to `claude-workspaces`. **Anything that matches on the channel source string must accept `source="live-feedback"` AND `source="claude-workspaces"`.**
+
+- **Both spellings are live at the same time, for the whole transition.** A session emits the new string only once it has restarted onto the new bundle, so respawned and un-respawned peers coexist and emit different strings.
+- **A matcher keyed to one spelling goes silently deaf to half the fleet.** No error, no dropped-event warning — comment events simply stop arriving from sessions on the other side of the rollout, which is indistinguishable from nobody having commented.
+- **Match on the presence of `doc_id` / `thread_id` instead**, where you can. The attributes did not change; only the source label did.
+
+Same for anything else keyed to the old name: the tool prefix is now `mcp__plugin_claude-workspaces_claude-workspaces__*`, skills are `claude-workspaces:*`, and the install key is `claude-workspaces@claude-workspaces`. Env vars gain a `CW_*` prefix, but the old `FEEDBACK_*` / `LF_*` spellings are permanently honored via dual-read, so a launch config that was never migrated keeps working rather than breaking.

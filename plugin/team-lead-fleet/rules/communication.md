@@ -25,6 +25,9 @@ Above all else, **know exactly who the audience is and the purpose of your writi
 - *Actions*
   - End with one consolidated checklist of actions. Don't scatter action items across sections.
 - *Bullets*
+  - Give each field its own bullet — never several fields run together as prose with inline bold labels, which collapses into a wall of text on a phone.
+  - One type of information per bullet — don't merge status with action, or a fact with its caveat.
+  - Never forward-reference — put it inline if brief, link it if long, and link the noun where you first name it; never "see below" or "ask X".
   - One link or reference per bullet — split a bullet that would cite two things.
   - Never nest bold with a link in either direction (`**[x](url)**`, `[**x**](url)`); renderers leave literal `**` behind.
   - Three sentences (~300 characters) is the ceiling for a bullet. If an edit breaks it, split into a new bullet with its own label — never append a correction to an existing one — and re-read the whole block after any edit.

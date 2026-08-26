@@ -33,6 +33,13 @@ default):
 
 Pass --no-auto-accept to skip the post-spawn dialog acceptance + cleanup.
 
+Pass --fresh to spawn every session with EMPTY context (no --continue). The
+previous conversation is not lost -- it stays on disk and is resumable with
+/resume. For per-agent behaviour set `fresh_start: true` on a registry entry
+instead; that is how an assistant clears at task boundaries while a builder
+keeps its history. There is no agent-callable /clear, so this is the only
+mechanical way to clear a session.
+
 Safety: this script is **dry-run by default**. Pass `--execute` to actually
 do anything destructive (kill/spawn/sweep). Without `--execute` it just
 prints what it WOULD do.
@@ -266,6 +273,50 @@ def parse_registry(path: str) -> Dict[str, Dict[str, str]]:
 
 def humanize(name: str) -> str:
     return name.replace("-", " ").replace("_", " ").title()
+
+
+# --- fresh-start (clear-on-respawn) ------------------------------------------
+#
+# There is NO agent-callable /clear or /compact. Verified against the 2.1.229
+# binary: both are `type:"local"` commands dispatched from the input line, and
+# every programmatic route into a session's queue (hive/peer, MCP channel, the
+# report path, /loop wake-ups, cron fires) is enqueued with
+# `skipSlashCommands: true` -- the text arrives as literal characters. So a
+# session cannot clear itself and cannot be told to, by anyone.
+#
+# Respawning WITHOUT --continue is therefore the only mechanical clear we have.
+# It is not destructive: the previous conversation stays on disk and is
+# resumable with /resume. What it costs is the session's working context, so
+# this is right for assistants that should start each task clean and wrong for
+# a builder mid-goal -- use --exclude for anything in flight.
+FORCE_FRESH = False
+
+
+def fresh_start_paths() -> set:
+    """Realpaths of registry projects marked `fresh_start: true`.
+
+    Per-agent rather than global, because the whole point is that assistants
+    clear at task boundaries while builders keep their history. A project with
+    no `fresh_start` field keeps the existing --continue behaviour.
+    """
+    out = set()
+    for fields in parse_registry(REGISTRY_PATH).values():
+        # The registry parser does not strip inline comments, so a field
+        # written `fresh_start: true   # why` arrives with the comment still
+        # attached. Compare on the first token, never on the whole value.
+        if fields.get("fresh_start", "").split("#")[0].strip().lower() != "true":
+            continue
+        raw = fields.get("path", "")
+        if raw:
+            out.add(os.path.realpath(os.path.expanduser(raw)))
+    return out
+
+
+def wants_fresh(path: str) -> bool:
+    """True if this session should come back with empty context."""
+    if FORCE_FRESH:
+        return True
+    return os.path.realpath(path) in fresh_start_paths()
 
 
 def collect_targets() -> List[Tuple[str, str]]:
@@ -618,8 +669,12 @@ def spawn_session_tmux(session_name: str, path: str) -> bool:
     # renamed that row to.
     name_flag = f" -n {shlex.quote(session_name)}"
     rc_flag = f" --remote-control {shlex.quote(session_name)}"
+    # A fresh session is spawned as bare `claude`. Note this also skips the
+    # resume-from-summary dialog, so the post-spawn auto-accept has one fewer
+    # prompt to answer -- it polls for whatever appears and is unbothered.
+    fresh = wants_fresh(path)
     claude_invocation = (
-        ("claude --continue" if has_prior_session(path) else "claude")
+        ("claude --continue" if (has_prior_session(path) and not fresh) else "claude")
         + name_flag
         + rc_flag
         + direct_channel_flags(path)
@@ -982,6 +1037,13 @@ def main() -> int:
     execute = "--execute" in args
     auto_accept = "--no-auto-accept" not in args
     no_compact = "--no-compact" in args
+
+    # --fresh: force EVERY spawned session to start with empty context, on top
+    # of whatever the registry marks. Use it for a deliberate fleet-wide reset;
+    # for the normal per-agent behaviour set `fresh_start: true` in the
+    # registry instead and let this stay off.
+    global FORCE_FRESH
+    FORCE_FRESH = "--fresh" in args
 
     mode = "missing"
     if "--mode" in args:

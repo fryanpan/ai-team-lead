@@ -35,6 +35,7 @@ DESIGN CONSTRAINTS (both learned the hard way)
 Exit 0 = all green. Exit 1 = at least one RED.
 """
 
+import hashlib
 import json
 import os
 import re
@@ -178,6 +179,165 @@ def probe_plugin_via_bun(cache_dir, source_manifest):
     return data.get("live"), data.get("source")
 
 
+_ARCHIVE_BACKLOG_JS = r"""
+const fs = require("fs"), path = require("path");
+// `bun -e` argv is [bunPath, ...args] -- slice(1), not slice(2).
+const [liveRoot, archiveRoot, ...ignoreDirs] = process.argv.slice(1);
+const out = {unarchived: null, oldestDays: null, oldestName: null, err: null};
+
+// Session id is the FILENAME, never the directory. A worktree cwd gets its own
+// encoded project dir and the transcript may live under either it or the main
+// repo's dir -- placement genuinely varies. Matching on the id is right in both
+// worlds; matching on the path silently misses whichever half it guessed wrong.
+function jsonlIds(root, into) {
+  for (const d of fs.readdirSync(root, {withFileTypes: true})) {
+    const full = path.join(root, d.name);
+    if (d.isDirectory()) { jsonlIds(full, into); continue; }
+    if (d.isFile() && d.name.endsWith(".jsonl")) into.set(d.name, full);
+  }
+  return into;
+}
+
+try {
+  const archived = new Set(jsonlIds(archiveRoot, new Map()).keys());
+  const live = jsonlIds(liveRoot, new Map());
+  const now = Date.now();
+  let count = 0, oldestMs = -1, oldestName = null;
+  for (const [name, full] of live) {
+    if (archived.has(name)) continue;
+    if (ignoreDirs.some(d => full.includes("/" + d + "/"))) continue;
+    count++;
+    // mtime is only an AGE here, never a liveness claim -- the file's absence
+    // from the archive is the assertion, and that came from a real readdir.
+    const age = now - fs.statSync(full).mtimeMs;
+    if (age > oldestMs) { oldestMs = age; oldestName = name; }
+  }
+  out.unarchived = count;
+  out.oldestDays = oldestMs < 0 ? 0 : oldestMs / 86400000;
+  out.oldestName = oldestName;
+} catch (e) { out.err = String(e); }
+console.log(JSON.stringify(out));
+"""
+
+
+_READ_SHA_JS = r"""
+const fs = require("fs"), crypto = require("crypto");
+// `bun -e` argv is [bunPath, ...args] -- slice(1), not slice(2).
+try {
+  const buf = fs.readFileSync(process.argv.slice(1)[0]);
+  console.log(crypto.createHash("sha256").update(buf).digest("hex"));
+} catch (e) { process.exit(3); }
+"""
+
+
+def check_self_version(spec):
+    """The DEPLOYED checker is the same file as the one in the repo.
+
+    Editing the repo copy changes nothing -- launchd execs the deployed copy, so
+    a forgotten `install_healthcheck.py` leaves a stale checker running three
+    green times a day with the new assertion absent from every run, and no
+    surface anywhere saying the new check never executed. That is this monitor's
+    own failure mode turned on itself, and it is the reason this check exists.
+
+    Same live-vs-source shape as check_plugin_version. The repo lives on the
+    secondary volume, so the source read goes through bun; the deployed copy is
+    on the boot disk and reads normally.
+    """
+    source = os.path.expanduser(spec["source"])
+    running = os.path.abspath(__file__)
+
+    try:
+        with open(running, "rb") as f:
+            live_sha = hashlib.sha256(f.read()).hexdigest()
+    except OSError as e:
+        return False, f"{spec['name']}: cannot read running copy {running}: {e}"
+
+    if not os.path.exists(BUN):
+        return False, f"{spec['name']}: cannot check -- no bun at {BUN}"
+    r = subprocess.run([BUN, "-e", _READ_SHA_JS, "--", source],
+                       capture_output=True, text=True, cwd="/", timeout=30)
+    if r.returncode != 0:
+        # Unreadable source is NOT a pass. Absence of a comparison is absence of
+        # information, and this monitor never converts that into a green line.
+        return False, (f"{spec['name']}: cannot read source at {source} "
+                       f"-- comparison impossible, not clean")
+    source_sha = (r.stdout or "").strip()
+
+    if source_sha != live_sha:
+        return False, (f"{spec['name']}: DEPLOYED COPY IS STALE -- "
+                       f"{running} does not match {source}. Every check below "
+                       f"ran from the old file. Fix: python3 "
+                       f"scripts/install_healthcheck.py")
+    return True, f"{spec['name']}: deployed copy matches source"
+
+
+def check_archive_backlog(spec):
+    """Transcripts are reaching the archive before the live store rotates them.
+
+    Asserts DELIVERY, not that an archiver ran: it compares session ids present
+    in the live store against ids present anywhere in the archive, and reports
+    the age of the oldest one that never made it. A copy that stopped happening
+    shows up here even if the process reporting it is healthy -- which is the
+    case that produced this check. The scheduled archiver was dead for 17 days
+    (2026-08-08 onward, `Operation not permitted` at exec, hourly) and NOTHING
+    surfaced it, because running the analysis pipeline by hand copied the same
+    files as a side effect and kept the folder looking current.
+
+    Why the threshold is generous: the live store holds ~16 weeks, so a backlog
+    is only permanent loss once it approaches that. Alarming at 21 days gives
+    weeks of margin while still being far shorter than the window in which the
+    loss becomes irreversible.
+
+    Everything runs inside bun. Both paths resolve onto the secondary volume, so
+    an Apple-signed interpreter cannot readdir either of them under launchd.
+    Note also that a `stat`-based freshness probe would be WRONG here even with
+    the right interpreter: stat succeeds on that volume where open fails, so a
+    denied checker reports a healthy mtime on data it cannot read.
+    """
+    live = os.path.expanduser(spec["live_root"])
+    archive = os.path.expanduser(spec["archive_root"])
+    max_age = float(spec.get("max_age_days", 21))
+    # No default exclusions: the walk already filters to `.jsonl`, and the
+    # archive demonstrably mirrors `subagents/` too -- excluding those would
+    # hide an entire class of unarchived transcript behind a green line.
+    ignore = spec.get("ignore_dirs", [])
+
+    if not os.path.exists(BUN):
+        return False, f"{spec['name']}: cannot check -- no bun at {BUN}"
+    for label, pth in (("live store", live), ("archive", archive)):
+        if not exists_via_bun(pth):
+            return False, f"{spec['name']}: {label} MISSING at {pth}"
+
+    r = subprocess.run([BUN, "-e", _ARCHIVE_BACKLOG_JS, "--",
+                        live, archive, *ignore],
+                       capture_output=True, text=True, cwd="/", timeout=180)
+    if r.returncode != 0:
+        return False, (f"{spec['name']}: probe failed rc={r.returncode} "
+                       f"{(r.stderr or '').strip()[:120]}")
+    try:
+        d = json.loads(r.stdout)
+    except Exception:
+        return False, f"{spec['name']}: probe returned unparseable output"
+    if d.get("err"):
+        return False, f"{spec['name']}: probe error {d['err'][:120]}"
+
+    # "Could not determine" is never a pass. Absence has three causes and only
+    # one of them is information; a blind checker must alarm on its own blindness.
+    if d.get("unarchived") is None:
+        return False, f"{spec['name']}: probe returned no result"
+
+    n, age = d["unarchived"], d.get("oldestDays") or 0.0
+    if n and age > max_age:
+        # Name who clears it, in the line itself. A RED with no owner reads as
+        # furniture -- this monitor emitted 116 of them before anyone read one.
+        owner = spec.get("owner", "unowned -- assign before this fires again")
+        return False, (f"{spec['name']}: {n} transcript(s) never archived, "
+                       f"oldest {age:.1f}d > {max_age:.0f}d -- the copy step has "
+                       f"stopped; live store rotates at ~16w. Owner: {owner}")
+    return True, (f"{spec['name']}: {n} unarchived, oldest {age:.1f}d "
+                  f"(alarms past {max_age:.0f}d)")
+
+
 def _semver(s):
     out = []
     for part in str(s).split("."):
@@ -240,15 +400,25 @@ def check_launchd(spec):
     and reported separately. Reading only the exit column is how a daemon that
     had been up for days got reported as dead.
     """
-    label = spec["label"]
+    # `label` may be a list: a job being renamed is live under either spelling
+    # during the transition, and a check pinned to one of them reports the
+    # other as a dead daemon. That is a FALSE RED, and it is worse than no
+    # check -- com.fryanpan.live-feedback was reported "not loaded in launchd
+    # at all" for 8 consecutive runs while the job ran healthy under its new
+    # name com.fryanpan.claude-workspaces (2026-08-21). Accept any spelling;
+    # report which one actually matched.
+    labels = spec["label"]
+    if isinstance(labels, str):
+        labels = [labels]
     for line in sh("launchctl list").splitlines():
         parts = line.split(None, 2)
-        if len(parts) == 3 and parts[2] == label:
+        if len(parts) == 3 and parts[2] in labels:
+            label = parts[2]
             pid, last_exit = parts[0], parts[1]
             if pid == "-":
                 return False, f"{label}: NOT RUNNING (last exit {last_exit})"
             return True, f"{label}: pid {pid}"
-    return False, f"{label}: not loaded in launchd at all"
+    return False, f"{' / '.join(labels)}: not loaded in launchd at all"
 
 
 def check_port(spec):
@@ -458,6 +628,8 @@ CHECKS = {
     "channel_flags": check_channel_flags,
     "file_present": check_file_present,
     "plugin_version": check_plugin_version,
+    "archive_backlog": check_archive_backlog,
+    "self_version": check_self_version,
     "free_memory": check_free_memory,
     "swap": check_swap,
     "load": check_load,

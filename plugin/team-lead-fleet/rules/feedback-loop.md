@@ -1,69 +1,35 @@
 ---
 alwaysApply: true
+appliesTo: main
 ---
 
 # Continuous Feedback & Learning
 
-## After Completing a Feature
-1. **Self-review** before declaring done:
-   - Did I miss any edge cases?
-   - Is this the simplest solution?
-   - Did I update all places that needed updating?
+## Capture learnings as you go
 
-2. **Ask for feedback**:
-   - "Does this work as expected?"
-   - "Anything that felt clunky or could be improved?"
+When you hit a technical gotcha, an API quirk, an environment surprise, or a pattern worth repeating: **edit `docs/process/learnings.md` directly — don't ask first.** It is a reversible additive doc edit. Mention what you added in the session summary so the user can amend it.
 
-3. **Capture learnings**: Proactively identify and add things worth remembering:
-   - Technical gotchas or surprises
-   - Patterns that worked well
-   - Mistakes to avoid repeating
-   - API quirks or environment issues
+Propose specific additions. Never ask "anything to add?"
 
-   Edit `docs/process/learnings.md` directly with the new entry — don't ask first; this is a reversible additive doc edit. Mention what you added in the session summary so the user can review and amend.
+## Where a learning belongs
 
-## During Work - Watch for Friction
-If the user seems frustrated, confused, or an approach isn't working:
-- Pause and acknowledge: "This doesn't seem to be working well. What's off?"
-- Ask what they'd prefer instead
-- Offer to log the feedback for future sessions
+**Before filing it, ask: would a future agent know to grep for this?**
 
-## Periodic Retrospective
-After ~2-3 hours of work or completing a major feature, prompt:
-> "Quick retro:
-> - What worked well?
-> - What was frustrating or slower than expected?
-> - Anything I should do differently?"
+- **No** — the normal signal is actively wrong, so nobody will think to look. It must fire without a lookup, and it belongs in `CLAUDE.md` as a guard.
+- **Yes** — archive it in `learnings.md`.
 
-Then offer to log feedback in `docs/process/retrospective.md`
+**Sort by grep-ability, never by importance.** The guards that matter most are the ones where a surface lies to you, and importance ranks those low while grep-ability ranks them high.
+
+## A correction about HOW you write is a fleet rule, not a memory
+
+Store it per-agent and it reaches one session; the user then gets the same failure from every other peer and has to give the same correction again. Three of his sharpest writing rules sat in one agent's memory for months this way.
+
+**Propose the one-sentence version for `plugin/team-lead-fleet/rules/communication.md`** and keep the provenance locally.
 
 ## Retros
 
-`/retro` is user-invocable. Don't auto-prompt for it — that adds friction. If you notice patterns worth capturing during a session (recurring gotchas, slow tasks, broken plan assumptions), edit `docs/process/learnings.md` directly per the section above. The user can run `/retro` themselves when they want a structured pass.
+`/retro` is user-invocable. **Don't auto-prompt for it** — that adds friction. If you notice patterns worth capturing mid-session, edit `learnings.md` directly per above. The user runs `/retro` when he wants a structured pass.
 
-## Elevating to Learnings
+## When the work is going badly
 
-**A correction about HOW you write belongs in the fleet communication rule, not in your own memory.** Store it per-agent and it reaches one session; the user then gets the same failure from every other peer and has to give the same correction again. Three of his sharpest writing rules sat in one agent's memory for months this way. Propose the one-sentence version for `plugin/team-lead-fleet/rules/communication.md` and keep the provenance locally.
-
-
-During retros or after fixing issues, actively look for things that should change future Claude behavior:
-- Did we hit a gotcha that will recur?
-- Did we discover something about the codebase/tools?
-- Did an approach work particularly well or poorly?
-
-**Propose specific additions** to `docs/process/learnings.md` - don't just ask "anything to add?"
-
-## When Logging Learnings
-Format for `docs/process/learnings.md`:
-```markdown
-## [Category]
-- [Specific gotcha or discovery]
-```
-
-Format for `docs/process/retrospective.md`:
-```markdown
-## YYYY-MM-DD - [Context]
-**What worked:** ...
-**What didn't:** ...
-**Action:** ...
-```
+If the user seems frustrated or an approach isn't landing, say so and ask what's off, rather than pushing harder on the same approach.

@@ -78,6 +78,12 @@ The session you're delegating to has local context you don't: which work is alre
 
 The good version lets the peer check its own tools, apply its own framework, flag mismatches, and choose its own storage location. The bad version forces mechanical execution even when the premise is wrong — and silently bypasses any work the peer had already done.
 
+### Every subagent dispatch states its return contract
+
+Problem space governs the *work*; the return contract governs what comes *back*, and it is the one thing you do specify. One line in the prompt: what you want returned — the conclusion, the numbers, `file:line` pointers, paths to anything written — and that raw material stays in the subagent. Without it you get transcripts and file bodies, and you pay for them on every turn you take afterwards.
+
+Two more, when they apply: don't fan several subagents onto the same files, and give mechanical sweeps their own dispatch on a cheap model rather than leaving them inside an agent that is also doing the thinking.
+
 ### Check in before guiding — sometimes no guidance is needed
 
 Before issuing a delegation to any peer, get an up-to-date summary of what they're already working on. Each peer's `set_summary` output shows in `list_peers` — read it. If the peer is already mid-task on something aligned with the goal, the right move is usually to acknowledge and let them keep working, not to push tactics.

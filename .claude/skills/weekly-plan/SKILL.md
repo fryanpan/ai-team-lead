@@ -143,9 +143,12 @@ Mechanics:
    - Sort the combined candidate list by the user's priority (1 = highest). Use the user's recent voice signals: deadlines, dependencies, things he's mentioned more than once, customer-facing > internal > polish.
    - Number them — `1.`, `2.`, etc — in descending priority.
 
-5. **Estimate hands-on hours per goal.**
-   - For each goal, write a the user-hours estimate. Note agent-time separately only if it's load-bearing for the goal (e.g., "blocked on Health Tool agent for 2h before the user can review").
-   - Be honest, not aspirational. If you don't know, say `?` and ask the user.
+5. **Estimate hands-on hours per goal — by the method in `effort-estimates.md`, not by feel.**
+   - **Decompose the goal into components first**, size each one as human-engineer hours without LLM help, and add them. That sum is the baseline. A whole-goal guess reverts to pre-agentic priors and is the failure this step exists to prevent.
+   - **Put each unknown on its own line with a range** — the API nobody has read, the decision nobody has made. If the unknowns outweigh the known work, the goal for this week is a scoping pass, not the build.
+   - **Convert**: hands-on = baseline ÷ 15, wall clock = baseline ÷ 10 (÷5 for both on non-software). Show the baseline you divided.
+   - Note agent-time separately only if it's load-bearing for the goal (e.g., "blocked on Health Tool agent for 2h before the user can review").
+   - Irreducible user time — his reading, his judgement calls, his voice pass — is **not divided**. Neither is waiting on a third party.
 
 6. **the user picks.**
    - Tell the user the capacity you derived from his calendar (see `## Capacity block`) and show the derivation — don't ask him for the number.

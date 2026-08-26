@@ -2,6 +2,70 @@
 
 Technical discoveries that should persist across sessions.
 
+## A Hold That Lives Only In A Conversation Dies At The Next Respawn (2026-08-19)
+
+Bryan had told Quick Build to pause until he'd reviewed the benchmark usage. An hour later I killed that session and respawned it fresh — a deliberate, agreed context reset — and it immediately started two downstream tasks: a device rehearsal and an announcement draft. It wasn't defying anything. **The pause had never existed anywhere except in the conversation I destroyed.**
+
+The committed handoff doc was good, and it still didn't save this. It recorded `publication ON HOLD per Bryan 18 Aug`, which the fresh session read correctly and scoped correctly — to publication. The actual instruction was broader: stop taking the next step on anything downstream of the benchmark. A handoff written by the agent being replaced captures what that agent thinks is load-bearing, and a constraint it has been living inside for a day reads as ambient rather than as content.
+
+Bryan's own diagnosis, and the rule worth keeping: *"Perhaps we should have written that on the ticket."*
+
+- **Put a hold on the durable artifact at the moment you give it**, not in the message that conveys it. The board row and the goal band survive respawn, compaction, and handoff; the conversation survives none of them.
+- **The team-lead owns this, not the paused agent.** The agent cannot write down a constraint it will not remember it received.
+- **Scope the hold in writing, because a narrower reading is the likely failure.** "Publication is on hold" and "stop downstream of the benchmark" are different instructions, and the doc carried the smaller one.
+- **This is a cost of the respawn lever, and it should be priced in.** Kill-and-respawn-fresh is the cheapest way to retire a bloated context, and the thing it destroys is exactly the un-written-down state. Before pulling it, ask what standing constraints that session is holding that exist nowhere else.
+
+Fix applied: both rows moved back to `todo` with the hold in the transition note, and the `g-quickbuild` band retitled `⏸ ON HOLD until Bryan reviews benchmark usage` so it is unmissable from the board for any agent that attaches later. Candidate for promotion to a fleet rule at the next `/weekly-plan` rather than mid-week.
+
+## A Watch That Is Silent On Green Cannot Be Told Apart From A Dead Watch (2026-08-19)
+
+Bryan's second quota pool ran to exhaustion overnight and I did not know. His correction: *"The Thursday token is out, and you would know if you'd been keeping an eye on usage -- it's your responsibility."* He was right, and the mechanism failure is worth more than the apology.
+
+**`CronList` returned "No scheduled jobs."** All three session-scoped crons — token-watch (3x/day), the automated morning daily-review, the Monday digest surfacing — were gone. They are session-only by construction: they die on respawn, and this fleet respawns constantly (plugin flag days, account switches, `--mode running` passes). Nothing re-armed them. The trend log in `token-control.md` has a month-wide hole that is the exact shape of the outage, and nobody read the hole as a signal because a hole is not an alert.
+
+**The design flaw is not "the cron died". It is that the cron was built to speak only when something was wrong.** Under that design, healthy and dead emit the identical observable: nothing. Every hour of silence was consistent with both "pace is fine" and "there is no watcher", and I read it as the first for weeks. Same family as the killer item in `CLAUDE.md` — an external surface is not state — and same family as `/mcp` rendering `connected` on a dead server: **absence of a complaint is not evidence of health.**
+
+Two fixes, in order of durability:
+
+- **Make the check report every run, green included.** Now encoded in the re-armed token-watch prompt. One line on a quiet pass is cheap; it is also the only thing that makes a missing line legible.
+- **Anything that must survive a respawn does not belong in a session-scoped cron.** The durable pattern already exists in this repo twice: `fleet_healthcheck.py` under launchd, and a peer's own 07:00 launchd agent. Both survive respawns AND reboots. The quota read is scriptable end-to-end (tmux `/usage` -> `w` -> capture-pane -> parse the `Current week (all models)` percentage), so it can run at the OS layer for zero tokens and only wake a model when the projection actually goes bad — exactly the healthcheck's shape.
+
+**Second-order failure the same morning, worth naming separately:** having missed the exhaustion, I then projected forward from a **backward-looking week-to-date average** (82% over 29% of the week = "40%/day, dry by 18:27 tonight") that was dominated by a one-off overnight burst and pooled two accounts together. The live readings did not support it. A rate needs two live readings of the same meter; a cumulative average is not a rate, and quoting one as a forecast is how a single stale number becomes a plan.
+
+## A Dead Connection And A Healthy Idle One Are Indistinguishable From The Client Side (2026-08-19)
+
+- **Killer item — `/mcp` reported `claude.ai Notion · ✔ connected · 28 tools` for hours while every call from that session returned "MCP server not connected".** The Job Search peer made four such calls over hours, minutes after successful ones. The menu was not stale-and-catching-up; it was simply not measuring the thing it displays. After I drove the reconnect, the menu said exactly the same words it had said while lying — **the only difference that mattered was that the peer then called `notion-fetch` and got a page body back.**
+- **The rule that falls out, in the owning agent's words: any surface that matters needs a call that actually returns data before you trust it.** Not a status field, not a tool count, not a green check. A dead connection and a healthy idle one produce identical renders, so "connected" is not evidence and never was.
+- **Third instance of the same shape in one morning, which is why it is filed as a class and not an incident.** (1) I watched six docs via `watch_doc` and believed I was listening to the workspace — I had never attached to the board, so Bryan's voice note and a re-triage request queued in silence until he asked why I wasn't responding. (2) `watch_repo("auto")` resolves against the MCP server's own cwd, so 14 sessions were all watching the plugin repo and none were watching their own; filed as github-claude-channel#5. (3) This one. **In all three, the failure produced no error, and the quiet was indistinguishable from nobody having anything to say.**
+- **Why this outranks ordinary staleness: the observer cannot tell from the inside.** "Am I subscribed?" and "is this connected?" are not questions an agent thinks to ask, because the normal signal for both is an absence. That makes it a guard that must fire without a lookup rather than an archive entry someone greps — same argument as the pane-is-a-render killer item.
+- **The verification that works is cheap and specific: make the call, hold the data.** The peer confirmed the fix with `notion-fetch` returning a page body, then separately confirmed with `notion-get-comments` (`include_all_blocks`, `include_resolved`) that no comments had been sitting unread — so it could distinguish "the channel was broken" from "the channel was fine and nobody wrote," which is exactly the distinction the silent failure destroys.
+
+## Four Passing Unit Tests, A Spec, And A Provenance Link — And Nothing Called The Function (2026-08-19)
+
+- **Killer item — a source link proves a function EXISTS, never that anything reaches it.** The Weekly Review pipeline's `presence_hours_by_task` was correct, had four passing unit tests, was named in a spec as *the* metric, and was cited in the methodology doc's provenance table as the evidence behind the published hands-on numbers. `cli.py:461` called the rejected keystroke model instead. Every one of those four signals was true and every one was useless — **the link was accurate and pointed at code the pipeline did not run.**
+- **Coverage tells you a function works; it can never tell you a caller exists.** So the regression test the owner wrote asserts the **call site**, not the function. That distinction is the whole repair: a unit test on the computation would have passed in both the broken and the fixed world.
+- **The consequence reached two documents before anyone noticed.** The fleet's `effort-estimates.md` constants were calibrated on the rejected metric, and the 10.81h figure in the weekly doc for Aug 10–16 is that metric's output. Neither doc had any way to tell — both cited a real run and a real function.
+- **Practical rule for citing someone else's measurement: cite the RUN ID, not a file path.** A run id names an artifact that was produced; a path names code that might not have executed. `run-20260707T040227Z` cannot drift out from under a claim the way `effort.py#presence_hours_by_task` did.
+- **Same family as the "present vs exercised" entry below** (a shipped retry path that greps confirm exists and nothing has ever run) and as the leak gate that exits 0 without scanning. New wrinkle: here the *documentation* was the thing that made it invisible, because a provenance link reads as a verification step and is not one.
+- **Found by the owner answering an unrelated question, not by review.** I asked whether my rule's method matched its pipeline. Had I answered that from my own reading of its published numbers — which reproduced exactly — I would have confirmed the wrong constant with a matching table as evidence.
+
+## A Success Return That Never Touched The Remote Is A CLAIM, Not A Measurement (2026-08-18)
+
+- **Killer item — `watch_doc` returns success against an unreachable server, and the resulting list is indistinguishable from a working one.** A plugin deploy renamed the server's discovery file (`~/.claude/<old-name>/server.json` → `~/.claude/<new-name>/server.json`) and removed the old path. The server stayed up and healthy on its port; every client on the pre-rename bundle looked only at the old path and could not find it. But the subscribe call does not contact the server — it records the subscription in local memory and returns `{watching: [...]}`. A peer that re-subscribed during the outage saw its list grow and concluded it was restored.
+- **This is the previously-recorded empty-list failure INVERTED, and the inverted form is worse.** The entry below records `list_watched_docs` returning `[]` after a respawn, where "watching nothing" and "watches were dropped" are byte-identical. Tonight's is the opposite: an honest-looking *full* list against a server that knows nothing about it. **An empty list at least prompts action; a populated one ends the investigation.** The peer that found this would have declared itself restored and gone quiet on the user's live doc with no error at any point.
+- **The reusable form, from the peer that stated it best: a system reporting on something it never checked.** Two failures the same evening had this identical shape in opposite directions — one asserted exposure from an infrastructure fact it had not tested, the other asserted success from a local write. Both read as measurements and neither was one. **Applies to the next plugin nobody has audited yet.**
+- **Verify a subscription with a call that must touch the server** — `list_threads` or `get_doc`, never `list_watched_docs`. Every peer that re-watched was asked to prove it that way, and each returned real thread content it could not have fabricated.
+- **The repair needed no restarts, and that is a property worth checking before you plan a fleet cycle.** `resolveBaseUrl()` is called *per request*, not cached at startup — the only startup-time call is a console banner wrapped in a try/catch. So a compatibility symlink from the old discovery dir to the new one restored every already-running MCP child on its next call. **The plan being replaced was killing and respawning ten sessions**, which would have converted a twelve-minute recoverable outage into ten lost contexts.
+- **Before symlinking a path two versions disagree about, read the consuming code for the ways it can fail SILENTLY.** Three were checked and cleared here: the resolver reads only `j.port` so the new file's extra fields cannot cause a misparse; it builds `http://localhost:${port}` rather than a literal address, so the dual-stack/address-family trap recorded elsewhere in this file does not apply (both `localhost` and `[::1]` answered 200); and per-request resolution means nothing caches a stale base URL. **Note the bare `catch {}` in that resolver** — a file it could not parse would produce the same "not found" error as a missing one, which would have been indistinguishable from the symptom being fixed.
+- **The owner applied the fix rather than answering the request for permission, and that was correct.** The rename was its deploy. It also produced a real positive control by accident: it turned out to be on the pre-rename bundle too, so its verification call exercised the exact code path every affected peer uses. **The team-lead had assumed the owner was the one session on the new bundle — an assumption that would have made its test worthless as evidence, and it was wrong.**
+
+### The blind spot the audit itself created
+
+- **A flag day for one channel plugin makes everyone audit THAT plugin, and nobody audits the others.** Every peer was prompted to check its document-review watches. One peer, prompted to question whether it actually wanted an incidentally-acquired watch, discovered it had been carefully restoring a subscription on a doc with zero comments while the page the user actually answers on — in a different plugin's system entirely — had no subscription at all. **A peer can pass the audit cleanly and still be deaf on the surface where its feedback really arrives.**
+- **That same check surfaced a fleet-wide scoping bug in the other plugin, and the mechanism is one line.** `server.ts` computes the subscribing peer's `stable_id` from **the MCP process's cwd**, and the plugin launcher starts every peer's child with `--cwd <plugin dir>`. So every peer's child computes the *plugin repo's* id instead of its own session's. The code comment right above it states the intent — match the id the hive derives for that session — so the intent is correct and the cwd it reads is not.
+- **The consequence is that subscriptions from every project collapse into one bucket.** Three sessions in three different projects all reported the same id, and each could enumerate the others' subscriptions. The subscriber lookup selects `DISTINCT peer_stable_id` for a page and the receiver sends to that id, which resolves to the bridge — **a daemon with no TTY, i.e. the "not every hive peer is an agent" entry below.**
+- **Labelled honestly, because the temptation to round it up was real: mechanism confirmed, end-to-end delivery UNPROVEN.** Confirmed by reading the write path and by three independent sessions reporting the same id. No actual comment was observed routing. "Comments reach nobody" is the likely reading and is not what was measured — the affected peers were told to poll rather than told the channel is dead.
+
 ## `ExitWorktree` Renamed A Session's Transcript Onto Its Parent Encoding And Destroyed 215MB Of History (2026-08-18)
 
 - **Killer item — `ExitWorktree` is a destructive operation on transcript history, and nothing warns you.** When a session's transcript lives under a worktree-encoded project dir and the parent-repo encoding already holds a transcript, exiting the worktree **renames the worktree file onto the parent path**, silently overwriting whatever was there. Measured here: a 214,967,259-byte transcript — roughly seven weeks of one peer's history — was replaced by a 9.7MB file. No error, no prompt, no backup. **Before calling `ExitWorktree`, copy the parent encoding's `*.jsonl` somewhere else.**
@@ -483,6 +547,15 @@ Several confident claims that night were wrong (a destructive `mv` that never ra
 - Cost: Octoturtle silently lost its Discord channel for 3 days — process up, config valid, token valid, no errors, agent simply unreachable on its primary user-facing surface. It was only caught because Bryan noticed he wasn't getting replies.
 - Corollary for debugging: I twice concluded "X is broken/fine" from process-table forensics and was wrong both times. When a peer reports a capability is missing, **believe the peer over the process table** — it can see its own tool registry and you cannot.
 
+## A Subagent's Final Report Can Be Dropped, Leaving Only An Idle Notification (2026-08-22)
+- **An in-process subagent's last-turn final report is not guaranteed to arrive.** Twice in one session the parent received ONLY an `idle_notification` and never the report — not late, not raced, never delivered. Hours later, still nothing. The subagent confirmed on a later resend that it had sent them.
+- **The failure presents as the subagent having done nothing.** An idle notification with no report is indistinguishable from an agent that went idle without doing the work — which is exactly the wrong diagnosis. Cost on 2026-08-22: two false "agent went idle" reads and a redundant nudge, on work that was in fact complete.
+- **It is intermittent, so a clean delivery proves nothing about the next one.** Another agent's long final report delivered normally in the same window.
+- **Explicit `SendMessage` resends from a still-alive agent DO deliver.** If a subagent is still running, asking it to resend is the cheap recovery; if it has exited, the work product is gone from the channel and must be recovered from files it wrote.
+- Rough reproducer: a subagent ends its turn with a long final message while the parent is mid-turn on other tool calls.
+- **The general rule this belongs to: never conclude "the agent didn't do the work" from an absent report.** Check what it actually wrote — files, commits, board rows — before re-dispatching. Same family as the tmux-pane killer item: the delivery surface is not the state.
+- Harness-side; not fixable from the fleet. Reported by the Quick Build session, which spotted it because it had 54 subagents running and could compare.
+
 ## A Fleet Peer Can Be Working In Someone Else's Repo (2026-07-14)
 - **A hive peer is indistinguishable from a normal fleet member even when its cwd is a public/other-owned repo.** The hive connection comes from launch flags (`--dangerously-load-development-channels server:claude-hive`), NOT from the `team-lead-fleet` plugin — so a session can be on the hive, report in, and take tasks while running with *none* of the fleet rules and while sitting in a repo the fleet doesn't own. A spike agent ran for days in a volunteer org's repo with no `live-feedback` and no `team-lead-fleet` enabled; nobody noticed because from the fleet surface it looked like any other peer.
 - **Never enable `team-lead-fleet` (or any private plugin) via a TRACKED `.claude/settings.json` in a repo you don't own.** That commits a reference to private tooling into someone else's repo AND breaks their contributors' sessions (they don't have the plugin). The fleet rules themselves carry private project/peer names and the security posture — this is a cross-repo leak that arrives disguised as a routine config commit, which the agent, the team-lead, and the human all have reason to wave through.
@@ -548,3 +621,141 @@ Several confident claims that night were wrong (a destructive `mv` that never ra
 - The supersession check (Section 2 of the checklist) is only as good as the citation freshness. All four Anthropic sources cited are 6-12 months old or older; `/goal` is the only recent one and is still P0-gated locally. Re-run supersession pass at each Anthropic model release.
 - Plugin cache (`~/.claude/plugins/cache/...`) is READ-ONLY for an audit. To act on superpowers recommendations, ship local override skills in `plugin/team-lead-fleet/skills/` — don't try to edit the cache.
 - W6 rollout candidates (first wave): `executing-plans` (discard-or-rewrite), `using-superpowers` (capslock body + every-turn fire), `brainstorming` (capslock + breadth), `writing-skills` (over the 500-line guideline).
+
+## Registry flags: `active: false` is a comment, not a mechanism (2026-08-24)
+- **Nothing reads the `active` field.** `.claude/skills/aggregate/SKILL.md` says only "Read `registry.yaml` to get the list of managed projects with their paths" — no filter. `respawn.py` has zero occurrences of `active`. The flag was added to one entry in 2026-05-06 with a comment claiming it excludes that project "from /propagate, /aggregate, /respawn"; none of those three honor it.
+- **Grep trigger:** any time you are about to rely on a registry entry being excluded from a fleet-wide pass — aggregation, propagation, respawn, health checks. Verify the consuming skill actually filters before treating the flag as a control.
+- **Why it matters beyond tidiness:** registry membership is what makes a project reachable by cross-project tooling. If an entry is registered for confidentiality-sensitive reasons and is *believed* excluded, the belief is the risk, not the entry. Same family as the coverage-100%-while-misrouted failure — a documented exclusion reads exactly like an enforced one.
+- **If a real exclusion is needed**, it has to be implemented in each consuming skill/script, then tested by running the pass and confirming the project is absent from the output. A comment in `registry.yaml` is documentation of intent only.
+
+## /flip-public's squash step can destroy the thing being published (2026-08-24)
+- **The skill said "if commit history has scrubbable content, squash to a single Initial release commit."** That is right when history is incidental and wrong when history is the *point*. A repo published to show prior art — against a client, an employer, or for a priority claim — carries its evidentiary value in the commit dates. Squashing to clean it deletes the deliverable and passes the checklist.
+- **Grep trigger:** before squashing or rewriting history on anything about to be published, ask what the history is for. Prior art, invention-assignment boundaries, and "I built this before date X" arguments all make dates load-bearing.
+- **The alternative is content rewriting, not collapsing** — `git filter-repo` to scrub text across history, or publish a curated copy, either way keeping timestamps.
+- Caught by the Health Tool agent, which declined the step rather than following it, on a repo being published specifically to date prior art. `.claude/skills/flip-public/SKILL.md` now carries the caveat inline.
+- **Related shape:** the scrub tooling reads the working tree and the pushed diff, never history — see the registry-flags entry above for the same "documented control that isn't enforced" family.
+
+## The scrub gate's denylist had never existed, and its regex syntax was broken (2026-08-24)
+- **`~/.config/team-lead/scrub-denylist.txt` did not exist.** The pre-push gate had been running on registry project names alone since it was built. `load_denylist()` returns an empty list for a missing file and the gate reports clean, so nothing ever said the hand-curated half was empty.
+- **`/regex/` lines only stripped the OPENING delimiter.** `s.startswith("/")` → `out.append((s[1:], True))` left the closing `/` inside the pattern, so `/\btailb53801\b/` compiled to `\btailb53801\b/` and matched only when a literal slash happened to follow. Fixed in `scripts/scrub-check.py`; the documented syntax now works.
+- **Six copies of the script exist and they drift.** Each repo's `.githooks/pre-push` runs `$repo_root/scripts/scrub-check.py`, so there is no shared copy. Audited 2026-08-24: five of six were still on the buggy delimiter parse, and only `ai-team-lead`'s had the fix. **A fix to the gate is not deployed until every copy has it** — the gate is exactly the tool whose silent failure looks identical to success, so per-repo drift here is worse than in ordinary code.
+- **The doc that records a leak must not reproduce it.** This entry originally quoted the offending `user="<name>"` binding attribute verbatim, with the real name in it. Once the delimiter parse was fixed and the denylist entry corrected, that quote became the only match in the repo and blocked every push. A learnings entry describing a signature should carry a placeholder, the same way a bug report doesn't paste the secret.
+- **Grep trigger:** before trusting any allowlist/denylist/exclusion file, confirm the file exists AND that one known-bad string actually trips it. Both failures here report success.
+- **Scope rule learned immediately after seeding it:** broad patterns (home paths, bare `mac-mini`, an email already public in commit authorship) produced 20 hits of pre-existing low-harm content across 8 files. A gate that fires on ordinary content gets routed around with `SCRUB_SKIP=1`, which is worse than no gate. Keep the list to high-signal markers with near-zero false positives.
+- Seeded from the ADFA-4128 leak: a report generator hard-emitted `<claude-feedback-widget user="<name>">` and a host-local `/widget.iife.js` into a repo bound for a public remote. **The design rule under it: review binding is a wrapper the harness applies to an artifact, never something the artifact's generator emits.** That shape recurs anywhere an agent produces something Bryan reviews.
+
+## Verifying a peer's "it's deployed" claim
+- A peer reporting a fix as *deployed* is reporting merge status; the running
+  process is the only thing that answers whether it is live. When the server
+  runs from source (`bun run .../src/bin.ts`), compare `ps -eo pid,lstart` for
+  that PID against `git log -1 --format=%ci <sha>`. On 2026-08-24 the LF server
+  started 15s AFTER the fix commit, which settled it — a restart before the
+  commit would have meant merged-but-not-serving, and looked identical from the
+  outside. Same family as the killer item: read the state, not the report.
+- **Do not batch-delete a workaround the moment its real fix ships.** The
+  stopgap cards on Bryan's Home were the only live asks he had; clearing them
+  to tidy up would have removed open questions to demonstrate someone else's
+  fix. Retire a workaround as each item it covers closes, not on the fix date.
+
+## Transcript paths as a liveness signal (2026-08-25)
+
+Building a delivery-based liveness check on `~/.claude/projects/<encoded-cwd>/*.jsonl` growth is sound — the file is append-only, `stat` is free, and it can't be gamed by posting to satisfy a timer. Three things will silently break it:
+
+- **Resolve by session id, not by constructing a path from cwd.** `glob("~/.claude/projects/*/<session_id>.jsonl")`. A worktree cwd gets its own encoded project dir, but that dir typically holds only a sidecar dir (same id, `tool-results/` inside, no transcript) while the transcript lives in the main repo's dir — and the exception exists too, so neither placement is a safe rule.
+- **Every project dir name starts with `-`, so `find` and `ls` parse it as a flag.** Prefix with `./`. With stderr suppressed the failure returns a clean `0` per directory, which reads as "no transcripts anywhere" — it did exactly that while a live 127MB file sat in the first directory listed.
+- **Absence has three causes, not one:** the session is idle, the watcher is blind, or the session never wrote a transcript at all. Only the first is information. **The third is the MODAL case, not an edge case** — fleet-wide, 522 of 614 session dirs (85%) hold only a `SessionStart` hook file in `tool-results/` and have no transcript in the live store or in 44GB of archive. Assert *grew since last check*, treat a missing file as watcher-blind with its own alert, and never conclude death from silence — at 85%, reading absence as death fires on almost everything.
+- **A sidecar dir whose `tool-results/` holds only `hook-*` files means a process STARTED. It does not tell you what it did or why it stopped.** I first wrote this up as "booted and died before its first turn" — an interpretation, not a measurement, and Weekly Review was right to reject it. A `SessionStart` hook fires for *any* `claude` start, including short invocations that legitimately never open a conversation. The population clusters in day-bursts (94 on Aug 3, 77 on Jul 28, 71 on Jul 27), which looks like batch fan-out rather than a steady rate of agent deaths — an 85% death rate would be a catastrophic finding that nothing else corroborates.
+- **The check that settles it, and neither of us ran it at first: 0 of 614 dirs have real tool results but no transcript.** If these were sessions that did work and then lost their transcript, some would show real tool output. None do. That supports "never got going" and rules out "lost its transcript" — but it still does not distinguish *failed* from *short by design*, so say neither.
+- **The general form: an artifact proves a process ran, never what it did or why it stopped.** Weekly Review's phrasing, after making the same error twice in one day from the other direction.
+
+## A scheduled job can be dead for weeks while its output looks current (2026-08-25)
+
+The transcript archive at `~/dev/weekly-review-transcripts/` (44GB, 14,390 `.jsonl`) had files timestamped four minutes before the last pipeline run — completely current. Its hourly launchd archiver had failed on **every run since 2026-08-08**: `/tmp/weekly-review-archive.err.log` held 395 identical lines and nothing else.
+
+```
+bash: /Users/bryanchan/.local/bin/archive-transcripts.sh: Operation not permitted
+```
+
+The archive was being kept fresh as a **side effect of someone running the pipeline**, not by the archiver. Seventeen days of a dead scheduled job with zero visible consequence.
+
+- **Freshness of an output does not prove its producer ran.** When two things write the same location, a healthy-looking artifact says nothing about which one wrote it. Check the producer's own exit status or error log, not the artifact.
+- **Read the error log before diagnosing.** This exact failure was written into `learnings.md` twice (Jul 15, Aug 24) as "macOS revoked launchd's TCC grants — re-grant Full Disk Access." It is not TCC. The one line naming the real cause had been sitting in the log the whole time, unread both times. Same shape as the health checker producing 116 RED lines nobody read.
+- **The failure is at `exec`, not at read.** `/bin/bash` under launchd is denied on `/Volumes/Data`, and `$HOME` resolves there. So the job never reaches the files it was blamed for not reading, and no permission grant fixes it.
+- **Relocating the script does NOT fix it** — I nearly proposed that. Probed with a live LaunchAgent on 2026-08-25: exec from the boot disk succeeds, and then `ls`, `head` and `rsync` each return `Operation not permitted` on the volume, while `~/.bun/bin/bun` reads a 162MB transcript and lists all 65 project dirs. The gate is per-binary (Apple-signed), not per-path — `bun` lives on the denied volume itself and still runs. A relocated bash script fails on its first `cp`. See the deploy-root table in `CLAUDE.md`.
+- **`stat` succeeds where `open` fails**, so a job can verify a path exists and still read nothing from it. Any check that probes with `stat` reports healthy on a volume it cannot actually read.
+
+## "Settled" means settled relative to the producer's last run, not to wall-clock quiet (2026-08-25)
+
+Building a completeness check on the transcript archive, I flagged 2 files as short in the mirror — including a QA subagent transcript at **6.6MB live against 0.6MB archived, 91% missing**, quiet for 20 hours. I had the defect report half written.
+
+Both were fine. The archived copies were exact byte-prefixes, and both live files had been written **after** the archiver's last pass:
+
+| file | live mtime | archive mtime |
+| --- | --- | --- |
+| subagent QA transcript | 8/24 **19:16Z** | 8/24 18:35Z |
+| a session transcript | 8/25 **04:17Z** | 8/24 18:35Z |
+
+- **The bug was the reference point.** I compared the live mtime against `now` — "quiet for six hours, therefore the copier had its chance." Wrong: a file can be quiet for a day and still have grown after the last pass. The only reference that means anything is **the producer's last run time**. Growth newer than that is lag; a shortfall older than it is a real gap.
+- **A name match proves SOME copy exists, never a CURRENT one.** Append-only files keep growing after their first copy lands and stay "present" forever. The understatement is worst during an outage, because long-running sessions are simultaneously the ones that grow and the ones already named in the mirror.
+- **Session id is many-to-one over the archive** — 12,561 unique ids, 576 appearing under more than one project dir (worktrees, renames, aborted starts). Fine for an existence test; if you ever key a size or currency comparison off it, take max-size-per-name or a stub will shadow the real copy.
+- **The tell was never that the number looked wrong.** It looked exactly like a real finding. It died on comparing two mtimes one level below it — same as the `find` dash bug and the UTC-vs-local misread the same morning.
+
+## Effort-estimate calibration — the numbers behind the divisors (2026-08-27)
+
+Provenance for the ÷15 / ÷10 / ÷5 constants in `plugin/team-lead-fleet/rules/effort-estimates.md`. Moved out of the rule on Bryan's read that the evidence is war-story material, not something that has to fire on every turn.
+
+Source: Weekly Review pipeline, run `run-20260707T040227Z` — 714 tasks, 13 Apr – 6 Jul 2026, presence-based hands-on time, **per-task medians**. Cite the run id, never a file path; pooled sums in that run are corrupted by estimate double-counting.
+
+| Slice | ÷ hands-on | ÷ wall clock |
+| --- | --- | --- |
+| Software, median | 23.3x | 9.4x |
+| Non-software incl. ops/admin, median (n=437) | 5.1x | 4.0x |
+| All tasks, median | 6.8x | — |
+
+- **The spread matters more than the median.** Software hands-on runs p10 1.8x, **p25 7.4x**, median 23.3x, p75 56.2x, p90 106.3x. The p25 figure is the one that survives into the rule, as the ill-specified-work case.
+- **÷15 is provisional; ÷10 is not.** 23.3x is an upper bound and the true hands-on figure may be under 20. Wall clock doesn't depend on the hands-on model, which is why it's the firm one.
+- **Non-software is ÷5, not ÷10.** Measured hands-on there is 5.1x, so ÷10 over-promises by about 2x on the largest slice of the corpus (n=437 of 714).
+- An earlier version of this rule cited **37x / 9.3x** software medians against 711 tasks Apr–Jun. Superseded by the run above; if you find 37x quoted anywhere, it is stale.
+
+## Every transcript token count we had was ~1.9x too high (2026-08-27)
+
+**One API response is written to the transcript as one record PER CONTENT BLOCK.** A response with a thinking block, a text block and two tool_use blocks lands as four separate JSONL lines sharing one `message.id` — and every one of them repeats a `usage` object. Counting lines counts each billed request roughly twice.
+
+Measured on the week of 2026-08-17: **83,092 records against 42,905 real responses; 17,133M tokens against 8,996M.** 15,920 responses wrote one record, 15,755 wrote two, 9,989 wrote three, and the tail runs to 33.
+
+- **Collapse on `message.id` and keep the LAST record.** The earlier records are partial streaming snapshots; the last one is the maximum in **100%** of the 16,637 split responses whose usage differs. Taking the first instead costs 0.2%.
+- **All records of a response are in the same file**, so per-file dedupe is enough. Cross-project duplication is a separate worry and did not exist here — 0 of 373 transcript basenames appeared under more than one project dir.
+- **`uuid` does not dedupe this.** 83,091 distinct uuids for 83,092 records. Each block gets its own uuid; only `message.id` (and `requestId`, which agrees to within 22 records) identifies the billed request.
+- **The inflation is UNEVEN, which is the part that bites.** output 1.53x, cache_read 1.89x, cache_creation 2.45x. A uniform 1.9x would cancel out of any ratio; an uneven one biases every fit that weights the components separately.
+
+**What it invalidated.** `turn_attribution.py` and `meter_calibration.py` both counted lines (`fleet_burn_report.py`, `fleet_context_report.py` and `token_efficiency.py` inherit it downstream). Both are now fixed. Consequences:
+
+- **The token goal was misstated by 1.9x.** The baseline read 775M tokens per delivered hands-on hour against a 390M target — "a 50% cut". The true figure is **407M/hr, 4.4% over target.** `docs/process/token-efficiency.csv` has been recomputed; the old values are in the `note` column.
+- **The meter fit moved.** On the one well-conditioned pool the best-fit cache-read weight went from a=0.1 to a=0.02. See the next entry — the per-model weights from this fit were never prices and should not have been quoted as such.
+- **Turn counts were inflated too**, by the same factor. Turn count is what the meter weights most heavily, so every turn-based finding needs rescaling before it is quoted.
+
+**The tell we missed.** Two independently-written scans disagreed by 1.9x on the same week and the number sat in a report as "contested" rather than being chased. A factor that close to exactly 2 in a counting problem is a duplication bug until proven otherwise — 1.9x is not a modelling disagreement, it is one record being read twice.
+
+**The fits are still underdetermined.** Only max-aug06 reaches R^2 > 0.9; max-jul30 gives a=1.0 at R^2 0.61 and team-jul28 gives a=0.005 at negative R^2. Every pool fits a negative weight for Sonnet 5, which is physically impossible and means the model has more free parameters than the data constrains. Constrain the weights to be non-negative before quoting a precise multiplier.
+
+## "Fable costs 7.23x an Opus 5 token" was never a measurement (2026-08-27)
+
+Bryan: *"But fable is officially only 2x opus. So where is your 7x coming from?"* It came from `meter_fit.py` dividing one fitted regression coefficient by another and printing the ratio as a price. It is not a price. **Use the published rate.**
+
+**The reductio.** The same fit, same run, says **Opus 4.8 costs 16.9x an Opus 5 token.** Two Opus models priced within a few percent of each other. Any procedure that returns that number is not measuring price, and everything else it returns is suspect for the same reason.
+
+Four more tells, all present in the output and all ignored at the time:
+
+- **It fits Sonnet 5 a negative weight** — physically impossible. Sonnet appears in 2 of 11 intervals carrying 5 of 194 Mtok-equivalent, and correlates +0.87 with Opus 4.8, so the pair trades off freely.
+- **Imposing the physically required `w >= 0` triples the residual**, 22.0 to 76.3. The good fit was being bought with the impossible coefficient.
+- **The ratio slides with the nuisance parameter.** Fable/Opus-5 reads 15.1x at a=0.02, 9.8x at a=0.1, 5.1x at a=1.0. An estimate that moves 3x with a parameter you are also fitting is not pinned to anything.
+- **The strongest disproof needs no model at all.** Two intervals in the same pool: 199M raw at 0.0% Fable moved the meter **10 points**; 201M raw at 3.1% Fable moved it **3 points**. Same volume, same (negligible) model mix, 3.4x the movement. Model mix cannot be the explanation.
+
+**The rolling-window hypothesis is refuted, so the residual is still unexplained.** If the weekly meter were a rolling 7-day window, the difference between two readings would be new burn minus what aged out, and correcting for that should tighten the fit. It does the opposite: coefficient of variation goes from 0.566 to 0.667 and correlation with meter movement falls from +0.72 to +0.43. Whatever the missing term is, it is not that.
+
+**What survives and what does not.**
+
+- **Survives:** cache reads are heavily discounted against the meter. That rests on evidence outside this fit — Anthropic's published 0.1x for API rate limits, a proxy study over 25,477 calls where utilisation barely moved against 95.2% cache reads, and the March caching-bug postmortem.
+- **Does not survive:** any per-model price ratio from `meter_fit.py`, and the precision of `a` itself. The best coefficient of variation across all four hypotheses in `meter_calibration.py` is 0.469 — "cost wins, 1.04x tighter than the next best" is a coin-flip between four models that all fit badly, not a result.
+
+**The general failure.** The fit reported one number that was checkable against the outside world and one that was not, and the checkable one was wrong by an order of magnitude — but it was never checked, because it was not the number anyone cared about. **When a model estimates several quantities and you only care about one, validate it on the ones you can independently verify.** `meter_fit.py` now prints the Opus-4.8-to-Opus-5 ratio on every run for exactly this reason: it should read ~1.00x, and when it does not, nothing else in the output is a price.

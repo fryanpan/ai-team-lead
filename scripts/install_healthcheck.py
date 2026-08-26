@@ -73,7 +73,10 @@ BASE_CHECKS = [
     # --- daemons that must be up and owned by launchd (not by a session) ---
     {"type": "launchd", "label": "com.fryanpan.notion-channel-receiver"},
     {"type": "launchd", "label": "com.fryanpan.github-channel-broker"},
-    {"type": "launchd", "label": "com.fryanpan.live-feedback"},
+    # Both spellings, per the fleet rename rule: the job is live under either
+    # during the transition and pinning to one produces a false RED.
+    {"type": "launchd", "label": ["com.fryanpan.claude-workspaces",
+                                 "com.fryanpan.live-feedback"]},
     {"type": "launchd", "label": "live-feedback.cloudflared"},
     {"type": "launchd", "label": "notion-channel.cloudflared"},
     {"type": "launchd", "label": "com.fryanpan.email-channel-watcher"},
@@ -118,6 +121,25 @@ BASE_CHECKS = [
     #     token and simply never polls, so only the file itself is evidence ---
     {"type": "file_present", "name": "github token", "why": "broker cannot poll without it",
      "path": "~/.config/github-claude-channel/env"},
+
+    # --- the monitor auditing itself. Editing the repo copy changes nothing;
+    #     launchd execs the deployed copy. Without this, a forgotten redeploy
+    #     means every check below silently runs the OLD file, three green times
+    #     a day, with no surface saying the new one never ran. ---
+    {"type": "self_version", "name": "checker version",
+     "source": "~/dev/ai-team-lead/scripts/fleet_healthcheck.py"},
+
+    # --- delivery, not schedule: the archiver's launchd job died 2026-08-08 and
+    #     nothing surfaced it for 17 days, because running the analysis pipeline
+    #     by hand copied the same files and kept the folder looking current. This
+    #     asserts transcripts ARRIVED, so it fails whichever path stops. Age is
+    #     the signal, not count -- a fresh pipeline run drives count to ~0 by
+    #     construction, while age is monotonic until something actually copies. ---
+    {"type": "archive_backlog", "name": "transcript archive",
+     "live_root": "~/.claude/projects",
+     "archive_root": "~/dev/weekly-review-transcripts",
+     "max_age_days": 21,
+     "owner": "Weekly Review (owns the pipeline + archive-transcripts.sh)"},
 
     # --- the wake half. A plugin enabled without a launch flag has the tools
     #     and receives no events; argv is the only place that shows. ---

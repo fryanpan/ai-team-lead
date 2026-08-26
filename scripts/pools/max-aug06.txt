@@ -1,0 +1,16 @@
+# Max personal pool, week of Aug 6 18:00 -> Aug 13 18:00 PT.
+# Readings copied verbatim from docs/process/token-control.md trend log.
+# One pool only -- no rotation inside this window.
+2026-08-06 18:37 2
+2026-08-07 13:38 12
+2026-08-07 18:37 15
+2026-08-08 08:37 23
+2026-08-08 21:42 23
+2026-08-09 08:37 25
+2026-08-09 13:38 38
+2026-08-09 18:37 40
+2026-08-10 08:37 52
+2026-08-10 13:38 58
+2026-08-10 18:38 78
+2026-08-11 08:35 85
+2026-08-11 13:44 94

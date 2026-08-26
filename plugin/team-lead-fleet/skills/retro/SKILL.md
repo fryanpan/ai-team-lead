@@ -1,17 +1,18 @@
 ---
 name: retro
 user-invocable: true
-description: Run a retrospective with transcript analysis and log feedback. Use when the user explicitly invokes /retro, when a full plan implementation is complete, or after creating a PR or addressing code review feedback (if a retro hasn't happened yet this session).
+description: Run a retrospective with transcript analysis and log feedback. Use when the user explicitly invokes /retro, or when a full plan implementation is complete.
 ---
 # Retrospective
 
 Run this skill when:
 - The user explicitly invokes `/retro`
 - A full plan implementation is complete (all work packages done and verified)
-- After creating a PR (offer a quick retro, if a retro hasn't happened yet this session)
-- After receiving and addressing code review feedback (offer, if a retro hasn't happened yet this session)
 
-For the last two triggers, use a lightweight prompt: "Good moment for a quick retro. Want me to run `/retro`?" Do NOT auto-run — just offer. If the user declines, move on.
+**Don't offer a retro nobody asked for** (Bryan, 2026-08-13). This skill used to
+suggest itself after every PR and every code review; that turns finishing a
+piece of work into a prompt, and a prompt is a stop. If a retro is worth
+running, the person will ask.
 
 ## Session Mode
 
@@ -84,7 +85,7 @@ This affects Steps 3 and 5 below. All other steps run the same regardless of mod
    **4a. Launch CLAUDE.md review in parallel.** While investigating actions below, launch a Task agent (`general-purpose` type) to audit CLAUDE.md. In the prompt, include your key observations from Step 2 and the user's feedback from Step 3 (if human-led). The agent should:
    - Glob for all `**/CLAUDE.md` files in the project
    - Read each one and evaluate whether any sections need additions or updates based on the session observations and feedback you provided
-   - Return specific proposed edits (section + exact change), not vague suggestions
+   - Return specific proposed edits (file, section, exact change), not vague suggestions — and not the contents of the files it read
    - If nothing needs changing, say so
 
    Call this Task in the same message as your first tool calls for 4b — they'll run in parallel naturally. Do NOT use `run_in_background`.

@@ -2,64 +2,28 @@
 alwaysApply: true
 ---
 
-# Live-Feedback as the Default Review Surface
+# Workspaces as the Default Review Surface
 
-When you want the user to review a markdown doc OR a dev server / interactive preview, **bind it to the live-feedback widget by default** rather than just sending him a file path or a URL. The plugin is stable and is the fleet-wide standard.
+The plugin's skills carry all the mechanics and the user's standing preferences — `claude-workspaces:working-in-a-workspace`, `:editing-review-docs`, `:diff-review`, `:embedding-widget`. This rule is only what has to fire *before* you would think to invoke one.
 
-## When this applies
+## Bind it, don't send a path
 
-- Drafting any markdown for the user's voice / structure / content pass (blog posts, plans, audits, retros, design docs, decision docs)
-- Sharing a dev server URL or HTML mockup for UX feedback
-- Surfacing any document where you want comment-level input, not just a thumbs up
+When you want the user to review a markdown doc, a dev server or an interactive preview, **put it on the workspace** rather than sending a file path or a bare URL.
 
-## When to skip
+- **Applies to:** anything you want his voice, structure or content pass on — posts, plans, audits, retros, design and decision docs — plus any dev-server URL or mockup, and anything where you want comment-level input.
+- **Skip for:** one-line acks, code review (the PR diff is canonical), your own notes.
+- **Once a doc is bound, never Write/Edit the `.md`.** The plugin flushes the live doc to disk about a second after every change and silently clobbers filesystem edits.
+- **If this session has a `workspaceId`, or someone said "the board is your task list", read `claude-workspaces:working-in-a-workspace` before doing anything else.** It is the contract, and nothing else will tell you to open it.
 
-- One-or-two-line acks where there's no review surface
-- Code review — PR diff is the canonical surface for code
-- Your own logs / private notes (no the user input expected)
+## A workspace URL is not a durable address
 
-## How
+**The review URL embeds a workspace id that changes when the workspace is recreated.** Every link written against the old one dies silently — no error, no redirect, dead for you as well as the reader.
 
-**Markdown docs** — bind via `mcp__plugin_live-feedback__create_review_doc(docId, path, title?)`, passing `hubWorkspaceId` if your project has a hub workspace.
+- **In a durable doc** — committed, exported, or sent to someone — cite relative repo paths or GitHub URLs.
+- **In live chat** — a message, a thread reply, a hand-off — the URL is correct and is what he wants, because he's clicking it now.
 
-**Link the thing you are asking him to look at.** If you say "here is the diff", the link goes to the diff. `create_review_doc` returns a `reviewUrl` — use it, rewriting only the host to the Tailscale name. His words, 2026-08-18: *"When you give me a thing to review, give me a link directly to that thing. Not the workspace!"*
+## Match BOTH channel-source spellings — transitional, delete when the fleet is fully renamed
 
-**Link the workspace only when the workspace is the subject** — "here is where the week stands", a board-level pass, a pointer to everything at once. A workspace link in place of a doc link makes him hunt for the doc you just described, which is the same failure as a forward-reference.
+**Anything matching on the channel source must accept `source="live-feedback"` AND `source="claude-workspaces"`.** A session emits the new string only once restarted onto the new bundle, so respawned and un-respawned peers coexist. A matcher keyed to one spelling goes silently deaf to half the fleet, indistinguishable from nobody having commented. **Match on the presence of `doc_id` / `thread_id` instead** where you can; those did not change.
 
-**Dev servers / HTML mockups** — use the `live-feedback:embedding-widget` skill (it covers the `<script>` tags + `setContext` calls).
-
-**Apply the user's comments via the live-feedback edit tools** — once a doc is bound, NEVER edit the .md file directly with Write/Edit. Use `find_and_replace`, `rewrite_thread_region`, `insert_blocks_after_thread`, etc. The plugin serializes the live doc back to disk ~1s after every change; direct filesystem edits get silently clobbered by the next flush. See the `live-feedback:editing-review-docs` skill for the full pattern.
-
-## Every doc you author carries a provenance header
-
-A doc that arrives on the user's workspace with no author and no links back to its source reads as unattributable, however good the content is — *"otherwise it's just a random doc where I can't find the links"* (2026-08-17).
-
-At the **top** of any doc you write, before the content:
-
-- **Who wrote it** — your agent name, and what you own.
-- **The repo, as a GitHub URL.** Not a local path — a `/Volumes/...` path is unusable on a phone, which is where he reads.
-- **The specific files behind any number or claim**, linked. If you say a result is reproducible code rather than a one-off, the click-through to that code is what makes the claim checkable.
-- **The run id / timestamp** for anything generated by a pipeline.
-
-This applies to analyses, methodology docs, research writeups, and reviews — anything where the reader's next question is "says who, from what?" Skip it for a plan or agenda the user co-authors.
-
-## A live-feedback URL is not a durable address — never cite one inside a document
-
-**The review URL embeds a workspace id, and that id changes when the workspace is recreated.** Every link written against the old one dies silently — no error, no redirect, and dead for *you* as well as for the reader. One agent found 32 of them across two client-facing docs on 2026-08-17, 19 of which sat in the research writeup a client would open first.
-
-- **In a durable doc** — anything committed, exported, or sent to someone — cite **relative repo paths** or GitHub URLs. They survive a workspace being rebuilt.
-- **In live chat** — a message, a thread reply, a hand-off — an LF URL is correct and is what the user wants, because he's clicking it now.
-
-The failure is invisible at write time: the link works when you paste it, and rots later without touching the doc.
-
-**Watch for comments** via `watch_doc(docId)` — comment events arrive as `<channel source="..." doc_id="..." thread_id="..." event="...">` blocks. Resolve threads when you've addressed the feedback (`resolve_thread`).
-
-## Match BOTH channel-source spellings — this is a rollout blocker, not a cleanup task
-
-The plugin is being renamed from `live-feedback` to `claude-workspaces`. **Anything that matches on the channel source string must accept `source="live-feedback"` AND `source="claude-workspaces"`.**
-
-- **Both spellings are live at the same time, for the whole transition.** A session emits the new string only once it has restarted onto the new bundle, so respawned and un-respawned peers coexist and emit different strings.
-- **A matcher keyed to one spelling goes silently deaf to half the fleet.** No error, no dropped-event warning — comment events simply stop arriving from sessions on the other side of the rollout, which is indistinguishable from nobody having commented.
-- **Match on the presence of `doc_id` / `thread_id` instead**, where you can. The attributes did not change; only the source label did.
-
-Same for anything else keyed to the old name: the tool prefix is now `mcp__plugin_claude-workspaces_claude-workspaces__*`, skills are `claude-workspaces:*`, and the install key is `claude-workspaces@claude-workspaces`. Env vars gain a `CW_*` prefix, but the old `FEEDBACK_*` / `LF_*` spellings are permanently honored via dual-read, so a launch config that was never migrated keeps working rather than breaking.
+Same for anything else keyed to the old name: tool prefix `mcp__plugin_claude-workspaces_claude-workspaces__*`, skills `claude-workspaces:*`, install key `claude-workspaces@claude-workspaces`. Env vars gain `CW_*`; old `FEEDBACK_*` / `LF_*` spellings are permanently dual-read.

@@ -27,6 +27,7 @@ These all map to the same thing: produce or update today's prioritized review do
 Each morning the team-lead's daily cron runs this skill automatically so the user wakes to a current status + a ready hit list. Do the normal Steps below, plus:
 
 1. **Frame the output as a status + today's hit list** — the doc leads with where things stand after overnight, then the 2–4 things worth doing *today* (drawn from the committed weekly goals + whatever is newly unblocked or now needs the user).
+   - **Order the hit list by goal priority, always.** Set by him on 2026-08-27, after he reordered it himself: *"Hit list should always be in order of goal priority."* Not by size, not by what is quickest, not by the order you discovered them. If your order and the plan's goal numbering disagree, that is a signal the numbering is stale — say so rather than silently picking one.
 2. **Sync the user's Asana so today's tasks match today's hit list.** Asana is the user's primary task surface (populated by `weekly-plan`).
    - Mark done any task whose work actually shipped overnight (peer summary / merged PR confirms it) via `asana_update_task completed=true`.
    - Make sure today's hit-list items are the tasks dated today; **shift other tasks for the week to later days** as needed so today isn't overloaded (respect the weekly Capacity block — don't cram).

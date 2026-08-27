@@ -10,7 +10,7 @@
       "name": "team-lead-fleet",
       "source": "./team-lead-fleet",
       "description": "Skills + alwaysApply rules shared across the user's peer Claude Code sessions: ship-it, retro, persist-plan, ux-review skills + workflow-conventions, claude-hive-peer, feedback-loop, live-feedback-default, notion-channel-protocol, notion-mcp, public-content-scrubbing, security-posture rules.",
-      "version": "0.5.2"
+      "version": "0.5.3"
     }
   ]
 }

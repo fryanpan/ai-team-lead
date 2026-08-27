@@ -38,6 +38,11 @@ MENTIONABLE_PROJECT = "zephyr-cleared-proj"
 # a hit on it proves the repo-local file was read, and a miss proves it wasn't.
 DECOY_PROJECT = "zephyr-decoy-proj"
 DENY_TOKEN = "quokkaburra"
+# Regex denylist entries, one per documented spelling. Both must match
+# something that has NO trailing slash after it -- that is the whole
+# point of the control. See the delimiter cases in main().
+DENY_RX_BOTH = "quokkatrope"   # written /<pattern>/ in the fixture
+DENY_RX_OPEN = "quokkavane"    # written /<pattern>  (no closing delimiter)
 
 REGISTRY = f"""\
 projects:
@@ -51,7 +56,12 @@ projects:
     mentionable: true
 """
 
-DENYLIST = f"# fixture denylist\n{DENY_TOKEN}\n"
+DENYLIST = (
+    "# fixture denylist\n"
+    f"{DENY_TOKEN}\n"
+    f"/\\b{DENY_RX_BOTH}\\b/\n"
+    f"/\\b{DENY_RX_OPEN}\\b\n"
+)
 
 failures: list[str] = []
 
@@ -152,6 +162,15 @@ def main() -> int:
         public_ref = fixture("public.md", f"Built on {PUBLIC_PROJECT}, which is public.\n")
         mentionable_ref = fixture("cleared.md", f"A post about {MENTIONABLE_PROJECT}, cleared to name.\n")
         denied = fixture("denied.md", f"An aside mentioning {DENY_TOKEN} in passing.\n")
+        # Delimiter controls. Each token is followed by a space, never a "/".
+        # Under the trailing-delimiter bug the compiled pattern requires a
+        # literal slash after the match, so these read as clean and the gate
+        # reports success while half-blind -- a regression indistinguishable
+        # from an absence of leaks. Found 2026-08-24; confirmed independently
+        # in the workspaces plugin 2026-08-27.
+        rx_both = fixture("rx-both.md", f"An aside mentioning {DENY_RX_BOTH} in passing.\n")
+        rx_open = fixture("rx-open.md", f"An aside mentioning {DENY_RX_OPEN} in passing.\n")
+        rx_near = fixture("rx-near.md", f"Nothing here but {DENY_RX_BOTH}ish text.\n")
         clean = fixture("clean.md", "Nothing sensitive here at all.\n")
         allowed = fixture("allowed.md", f"{PRIVATE_PROJECT} <!-- scrub-allow: documenting the gate -->\n")
 
@@ -164,6 +183,17 @@ def main() -> int:
 
         r = run([denied], registry, denylist)
         expect("catches a denylist pattern", r.returncode, 1, r.stderr)
+
+        r = run([rx_both], registry, denylist)
+        expect("catches a /regex/ denylist pattern", r.returncode, 1, r.stderr)
+
+        r = run([rx_open], registry, denylist)
+        expect("catches a /regex denylist pattern", r.returncode, 1, r.stderr)
+
+        # Negative control: without this the two above would also pass if the
+        # parser degraded into matching everything.
+        r = run([rx_near], registry, denylist)
+        expect("a /regex/ pattern still respects its word boundary", r.returncode, 0, r.stderr)
 
         # public: true must suppress. Without this the gate fires on nearly
         # every push and trains people into SCRUB_SKIP=1.

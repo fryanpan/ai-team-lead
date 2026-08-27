@@ -11,6 +11,8 @@ When you hit a technical gotcha, an API quirk, an environment surprise, or a pat
 
 Propose specific additions. Never ask "anything to add?"
 
+**Don't manufacture a stop to collect feedback.** A question asked in the terminal only exists while someone is watching the terminal, and asked after every unit of work it turns a queue into a conversation. Put the question where the work is — a comment on the task or the review doc — and keep going.
+
 ## Where a learning belongs
 
 **Before filing it, ask: would a future agent know to grep for this?**

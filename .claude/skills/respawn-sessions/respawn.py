@@ -6,7 +6,9 @@ Reads `registry.yaml` from the parent ai-team-lead repo. For each
 project with `respawn: true`, depending on --mode:
   - `missing` (default): spawn only if no claude is running with that cwd.
   - `plugin`: kill + respawn any session that does not have the
-    `claude-live-feedback` plugin loaded (canonical fleet plugin).
+    canonical fleet plugin loaded, under either install key
+    (`claude-workspaces@claude-workspaces` or the pre-rename
+    `live-feedback@claude-live-feedback`).
   - `all`: kill + respawn every respawn=true session (skipping the team-lead's
     own claude — never kill self).
   - `running`: kill + respawn every session that is ACTUALLY running, at the
@@ -30,6 +32,13 @@ default):
     register with claude-hive cleanly.
 
 Pass --no-auto-accept to skip the post-spawn dialog acceptance + cleanup.
+
+Pass --fresh to spawn every session with EMPTY context (no --continue). The
+previous conversation is not lost -- it stays on disk and is resumable with
+/resume. For per-agent behaviour set `fresh_start: true` on a registry entry
+instead; that is how an assistant clears at task boundaries while a builder
+keeps its history. There is no agent-callable /clear, so this is the only
+mechanical way to clear a session.
 
 Safety: this script is **dry-run by default**. Pass `--execute` to actually
 do anything destructive (kill/spawn/sweep). Without `--execute` it just
@@ -57,9 +66,25 @@ REGISTRY_PATH = os.path.join(REPO_ROOT, "registry.yaml")
 LSOF_TIMEOUT_SEC = 5.0
 PS_TIMEOUT_SEC = 5.0
 
-# Marker substring in claude argv that indicates the live-feedback plugin
-# is loaded. Used by --mode=plugin to detect sessions that need an upgrade.
-PLUGIN_MARKER = "plugin:live-feedback@claude-live-feedback"
+# Marker substrings in claude argv indicating the canonical fleet plugin is
+# loaded. Used by --mode=plugin to detect sessions that need an upgrade.
+#
+# BOTH spellings are accepted, and this is load-bearing during the
+# live-feedback -> claude-workspaces rename (2026-08-18). A session emits the
+# new install key only after it restarts onto the new bundle, so the two
+# coexist across the fleet for the whole transition. Matching only one spelling
+# would make --mode=plugin classify every session on the other side of the
+# rollout as "missing the plugin" and kill+respawn the entire fleet -- the most
+# expensive possible false positive, since the fix looks exactly like the work.
+PLUGIN_MARKERS = (
+    "plugin:claude-workspaces@claude-workspaces",
+    "plugin:live-feedback@claude-live-feedback",
+)
+
+
+def has_fleet_plugin(argv: str) -> bool:
+    """True if argv carries the fleet plugin under EITHER name."""
+    return any(m in argv for m in PLUGIN_MARKERS)
 
 TMUX_BIN = "/opt/homebrew/bin/tmux"
 
@@ -209,7 +234,10 @@ DISCORD_STAGGER_SEC = 25.0
 # post-spawn health check, which is advisory: it reports, it does not fail the run.
 EXPECTED_MCP_MARKERS = {
     "claude-hive": "claude-hive-mcp",
-    "live-feedback": "claude-live-feedback-plugin/packages/plugin/mcp",
+    # Matches either checkout dir name across the rename: the repo is
+    # claude-workspaces-plugin, the older local clone is
+    # claude-live-feedback-plugin. The tail is identical in both.
+    "workspaces": "-plugin/packages/plugin/mcp",
     "discord": "claude-plugins-official/discord",
 }
 
@@ -245,6 +273,50 @@ def parse_registry(path: str) -> Dict[str, Dict[str, str]]:
 
 def humanize(name: str) -> str:
     return name.replace("-", " ").replace("_", " ").title()
+
+
+# --- fresh-start (clear-on-respawn) ------------------------------------------
+#
+# There is NO agent-callable /clear or /compact. Verified against the 2.1.229
+# binary: both are `type:"local"` commands dispatched from the input line, and
+# every programmatic route into a session's queue (hive/peer, MCP channel, the
+# report path, /loop wake-ups, cron fires) is enqueued with
+# `skipSlashCommands: true` -- the text arrives as literal characters. So a
+# session cannot clear itself and cannot be told to, by anyone.
+#
+# Respawning WITHOUT --continue is therefore the only mechanical clear we have.
+# It is not destructive: the previous conversation stays on disk and is
+# resumable with /resume. What it costs is the session's working context, so
+# this is right for assistants that should start each task clean and wrong for
+# a builder mid-goal -- use --exclude for anything in flight.
+FORCE_FRESH = False
+
+
+def fresh_start_paths() -> set:
+    """Realpaths of registry projects marked `fresh_start: true`.
+
+    Per-agent rather than global, because the whole point is that assistants
+    clear at task boundaries while builders keep their history. A project with
+    no `fresh_start` field keeps the existing --continue behaviour.
+    """
+    out = set()
+    for fields in parse_registry(REGISTRY_PATH).values():
+        # The registry parser does not strip inline comments, so a field
+        # written `fresh_start: true   # why` arrives with the comment still
+        # attached. Compare on the first token, never on the whole value.
+        if fields.get("fresh_start", "").split("#")[0].strip().lower() != "true":
+            continue
+        raw = fields.get("path", "")
+        if raw:
+            out.add(os.path.realpath(os.path.expanduser(raw)))
+    return out
+
+
+def wants_fresh(path: str) -> bool:
+    """True if this session should come back with empty context."""
+    if FORCE_FRESH:
+        return True
+    return os.path.realpath(path) in fresh_start_paths()
 
 
 def collect_targets() -> List[Tuple[str, str]]:
@@ -389,6 +461,49 @@ def resolve_home_path(cwd: str) -> str:
         p = parent
 
 
+_REGISTRY_PATHS_CACHE: Optional[List[str]] = None
+
+
+def registry_home_for(path: str) -> Optional[str]:
+    """Return the registry path of the project that CONTAINS `path`, if any.
+
+    A peer's home is its registry path; a worktree is temporary scratch. Nothing
+    else in this script enforces that, and `resolve_home_path` above cannot: it
+    is defined to find where the transcript LIVES, so if a session relocated its
+    own transcript into a worktree, the walk stops there on the first iteration
+    and faithfully returns the worktree. Both behaviours are correct in
+    isolation and the outcome — a peer staying at its registered home — was
+    owned by no step, so a misplacement got copied forward on every respawn.
+    Measured 2026-08-17: a peer had lived in a doubly-nested worktree since
+    09:20 and the account-switch respawn reproduced it exactly.
+
+    This does the ownership half. It deliberately does NOT relocate anything:
+    moving a transcript is how the misplacement happened in the first place, and
+    respawning at a path whose transcript is elsewhere silently starts a blank
+    session. It reports, and a human decides.
+
+    Matches every registry project, not just `respawn: true` ones — a peer with
+    `respawn: false` is exactly the kind that gets cycled by `--mode running`.
+    """
+    global _REGISTRY_PATHS_CACHE
+    if _REGISTRY_PATHS_CACHE is None:
+        paths = []
+        for fields in parse_registry(REGISTRY_PATH).values():
+            raw = fields.get("path", "")
+            if not raw:
+                continue
+            p = os.path.realpath(os.path.expanduser(raw))
+            if os.path.isdir(p):
+                paths.append(p)
+        # Longest first so a nested project wins over its parent.
+        _REGISTRY_PATHS_CACHE = sorted(paths, key=len, reverse=True)
+    real = os.path.realpath(path)
+    for project in _REGISTRY_PATHS_CACHE:
+        if real == project or real.startswith(project + os.sep):
+            return project
+    return None
+
+
 def collect_running_targets(running: Dict[int, Dict[str, str]],
                             self_pid: Optional[int]) -> List[Tuple[str, str]]:
     """Return (display_name, cwd) for every live claude except the team-lead.
@@ -436,6 +551,15 @@ def collect_running_targets(running: Dict[int, Dict[str, str]],
             print(f"[home] {display}: running in {cwd}\n"
                   f"       but its transcript lives under {home} — respawning there "
                   f"so --continue resumes it.")
+        registry_home = registry_home_for(home)
+        if registry_home and registry_home != os.path.realpath(home):
+            print(f"[misplaced] {display}: home is {home}\n"
+                  f"            but its registry path is {registry_home}.\n"
+                  f"            Respawning where it is, so --continue keeps its context —\n"
+                  f"            but this session lives in a worktree and every respawn will\n"
+                  f"            reproduce that until its transcript is migrated. See\n"
+                  f"            'Misplaced session home' in the respawn-sessions SKILL.md.",
+                  file=sys.stderr)
         targets.append((display, home))
 
     targets.sort(key=lambda t: discord_state_dir_for(t[1]) != NO_DISCORD_STATE_DIR)
@@ -545,8 +669,12 @@ def spawn_session_tmux(session_name: str, path: str) -> bool:
     # renamed that row to.
     name_flag = f" -n {shlex.quote(session_name)}"
     rc_flag = f" --remote-control {shlex.quote(session_name)}"
+    # A fresh session is spawned as bare `claude`. Note this also skips the
+    # resume-from-summary dialog, so the post-spawn auto-accept has one fewer
+    # prompt to answer -- it polls for whatever appears and is unbothered.
+    fresh = wants_fresh(path)
     claude_invocation = (
-        ("claude --continue" if has_prior_session(path) else "claude")
+        ("claude --continue" if (has_prior_session(path) and not fresh) else "claude")
         + name_flag
         + rc_flag
         + direct_channel_flags(path)
@@ -563,6 +691,10 @@ def spawn_session_tmux(session_name: str, path: str) -> bool:
     r = subprocess.run(
         [TMUX_BIN, "new-session", "-d", "-s", tmux_name, "-c", path,
          "-e", f"DISCORD_STATE_DIR={discord_dir}",
+         # Both spellings. The plugin dual-reads permanently and lets the
+         # new name win, so setting both is correct before AND after the
+         # rename -- no flag-day ordering dependency on this file.
+         "-e", f"CW_AGENT_NAME={session_name}",
          "-e", f"FEEDBACK_AGENT_NAME={session_name}",
          "/bin/zsh", "-ic", claude_invocation],
         capture_output=True, text=True, timeout=5.0,
@@ -825,10 +957,10 @@ def select_targets(mode: str, targets: List[Tuple[str, str]],
                 to_spawn.append((name, path))
             elif existing_pid == self_pid:
                 # Team Lead: never kill ourselves; flag if we lack the plugin
-                if PLUGIN_MARKER not in running[existing_pid]["argv"]:
+                if not has_fleet_plugin(running[existing_pid]["argv"]):
                     print(f"  [self] {name}: team-lead lacks plugin — restart this session manually to upgrade")
                 skipped.append((name, path))
-            elif PLUGIN_MARKER in running[existing_pid]["argv"]:
+            elif has_fleet_plugin(running[existing_pid]["argv"]):
                 skipped.append((name, path))
             else:
                 to_kill.append(existing_pid)
@@ -849,7 +981,7 @@ Usage:
 
 Modes:
   --mode missing   (default) Spawn only for projects whose claude isn't running.
-  --mode plugin    Kill+respawn any session lacking the `claude-live-feedback`
+  --mode plugin    Kill+respawn any session lacking the fleet workspaces
                    plugin (canonical fleet plugin). Team Lead (self) is never
                    killed; flagged if it lacks the plugin.
   --mode all       Kill+respawn every respawn=true session, except the
@@ -905,6 +1037,13 @@ def main() -> int:
     execute = "--execute" in args
     auto_accept = "--no-auto-accept" not in args
     no_compact = "--no-compact" in args
+
+    # --fresh: force EVERY spawned session to start with empty context, on top
+    # of whatever the registry marks. Use it for a deliberate fleet-wide reset;
+    # for the normal per-agent behaviour set `fresh_start: true` in the
+    # registry instead and let this stay off.
+    global FORCE_FRESH
+    FORCE_FRESH = "--fresh" in args
 
     mode = "missing"
     if "--mode" in args:

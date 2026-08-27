@@ -1,1 +1,0 @@
-../../plugin/team-lead-fleet/rules/notion-channel-protocol.md

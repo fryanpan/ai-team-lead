@@ -73,7 +73,10 @@ BASE_CHECKS = [
     # --- daemons that must be up and owned by launchd (not by a session) ---
     {"type": "launchd", "label": "com.fryanpan.notion-channel-receiver"},
     {"type": "launchd", "label": "com.fryanpan.github-channel-broker"},
-    {"type": "launchd", "label": "com.fryanpan.live-feedback"},
+    # Both spellings, per the fleet rename rule: the job is live under either
+    # during the transition and pinning to one produces a false RED.
+    {"type": "launchd", "label": ["com.fryanpan.claude-workspaces",
+                                 "com.fryanpan.live-feedback"]},
     {"type": "launchd", "label": "live-feedback.cloudflared"},
     {"type": "launchd", "label": "notion-channel.cloudflared"},
     {"type": "launchd", "label": "com.fryanpan.email-channel-watcher"},
@@ -94,6 +97,15 @@ BASE_CHECKS = [
     {"type": "http", "name": "github broker", "expect": '"ok":true',
      "url": "http://127.0.0.1:7902/health"},
 
+    # --- the machine itself. Added 2026-08-18 after Bryan reported it feeling
+    #     slow: 13GB was swapped out on a 16GB machine and nothing anywhere
+    #     said so. Every one of these reads kernel state and names no process,
+    #     so it goes red when the machine is short rather than when some
+    #     particular program is large. ---
+    {"type": "swap", "name": "swap", "max_used_gb": 8.0},
+    {"type": "free_memory", "name": "free memory", "min_free_pct": 15},
+    {"type": "load", "name": "load", "max_per_core": 1.5},
+
     # --- alive and failing: the shape no process check can see ---
     {"type": "log_errors", "name": "email watcher", "max": 0,
      "path": "~/Library/Logs/email-channel-watcher.log",
@@ -110,11 +122,31 @@ BASE_CHECKS = [
     {"type": "file_present", "name": "github token", "why": "broker cannot poll without it",
      "path": "~/.config/github-claude-channel/env"},
 
+    # --- the monitor auditing itself. Editing the repo copy changes nothing;
+    #     launchd execs the deployed copy. Without this, a forgotten redeploy
+    #     means every check below silently runs the OLD file, three green times
+    #     a day, with no surface saying the new one never ran. ---
+    {"type": "self_version", "name": "checker version",
+     "source": "~/dev/ai-team-lead/scripts/fleet_healthcheck.py"},
+
+    # --- delivery, not schedule: the archiver's launchd job died 2026-08-08 and
+    #     nothing surfaced it for 17 days, because running the analysis pipeline
+    #     by hand copied the same files and kept the folder looking current. This
+    #     asserts transcripts ARRIVED, so it fails whichever path stops. Age is
+    #     the signal, not count -- a fresh pipeline run drives count to ~0 by
+    #     construction, while age is monotonic until something actually copies. ---
+    {"type": "archive_backlog", "name": "transcript archive",
+     "live_root": "~/.claude/projects",
+     "archive_root": "~/dev/weekly-review-transcripts",
+     "max_age_days": 21,
+     "owner": "Weekly Review (owns the pipeline + archive-transcripts.sh)"},
+
     # --- the wake half. A plugin enabled without a launch flag has the tools
     #     and receives no events; argv is the only place that shows. ---
     {"type": "channel_flags", "name": "channel flags", "required": [
         "server:claude-hive",
-        "plugin:live-feedback@claude-live-feedback",
+        ["plugin:claude-workspaces@claude-workspaces",
+         "plugin:live-feedback@claude-live-feedback"],
         "plugin:notion-channel-mcp@notion-channel-mcp",
         "plugin:github-claude-channel@github-claude-channel",
     ]},

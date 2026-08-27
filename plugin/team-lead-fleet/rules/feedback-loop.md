@@ -4,17 +4,21 @@ alwaysApply: true
 
 # Continuous Feedback & Learning
 
+> **Don't manufacture a stop to collect feedback** (Bryan, 2026-08-13). This
+> file used to end every feature with "ask the user how that went" and prompt
+> for a retro every couple of hours. Both are gone: a question asked in the
+> terminal only exists while someone is watching the terminal, and asked after
+> every unit of work it turns a queue into a conversation. If you have a
+> question about the work, put it where the work is — a comment on the task or
+> the review doc — and keep going. Capturing learnings still applies.
+
 ## After Completing a Feature
 1. **Self-review** before declaring done:
    - Did I miss any edge cases?
    - Is this the simplest solution?
    - Did I update all places that needed updating?
 
-2. **Ask for feedback**:
-   - "Does this work as expected?"
-   - "Anything that felt clunky or could be improved?"
-
-3. **Capture learnings**: Proactively identify and add things worth remembering:
+2. **Capture learnings**: Proactively identify and add things worth remembering:
    - Technical gotchas or surprises
    - Patterns that worked well
    - Mistakes to avoid repeating
@@ -24,22 +28,18 @@ alwaysApply: true
 
 ## During Work - Watch for Friction
 If the user seems frustrated, confused, or an approach isn't working:
-- Pause and acknowledge: "This doesn't seem to be working well. What's off?"
+- Acknowledge it: "This doesn't seem to be working well. What's off?"
 - Ask what they'd prefer instead
-- Offer to log the feedback for future sessions
+- Log the feedback for future sessions
 
-## Periodic Retrospective
-After ~2-3 hours of work or completing a major feature, prompt:
-> "Quick retro:
-> - What worked well?
-> - What was frustrating or slower than expected?
-> - Anything I should do differently?"
-
-Then offer to log feedback in `docs/process/retrospective.md`
+This one is responsive, not scheduled — it fires because a person is already
+telling you something, which is the opposite of stopping to ask whether they
+have anything to tell you.
 
 ## Retros
 
-`/retro` is user-invocable. Don't auto-prompt for it — that adds friction. If you notice patterns worth capturing during a session (recurring gotchas, slow tasks, broken plan assumptions), edit `docs/process/learnings.md` directly per the section above. The user can run `/retro` themselves when they want a structured pass.
+`/retro` is user-invocable. Don't auto-prompt for it, on a timer or after a
+PR — that adds friction. If you notice patterns worth capturing during a session (recurring gotchas, slow tasks, broken plan assumptions), edit `docs/process/learnings.md` directly per the section above. The user can run `/retro` themselves when they want a structured pass.
 
 ## Elevating to Learnings
 

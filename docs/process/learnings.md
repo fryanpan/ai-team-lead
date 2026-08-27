@@ -759,3 +759,23 @@ Four more tells, all present in the output and all ignored at the time:
 - **Does not survive:** any per-model price ratio from `meter_fit.py`, and the precision of `a` itself. The best coefficient of variation across all four hypotheses in `meter_calibration.py` is 0.469 — "cost wins, 1.04x tighter than the next best" is a coin-flip between four models that all fit badly, not a result.
 
 **The general failure.** The fit reported one number that was checkable against the outside world and one that was not, and the checkable one was wrong by an order of magnitude — but it was never checked, because it was not the number anyone cared about. **When a model estimates several quantities and you only care about one, validate it on the ones you can independently verify.** `meter_fit.py` now prints the Opus-4.8-to-Opus-5 ratio on every run for exactly this reason: it should read ~1.00x, and when it does not, nothing else in the output is a price.
+
+## A peer posting as "Agent" is a launcher bug, not a plugin bug (2026-08-27)
+
+`CW_AGENT_NAME` is what the workspace attributes comments and task rewrites by. `-n/--name` is a different thing — it names the session inside Claude Code's own UI and does nothing for attribution. A session launched with `-n 'Personal Finance'` and no `CW_AGENT_NAME` posts as a generic "Agent", indistinguishable from every other peer doing the same.
+
+**The MCP child reads it from a parent environment fixed at session launch**, so an agent cannot set it for itself and a reconnect does not repair it — the child re-spawns and inherits the same fixed env. Only the launcher can supply it.
+
+**The bulk and single-spawn paths had diverged.** `respawn.py`'s `spawn_session_tmux` passes both `CW_AGENT_NAME` and `FEEDBACK_AGENT_NAME` via `tmux new-session -e`; the `spawn-session` skill covered only `DISCORD_STATE_DIR`. So every project with `respawn: false` — the ones only ever spawned by hand — was exposed. Found three live sessions in that state: one missing the value entirely, two carrying the session slug where the registry has a friendly `session_name`.
+
+Audit the live fleet:
+
+```bash
+for s in $(tmux ls -F '#{session_name}'); do
+  printf '%s -> %s\n' "$s" "$(tmux show-environment -t "$s" CW_AGENT_NAME 2>/dev/null || echo MISSING)"
+done
+```
+
+**A wrong value cannot be repaired in place.** `tmux set-environment` only reaches panes created afterwards, never the running process. Fixing it means respawning that session.
+
+The general shape: when a bulk path and a single-item path both spawn the same thing, env passed by only one of them fails silently on exactly the items the bulk path skips.

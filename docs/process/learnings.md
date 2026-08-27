@@ -779,3 +779,23 @@ done
 **A wrong value cannot be repaired in place.** `tmux set-environment` only reaches panes created afterwards, never the running process. Fixing it means respawning that session.
 
 The general shape: when a bulk path and a single-item path both spawn the same thing, env passed by only one of them fails silently on exactly the items the bulk path skips.
+
+## Counting worktrees as repos inflates a propagation surface (2026-08-27)
+
+A row claimed "five of six repos carry the bug" and drove a fleet-wide propagation plan. The real population was **two repos and eight worktrees of one of them**. `git rev-parse --show-toplevel` returns the worktree's own directory, so a loop over `~/dev/*/` that resolves toplevels reports each tree as its own repo and the count silently multiplies.
+
+Resolve to the **common** git dir instead, which is shared across a repo's worktrees:
+
+```bash
+git -C "$d" rev-parse --path-format=absolute --git-common-dir
+```
+
+Worktrees share a checkout, so they are one fix and not eight — and the difference decides whether the work is a sweep or a single PR someone else already owns.
+
+## A silent-failure gate that gets a fix without a test is still broken (2026-08-27)
+
+The pre-push leak scanner had its delimiter bug fixed and committed with no test. That is worse than it sounds for this particular class of tool: **the failure mode is reporting clean while half-blind**, so a returning regression is indistinguishable from an absence of leaks. Every green run after that point would have been worthless and nobody would have known.
+
+The fix is a positive control per documented spelling, and it has to be proven red-first — revert the fix in place, confirm the new case fails, restore. Here the `/pattern/` control failed `exit 0, expected 1` while the `/pattern` case and a word-boundary negative control stayed green, which also proved the control was discriminating rather than merely present.
+
+**The general rule: for any check whose failure mode is a false green, the test is not optional polish — it is the only thing that distinguishes working from broken.**

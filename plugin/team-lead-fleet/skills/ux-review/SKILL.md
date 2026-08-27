@@ -143,7 +143,7 @@ Produce a single markdown report with:
 ## Anti-patterns
 
 - **Don't review from the code.** The whole point is to see what the user sees. If you can't run it, say so and stop.
-- **Don't grade your own homework.** If the agent that built the feature is doing the review, dispatch a fresh subagent without context to walk it cold. Familiarity hides friction.
+- **Don't grade your own homework.** If the agent that built the feature is doing the review, dispatch a fresh subagent without context to walk it cold. Familiarity hides friction. Tell it what to return: pass/fail per goal, findings with severity, and screenshot *paths* — never page text, DOM, or a click-by-click narration.
 - **Don't over-engineer the heuristics.** The point is to catch obvious problems quickly, not write a 10-page evaluation.
 - **Don't skip the goal-completion test.** Heuristic violations can be wrong; failure to complete a goal can't.
 

@@ -11,16 +11,16 @@ Run end-to-end: code review → PR → CI → Copilot review → merge → deplo
 
 ### 1. Code Review (parallel background agents)
 
-Dispatch both as background agents simultaneously:
+Dispatch both as background agents simultaneously. **Give each the return contract in its prompt**: findings only — the diff, the review transcript and the tool output stay in the reviewer's context.
 
 **Agent A — Claude review:**
 - Review the full diff (`git diff <base-branch>...HEAD`) against the Review Criteria in `workflow-conventions.md`
 - Check: goal completeness, simplicity, testing sufficiency, coupling/cohesion
-- Return BLOCKING vs ADVISORY findings
+- Return BLOCKING vs ADVISORY findings, each one a `file:line` plus a sentence. No diff hunks, no restatement of the code.
 
 **Agent B — Codex review:**
 - Run: `codex review -c 'model="gpt-5.4"' --base <base-branch>`
-- Capture output
+- Return the findings in the same shape. Do not paste the codex output back.
 
 Wait for both. Merge findings. Fix BLOCKING issues. Re-run reviewers only if fixes were >10 lines.
 

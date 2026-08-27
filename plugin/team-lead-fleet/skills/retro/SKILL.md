@@ -85,7 +85,7 @@ This affects Steps 3 and 5 below. All other steps run the same regardless of mod
    **4a. Launch CLAUDE.md review in parallel.** While investigating actions below, launch a Task agent (`general-purpose` type) to audit CLAUDE.md. In the prompt, include your key observations from Step 2 and the user's feedback from Step 3 (if human-led). The agent should:
    - Glob for all `**/CLAUDE.md` files in the project
    - Read each one and evaluate whether any sections need additions or updates based on the session observations and feedback you provided
-   - Return specific proposed edits (section + exact change), not vague suggestions
+   - Return specific proposed edits (file, section, exact change), not vague suggestions — and not the contents of the files it read
    - If nothing needs changing, say so
 
    Call this Task in the same message as your first tool calls for 4b — they'll run in parallel naturally. Do NOT use `run_in_background`.

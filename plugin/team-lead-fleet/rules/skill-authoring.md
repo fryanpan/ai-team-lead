@@ -1,10 +1,15 @@
+---
+alwaysApply: true
+appliesTo: main
+---
+
 # Skill Authoring — Fleet Additions
 
 Complements `superpowers:writing-skills` (the RED→GREEN→REFACTOR process). These are the fleet-specific steps to run *in addition*, whenever you create or edit a skill.
 
 ## Check the harness before you document anything
 
-Before writing skill-body content, **dispatch a research agent to check the Claude System Prompt archive** (the published Claude Code system-prompt / harness instructions) and confirm the skill is NOT duplicating detail the harness already gives every agent.
+Before writing skill-body content, **ask the research agent to check the Claude System Prompt archive** (the published Claude Code system-prompt / harness instructions) and confirm the skill is NOT duplicating detail the harness already gives every agent. Ask it for the verdict and the citations — the archive text itself stays in its context.
 
 - **Cut anything the harness already covers** — how to use a tool, how to `ToolSearch`-load deferred MCP tools, how to take a screenshot, standard tool mechanics, permission conventions. Re-documenting it wastes tokens every time the skill loads and drifts out of date as the harness changes.
 - **Keep only what's NOT in the harness:** the judgment call, the fleet-specific rule, the one non-obvious technique.

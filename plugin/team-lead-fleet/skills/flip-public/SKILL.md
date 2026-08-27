@@ -66,6 +66,8 @@ For each finding:
 
 If commit history has scrubbable content: **squash to a single "Initial release" commit** before flipping (`git reset --soft <root> && git commit --amend`). For multi-author repos, get author consent before squashing — squash erases authorship attribution.
 
+**Ask what the history is FOR before you squash it.** Squashing destroys every commit date, and dates are the whole evidentiary value when a repo exists to show *when* work was done — prior art against a client or employer, an invention-assignment boundary, a priority claim. In those cases the dated history IS the deliverable, and squashing it to satisfy this checklist would delete the thing being published. Scrub by rewriting content across history (`git filter-repo`) or by publishing a curated copy, and keep the timestamps. Health Tool caught this step pointed the wrong way on 2026-08-24, on a repo being published specifically to date prior art.
+
 ### 5. Security pass
 
 Beyond what scrub-check catches:

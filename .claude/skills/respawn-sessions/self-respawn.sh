@@ -58,6 +58,11 @@ rm -f "$ARMED"
 
 # ---- the detached respawn job ----
 # Unquoted heredoc: $VARS expand NOW; \$… stays literal for the job's runtime.
+# -e CW_AGENT_NAME: without it claude-workspaces gives this session no stable agent
+# identity, so (a) every comment it posts is attributed to "Agent" and (b)
+# set_workspace_lead returns subscriptionPersisted:false — the board subscription
+# silently does NOT survive the respawn, so events stop arriving with no error.
+# Must be -e: new-session ignores client env when the tmux server is already up.
 # No -e DISCORD_STATE_DIR: the team-lead keeps its own shell/direnv discord state
 # (unlike peers, which get an explicit override to prevent channel fan-out) —
 # `zsh -ic` in TL_DIR restores it.
@@ -70,7 +75,7 @@ for _ in \$(seq 1 60); do
 done
 sleep 3
 $TMUX_BIN kill-session -t $TL_SESSION 2>/dev/null
-$TMUX_BIN new-session -d -s $TL_SESSION -c '$TL_DIR' /bin/zsh -ic "claude --continue -n '$TL_NAME' --remote-control '$TL_NAME'"
+$TMUX_BIN new-session -d -s $TL_SESSION -e CW_AGENT_NAME='$TL_NAME' -e FEEDBACK_AGENT_NAME='$TL_NAME' -c '$TL_DIR' /bin/zsh -ic "claude --continue -n '$TL_NAME' --remote-control '$TL_NAME'"
 echo "[\$(date)] spawned tmux:$TL_SESSION (rc=\$?)" >> $LOG
 # Auto-accept startup dialogs.
 # The resume dialog's DEFAULT option is "Resume from summary" — a bare Enter there

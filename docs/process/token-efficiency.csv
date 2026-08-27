@@ -1,0 +1,5 @@
+week_of,total_tokens,turns,sessions,hands_on_hours,tokens_per_hour,tokens_per_turn,note
+2026-08-03,2040000000,9066,17,,,225016,recomputed 2026-08-27 after the duplicate-record fix; was 4093375953/19146
+2026-08-10,4395000000,21006,16,,,209226,recomputed 2026-08-27 after the duplicate-record fix; was 8903300031/43510
+2026-08-17,8996000000,42905,13,22.1,407058824,209672,recomputed 2026-08-27 after the duplicate-record fix; was 17133231091/83092 and 775M/hr
+2026-08-24,2750000000,14241,12,,,193105,recomputed 2026-08-27 after the duplicate-record fix; was 4575154372/23823

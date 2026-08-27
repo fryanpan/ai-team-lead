@@ -18,7 +18,7 @@ Attach to any session with `tmux a -t <session>` when you want a pane visible.
 | Mode | What it does |
 |------|--------------|
 | `missing` (default) | For each `respawn: true` project: spawn a fresh session ONLY if no claude is currently running with that project's `path` as cwd. Skips everything that's already up. **Safe.** |
-| `plugin` | Kill+respawn any running session whose argv doesn't include the canonical fleet plugin (`plugin:live-feedback@claude-live-feedback`). Use after enabling/upgrading a plugin globally. **Team Lead (self) is never killed**; if it lacks the plugin, the script flags it for manual restart. |
+| `plugin` | Kill+respawn any running session whose argv includes neither install key of the canonical fleet plugin (`plugin:claude-workspaces@claude-workspaces`, or the pre-rename `plugin:live-feedback@claude-live-feedback`). Use after enabling/upgrading a plugin globally. **Team Lead (self) is never killed**; if it lacks the plugin, the script flags it for manual restart. |
 | `all` | Kill+respawn every `respawn: true` session. Use as a full fleet reset. **Team Lead (self) is never killed.** |
 
 ## Per-peer DISCORD_STATE_DIR scoping (automatic)

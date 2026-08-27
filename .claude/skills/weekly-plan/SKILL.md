@@ -23,8 +23,11 @@ Every goal has these parts. Lead every block with a **bold brief label**, and ke
 | Lead | `- **Lead**: <agent> · <the user's role>` | its own bullet — separate from Due (different info type) |
 | Constraint | `- **Constraint:** <one line>` | **only when a real operating limit exists** (e.g. "agents draft, you send"). Not a place for context. |
 | Key stops | `- **Key stops**` then a **numbered** list, **at most 5** | each stop is `<when> — <what>`, plus one clause of why it has to happen then. These become the workspace tasks (step 9) and the user's Asana tasks (step 11). |
+| Estimated hands-on hours | `- **Estimated hands-on hours:** <derivation>` | **only when the derivation is worth showing** — the baseline-without-agents figure and what his share of it is. Named by him on 2026-08-27; it was previously `Estimate basis`, which described the method rather than the number. The number itself still lives in the title. |
 
-### There is no Value block — the title carries the value (set 2026-08-17)
+### There is no Value block — the title carries the value (set 2026-08-17, repeated 2026-08-27)
+
+**He has now said this twice.** On 2026-08-27 the week's plan still carried six Value bullets and he cut them again: *"Value is no longer necessary -- it should be apparent most of the time in the top level goal."* The rule was already written here and the doc broke it anyway, which means reading this section is not enough — **check a drafted plan for `**Value` before showing it to him.**
 
 The user removed it as wasted space: *"Do you see what I wrote in the goal title? That's the goal. And we should going forward in this template have the title reflect the goal. No separate 'Value' section."*
 

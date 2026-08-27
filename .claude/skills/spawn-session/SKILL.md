@@ -46,6 +46,8 @@ Check that no peer's `cwd` matches the target. If one exists, stop and delegate 
 /opt/homebrew/bin/tmux new-session -d -s <session-name> \
   -c <absolute_path> \
   -e "DISCORD_STATE_DIR=<right-state-for-this-peer>" \
+  -e "CW_AGENT_NAME=<Display Name>" \
+  -e "FEEDBACK_AGENT_NAME=<Display Name>" \
   /bin/zsh -ic "claude --continue -n '<Display Name>'"
 ```
 
@@ -71,6 +73,26 @@ Check that no peer's `cwd` matches the target. If one exists, stop and delegate 
   ```
 
 This logic is encoded in `respawn.py`'s `discord_state_dir_for(path)` + `spawn_session_tmux` for the bulk respawn path. The single-spawn path here needs the same treatment manually.
+
+#### `CW_AGENT_NAME` — required, or the peer posts to the workspace as "Agent"
+
+**`-n` is not enough.** `-n` sets the display name Claude Code shows in its own UI. The workspace attributes comments and task rewrites by `CW_AGENT_NAME`, read by the MCP child from its parent's environment — which is fixed at session launch. Without it every comment that peer leaves lands as a generic "Agent", indistinguishable from any other peer's.
+
+**An agent cannot set this for itself.** The MCP child inherits env from the Claude Code process, so it has to come from the launcher. A reconnect does not fix it either — the child re-spawns but inherits the same fixed parent env.
+
+**Pass both spellings.** `FEEDBACK_AGENT_NAME` is the pre-rename variant and is permanently dual-read; a peer on an older bundle reads only that one.
+
+**Use the registry's `session_name` verbatim** — the friendly form, not the session slug. A peer launched with the slug posts as `my-project` where every other peer posts as `My Project`.
+
+**This is the step the bulk path gets right and the single-spawn path drops.** `respawn.py` passes both via `-e`; anything spawned by hand does not, so every project with `respawn: false` is exposed. Audit the live fleet with:
+
+```bash
+for s in $(tmux ls -F '#{session_name}'); do
+  printf '%s -> %s\n' "$s" "$(tmux show-environment -t "$s" CW_AGENT_NAME 2>/dev/null || echo MISSING)"
+done
+```
+
+A wrong or missing value cannot be repaired in place — `tmux set-environment` only reaches panes created afterwards, not the running process. Fixing it means respawning that session.
 
 ### Step 3 — verify the session registered with the broker
 

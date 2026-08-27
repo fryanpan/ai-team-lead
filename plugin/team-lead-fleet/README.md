@@ -28,8 +28,7 @@ Each project picks ONE ship skill via a line in its `CLAUDE.md`:
 - `workflow-conventions.md` — planning, decision framework, commit discipline, LLM turn efficiency, code review, post-implementation, team-lead-notification
 - `feedback-loop.md` — capture learnings, periodic retros
 - `live-feedback-default.md` — bind markdown / dev-server reviews to the live-feedback widget
-- `notion-channel-protocol.md` — handle notion-channel events as peer asks
-- `notion-mcp.md` — MCP conventions, retry behavior, agent identification in comments
+- `notion.md` — MCP conventions, agent identification in comments, and handling notion-channel events as peer asks
 - `public-content-scrubbing.md` — review pass before publishing public content
 - `security-posture.md` — operational security rules for multi-agent setup
 

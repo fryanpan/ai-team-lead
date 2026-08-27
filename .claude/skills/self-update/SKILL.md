@@ -57,10 +57,10 @@ Peers each run their own copy of the binary + the fleet plugin, so they need res
   python3 .claude/skills/respawn-sessions/respawn.py --mode all --execute
   ```
   Checkpoint any peer mid-task first (graceful path in `/shutdown-session`) — don't kill in-flight work.
-- **Only `plugin/team-lead-fleet/` changed** (no version bump) → refresh plugin-less peers only:
-  ```bash
-  python3 .claude/skills/respawn-sessions/respawn.py --mode plugin --execute
-  ```
+- **Only `plugin/team-lead-fleet/` changed** → **run `/ship-fleet`, not a respawn.** A respawn re-reads the
+  version-keyed cache at `~/.claude/plugins/cache/`; if the version wasn't bumped that cache is stale, and the
+  peer comes back on a fresh process running the same old rules. `/ship-fleet` bumps both manifests, refreshes
+  the cache, reloads peers in place, and verifies from a peer's injected context rather than from yours.
 - **Neither changed** → skip; nothing to propagate.
 
 ### 5. Report

@@ -11,6 +11,17 @@ Pull learnings and retro insights from all projects in `registry.yaml` into `doc
 
 1. **Read `registry.yaml`** to get the list of managed projects with their paths.
 
+   **Then drop every entry with `aggregate: false`, before you read anything.**
+   These are client engagements. Their learnings and retros must never reach
+   `aggregation-log.md`, which is a shared fleet artifact — pulling a client's
+   docs into it is the exact cross-contamination a clean-room separation is
+   supposed to prevent, and it cannot be undone by deleting the lines later.
+
+   Build the project list first, remove the excluded entries, say out loud
+   which ones you removed, and only then start step 2. Filtering as you go
+   does not work: `git pull` in step 2 and the file reads in step 3 have both
+   already happened by the time you would notice.
+
 2. **Ensure freshness** of each project's main worktree:
    - Run `git -C <path> pull --ff-only` to update to latest origin/main
    - If pull fails (dirty worktree, non-ff), warn the user and note the discrepancy

@@ -19,6 +19,11 @@ AUTHORITATIVE: they replace the whole search for that source, including the
 repo-local registry.yaml. A source that was expected and did not resolve is a
 hard failure (exit 2) — see `decide_sources` for what "expected" means.
 
+The denylist is **enforced only when the repo being pushed to is public** — see
+`repo_is_public()`. These patterns are infrastructure identifiers that appear
+legitimately all over the fleet's private repos; a public repo is where they
+become permanent. Unknown visibility enforces.
+
 Usage:
   scrub-check.py file [file...]            # scan named files
   scrub-check.py --diff-range A..B          # scan files changed in range
@@ -299,10 +304,85 @@ def load_denylist() -> List[Tuple[str, bool]]:
             if not s or s.startswith("#"):
                 continue
             if s.startswith("/"):
-                out.append((s[1:], True))
+                body = s[1:]
+                # Documented syntax is /regex/ — strip the CLOSING delimiter too.
+                # Leaving it on silently appends a literal "/" to every pattern,
+                # so /\btailb53801\b/ only matched when a slash happened to
+                # follow. Found 2026-08-24, seeding the first real denylist.
+                if body.endswith("/") and len(body) > 1:
+                    body = body[:-1]
+                out.append((body, True))
             else:
                 out.append((s, False))
     return out
+
+
+def repo_is_public(registry_path: Optional[str]) -> bool:
+    """Is the repo we are pushing to itself public?
+
+    The denylist protects infrastructure identifiers — the tailnet name, host
+    names, workspace ids. Those appear constantly and legitimately in the
+    fleet's PRIVATE repos (daily reviews, learnings, config), where mentioning
+    them leaks nothing. In a PUBLIC repo the same string is a permanent leak.
+    So the denylist is enforced on public repos and skipped on private ones:
+    protection where exposure is forever, silence where it is not. Registry
+    project names are unaffected — they are gated by their own `public: true`.
+
+    Resolution order, most reliable first:
+      1. The (gitignored) registry's `public: true` on the entry whose key,
+         `path` basename, or `repo` basename matches this repo.
+      2. `gh repo view --json visibility`, if gh is installed and authorized.
+
+    UNKNOWN MEANS ENFORCE. A gate that fails open is not a gate, and the cost
+    of being wrong is asymmetric: a false positive costs one push, a false
+    negative is public record forever.
+    """
+    name = main_repo_name()
+    if not name:
+        return True
+
+    if registry_path and os.path.isfile(registry_path):
+        in_projects = False
+        current: Optional[str] = None
+        matches_current = False
+        is_public = False
+        with open(registry_path) as f:
+            for line in f:
+                if re.match(r"^projects:\s*$", line):
+                    in_projects = True
+                    continue
+                if not in_projects:
+                    continue
+                m = re.match(r"^  ([a-zA-Z][a-zA-Z0-9_-]*):\s*$", line)
+                if m:
+                    if matches_current:
+                        return is_public
+                    current = m.group(1)
+                    matches_current = current == name
+                    is_public = False
+                    continue
+                if current:
+                    m2 = re.match(r"^    (path|repo):\s*(\S+)", line)
+                    if m2 and os.path.basename(m2.group(2).rstrip("/")) == name:
+                        matches_current = True
+                    if re.match(r"^    public:\s*true\b", line):
+                        is_public = True
+                if line and not line[0].isspace() and not line.lstrip().startswith("#"):
+                    break
+        if matches_current:
+            return is_public
+
+    try:
+        out = subprocess.run(
+            ["gh", "repo", "view", "--json", "visibility", "-q", ".visibility"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if out.returncode == 0 and out.stdout.strip():
+            return out.stdout.strip().upper() == "PUBLIC"
+    except (FileNotFoundError, subprocess.SubprocessError):
+        pass
+
+    return True
 
 
 def build_patterns(names: Set[str], denylist: List[Tuple[str, bool]]) -> List[Tuple[str, re.Pattern]]:
@@ -459,7 +539,10 @@ def main() -> int:
         return 0
 
     project_names = load_project_names(registry)
-    denylist = load_denylist()
+    if repo_is_public(registry):
+        denylist = load_denylist()
+    else:
+        denylist = []
     patterns = build_patterns(project_names, denylist)
 
     if not patterns:

@@ -37,6 +37,20 @@ Each morning the team-lead's daily cron runs this skill automatically so the use
 
 Keep it cheap and otherwise silent. The review doc + the synced Asana list ARE the morning communication — don't also message the user separately. Still surface the review URL first (step 6) in-session for when the user checks.
 
+## Say it out loud when the week is going off track (set 2026-08-17)
+
+The user asked for this directly: *"let's see how this week goes -- you can put it in your notes to ping me when you do daily review if it looks like we're off track."*
+
+**The failure this exists to catch is a week that ends with four goals at zero and nobody having said so on Wednesday.** Writing "Status: slipping" into the doc does not count — he may not open it, and a status field reads as bookkeeping. Say it in the push, in one sentence, naming what to drop.
+
+Check these every run, against this week's plan:
+
+- **Has a committed goal moved at all?** A goal with no evidence of movement by midweek is off track regardless of its due date. The measure of a slipping week is a goal at zero, not a goal that is behind.
+- **Is one goal absorbing the week?** The recurring pattern is that one large goal takes everything and the small ones were booked as if it wouldn't. If the big goal's share is running away, the small ones are already lost — say so while there is still room to protect a slot.
+- **Did a day disappear?** Illness, a flare, unplanned logistics. He will usually mention it in passing rather than as a planning input. Treat it as one: redo the capacity block and name which goal comes off.
+
+**Wednesday is the deadline for saying it**, not Friday. By Friday the only available move is to write the week off; on Wednesday there is still a choice about what to cut.
+
 ## Steps
 
 1. **Collect raw signal.**
@@ -46,6 +60,7 @@ Keep it cheap and otherwise silent. The review doc + the synced Asana list ARE t
    - Fleet PRs: `gh pr list --json number,title,state,reviewDecision,updatedAt --repo <repo>` per registered repo (parallel via Bash background).
    - Live-feedback threads on the weekly plan + other watched docs: `list_threads`.
    - Discord messages: `fetch_messages` since last review.
+   - **Fleet health: read `~/Library/Application Support/team-lead/healthcheck-status.json`.** Every RED goes in the review. This is the step that owns the outcome — the checker writes a log and fires a notification, and until this bullet existed, nothing anywhere was defined as reading either. It ran 22 times with 116 RED lines and three failures red on *every single run* before anyone looked (2026-08-18).
 
 2. **Ask peers for context only where the transcript isn't enough.**
    - For each peer working a committed goal, decide: is what they did today obvious from the transcript? If yes, skip the ping.
@@ -53,7 +68,8 @@ Keep it cheap and otherwise silent. The review doc + the synced Asana list ARE t
    - Don't ping peers that have been silent and aren't on a committed goal.
 
 3. **Anchor priority on the weekly plan.**
-   - Read this week's Notion page (the one `weekly-plan` skill set up). Pull the committed goals in priority order.
+   - Read this week's plan doc, `.claude/reviews/weekly-YYYY-MM-DD.md` (the one `weekly-plan` set up, bound to the Team Lead workspace as docId `weekly-YYYY-MM-DD`). Pull the committed goals in priority order. **Not Notion** — weekly planning moved to the workspace on 2026-08-17.
+   - Cross-check against the workspace board (`get_workspace` for goal order, `next_tasks` for what's ready). The board is where goal priority actually lives; the doc is the narrative.
    - The review doc's outline = those goals, in the same order, plus a final section for things off-plan.
 
 4. **Write or update `.claude/reviews/YYYY-MM-DD.md`.**
@@ -111,7 +127,8 @@ Keep it cheap and otherwise silent. The review doc + the synced Asana list ARE t
    - On updates within the same day, the live-feedback editor stays in sync with the file. Don't re-call `create_review_doc`.
 
 6. **Surface the doc to the user — link FIRST, every time.**
-   - **The very first line of your user-facing response MUST be the review URL on its own line**, formatted as a Tailscale link: `http://mac-mini.<your-tailnet>.ts.net:8788/review/daily-review-YYYY-MM-DD`. No preamble, no "here's the review", no apology — just the URL.
+   - **The very first line of your user-facing response MUST be the WORKSPACE URL on its own line**: `http://mac-mini.<your-tailnet>.ts.net:8787/workspaces/<workspace_id>` (the Team Lead workspace id lives in `.claude/skills/weekly-plan/parent.txt`). No preamble, no "here's the review", no apology — just the URL.
+   - **Never surface a bare `/review/<docId>` link.** `create_review_doc` returns a `reviewUrl` and pasting it is the easy mistake, but it opens the document by itself — no goal bands, no task board, none of the surface the review is meant to be read against. Attach the doc to the workspace and link the workspace.
    - This applies on every invocation: first creation, every update / re-run, and any time the user asks "what's next" / "status" / "where are we." The URL is the user's only entry point on phone or laptop; if it's buried, he has to dig for it.
    - After the URL, you may add a one-sentence pointer (morning: which goal-section to start with; evening: what shipped + tomorrow's first goal).
    - The URL is non-negotiable. Even if you have nothing else to say, surface the URL.
@@ -120,6 +137,14 @@ Keep it cheap and otherwise silent. The review doc + the synced Asana list ARE t
    - Thread events arrive as channel notifications — handle them per the live-feedback skill (`feedback-threads` for triage, the `editing-review-docs` skill for any edits to the file).
    - When the user edits a section directly, re-read the file and carry his changes forward into peer dispatches.
    - Resolved threads = decisions made. Reflect them back into the weekly plan if they change goal priority or scope.
+
+## Every RED health check gets an owner and an age
+
+A RED that appears in the review with no owner is the same as a RED nobody read. For each one, say **who can clear it** — you, Bryan, or a named peer — and **how many consecutive runs it has been red**. Age is the part that distinguishes a new outage from furniture.
+
+- **Red for the first time** → treat as an outage; diagnose it in the review.
+- **Red every run for days** → it is blocked on someone. Name them and say what specifically they have to do. "The email watcher's Google Cloud project is deleted; only you can recreate it" is actionable. "email watcher: RED" is furniture.
+- **Blocked on Bryan** → it belongs in `## Decisions needed from you`, not buried in Off-plan.
 
 ## Inline content or Tailscale link — never a forward-reference
 
@@ -130,7 +155,24 @@ Every actionable item in the daily review must be either:
 
 **Never use forward-references** like "see Decisions §N" or "see below" or "ask <peer> for details." If the user has to scroll/navigate/ping to find what they need, the daily review failed its job. The user reads on phone — every "see X" is a context switch he pays for.
 
+**Link the noun, not the bullet.** A trailing `- **Link**: <url>` still makes him hunt — he reads "PR #1669 still reads DRAFT" and has to scroll to find it. Put the link on the phrase itself, at first mention (Bryan, 2026-08-18: *"Please give me inline links in the daily review wherever possible. so I don't have to hunt them down"*). Keep the trailing Link bullet only for the section's home surface.
+
+- Link every artifact you name, individually — each PR, not "PRs #187, #213 and #214" as bare text; a settings change straight to the settings page.
+- One link per bullet — he skims bullet → click → return → next.
+- **Verify every URL resolves before it goes in** (`gh pr view`, an API call). Where you don't have one, name what to open and ask him to paste it once. A dead link costs him more than a missing one, because he only finds out after the context switch.
+- Watch for a link that is correct but points at the wrong state — a GitHub file link whose relevant content is still on an unpushed branch opens a version without it.
+
 When in doubt: paste the content inline. Better to have a longer bullet than a forward-reference. If a bullet grows past ~5 lines, that's the signal to move the long content to a separate Tailscale-linked doc and inline a 1-2-sentence summary plus the link.
+
+## Amending the doc during the day — where the wall of text comes from
+
+A daily review is edited all day as corrections land. **The failure is never a bullet written too long; it is a bullet appended to five times.** Each edit looks reasonable in isolation and the block is never re-read as a whole.
+
+- **Ceiling: three sentences (~300 characters) per bullet.** Countable, not a matter of taste.
+- **After any `find_and_replace`, re-read the whole block you touched** — not just your replacement.
+- **A correction that doesn't fit becomes its own bullet** with its own bold label (**Retracted**, **Superseded**, **New number**). It is a different information type, so it was never eligible to share a bullet.
+- **If a bullet is already over the ceiling, restructure instead of editing**: `create_anchor` on the section HEADING, `insert_blocks_at_anchor` the full replacement list, then delete the old blocks. Anchoring on a list item makes the inserted bullets CHILDREN of that item, and deleting the parent then destroys them — cost several wasted rounds on 2026-08-18.
+- **Verify by measuring, before you declare it fixed**: `awk 'length($0)>300 {print length($0)}' .claude/reviews/YYYY-MM-DD.md` should print nothing.
 
 ## What to avoid
 

@@ -69,6 +69,8 @@ pids=$(awk '...' | tr '\n' ' ')
 kill $pids   # unquoted — word-splits on spaces
 ```
 
+**Use explicit PIDs, not a pattern.** `pkill -f 'dev/<project>'` and a loop of `tmux kill-session` are both refused by the permission classifier — a pattern kill can match anything, so it reads as unbounded. `kill <pid1> <pid2> <pid3>` with the PIDs resolved in step 2 is allowed and does the same job. Measured 2026-08-25, after `pkill` and the tmux loop were denied and the explicit-PID form went through unchallenged. This is a reason to follow step 2 rather than shortcut it.
+
 ### 6. Wait briefly and verify
 
 ```bash

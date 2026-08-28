@@ -1,5 +1,5 @@
 week_of,total_tokens,turns,sessions,hands_on_hours,tokens_per_hour,tokens_per_turn,note
-2026-08-03,2040000000,9066,17,21.4,95327103,225016,hours measured by Weekly Review 2026-08-28 (+/-10%); typing-only floor 12.4h -> 164.5M/hr
-2026-08-10,4395000000,21006,16,17.3,254046243,209226,hours measured by Weekly Review 2026-08-28; read 18.8h on 08-17 and 17.3h now after three pipeline fixes
+2026-08-03,2040000000,9066,17,,,225016,hours RETRACTED 2026-08-28: the 21.4h covered 8 days (--until is inclusive) and double-counted Aug 10; re-measurement pending
+2026-08-10,4395000000,21006,16,,,209226,hours RETRACTED 2026-08-28: the 17.3h covered 8 days and double-counted Aug 10; re-measurement pending
 2026-08-17,8996000000,42905,13,22.1,407058824,209672,recomputed 2026-08-27 after the duplicate-record fix; was 17133231091/83092 and 775M/hr
 2026-08-24,2750000000,14241,12,,,193105,recomputed 2026-08-27 after the duplicate-record fix; was 4575154372/23823

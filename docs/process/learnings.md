@@ -799,3 +799,51 @@ The pre-push leak scanner had its delimiter bug fixed and committed with no test
 The fix is a positive control per documented spelling, and it has to be proven red-first — revert the fix in place, confirm the new case fails, restore. Here the `/pattern/` control failed `exit 0, expected 1` while the `/pattern` case and a word-boundary negative control stayed green, which also proved the control was discriminating rather than merely present.
 
 **The general rule: for any check whose failure mode is a false green, the test is not optional polish — it is the only thing that distinguishes working from broken.**
+
+## An orientation call that returns the whole corpus is a trap, not a starting point (2026-08-28)
+
+A peer verifying its own MCP handshake called `list_docs` with no `workspaceId` — the obvious "what's here?" move for a session finding its feet. It returned **5,202 docs / 6.47 MB** and blew the token ceiling, so the call spent a turn and returned nothing usable. Most of the payload was diff-review members from an unrelated worktree corpus.
+
+The shape generalizes past this one verb: **a list endpoint whose unfiltered result grows with the whole machine's history is uncallable in its most natural form**, and the natural form is exactly what a fresh session reaches for. Scope it (`workspaceId` here) or don't call it.
+
+Worth pairing with the verification point that surfaced it: the peer proved its handshake by executing a real call and reading the payload, not by reading spawn output. A failed MCP handshake leaves the child process running and silent — same CPU, same sockets, no error — so a session in that state looks healthy from every external angle.
+
+## A subagent inherits the parent's rules block — no hook gate can reach it (2026-08-28)
+
+**Symptom.** The fleet rules block cost 51M tokens across subagents in one day (7.8% of that day's 655M subagent burn), carried by 22 of 44 subagents at a mean 42,774 chars each. The `session-start.sh` hook has an `appliesTo: main` gate meant to keep main-session-only rules out of subagents, and it saves nothing.
+
+**Why the obvious fix doesn't work.** The hook never runs for a subagent — 586 subagents produced zero SessionStart payloads, and 352 logged payloads carry no `agent_type` at all. The earlier note in the hook guessed subagents therefore picked the rules up from the project-instruction load of `.claude/rules/*.md`. Wrong. A subagent transcript holds one `type:"attachment"` entry whose `.attachment.stdout` is byte-for-byte the **parent session's** SessionStart `additionalContext` — a 48,836-char block matching that parent's own injection exactly, appearing once in the whole transcript. The subagent inherits a block that was already computed before it existed.
+
+**The general shape.** When a cost shows up in a child process, find out whether the child *computed* it or *inherited* it. A gate can only fire where the computation happens. Everything keyed to `agent_type` here was unfalsifiable-looking but structurally dead, and the comment asserting the wrong route sent the fix at the wrong file.
+
+**What actually moves it:** the size of the block itself, for everyone. Nothing else.
+
+## The watcher's own liveness probe was what kept resetting the clock (2026-08-28)
+
+**Symptom.** A stall detector kept waking a lead about rows that were not stalled. Fixing the obvious loop — filing an ask re-armed the wake that requested the filing — removed that whole class (unfiled wakes went to zero) and left the total wake rate unchanged, ~4.4/hour against ~5/hour before. The wakes had simply moved to a different path.
+
+**Mechanism.** Rows oscillated in and out of the stalled set, and a returning row id counts as new by design: on a shrink the armed stamp records the smaller set, so without that a row coming back would read as unchanged and never fire. Each re-entry therefore re-armed. The rows in question were being worked the whole time — by builders dispatched into git worktrees, which the board cannot see. So the lead answering each wake was the only activity the board could observe, and answering reset the clock, which let the row fall back out of the window and re-enter later.
+
+**The general shape.** When a watcher fires on absence of activity, ask what the watcher can actually see. If the real work happens on a surface invisible to it, the only observable event left is the watcher's own probe and the response to it — and then the loop is self-sustaining regardless of how the arming rule is written. The fix is visibility, not a cooldown; a re-entry cooldown would also suppress genuine stall-recover-stall.
+
+**Method note.** Two causal claims were made from correlation that night and both were wrong — the first blamed the detector for a lead's token burn that turned out to be real user-driven work, the second would have called this a regression in the new fix. Both times the owning agent had evidence from inside that the outside measurement could not reach. Measure from outside, then ask the thing that can see inside before naming a cause.
+
+## A capability that failed once gets re-probed, not written off (2026-08-28)
+
+`tmux send-keys` came back classifier-blocked on 2026-08-25, so the token-watch logged POOL NOT READ and closed with "Bryan's call, and it is the thing to fix before the next pass." Two earlier passes had already been degraded. Today the very first `send-keys` attempt went through on the first try, with nobody having changed anything — the fleet had simply been respawned in between.
+
+**The block was per-session and transient, and treating it as structural cost three consecutive measurement passes and an entire week of quota history.** A permission denial is a fact about one session at one moment, not a property of the machine. The tell that it was worth re-probing was already in the record: the *same* procedure had worked in earlier weeks from the same session type.
+
+**Rule: re-probe a failed capability at the top of the next run, before you escalate it, write the run off, or design around it.** One cheap attempt beats a correctly-worded blocker note. And when a step genuinely cannot run, degrade to the nearest available proxy rather than to nothing — `fleet_burn_report.py` was working on all three of those passes and would have given the week a shape.
+
+## A correction recorded in learnings but not applied to the script is not a fix (2026-08-28)
+
+On 2026-08-27 we established that every transcript token count was ~1.9x too high: a transcript writes one record per content block and each block repeats the same `usage` object, so summing records counts each billed request several times over. It was written up properly and cited in the plan.
+
+**`scripts/fleet_burn_report.py` was never changed.** It kept summing records, and every burn number quoted for the next day — in the trend log, in the plan, in two dispatches to peers — carried the bug. Measured on this repo's own transcript: **22,737 usage records against 10,475 distinct `requestId`s, a 2.17x over-count.** Today's fleet burn was reported as 471M and is actually 264.5M.
+
+**The tell was available and I walked past it**: the plan's own correction note said the baseline was 1.9x too high, and I ran the uncorrected script twice in the same session without asking whether it was the thing that had been corrected. A learning that names a bug but not the code that has it will be re-derived rather than applied.
+
+**Rule: when a measurement error is recorded, fix the tool in the same pass and say in the learning which file was changed.** Deduping on `requestId` is now in `fleet_burn_report.py` with a comment pointing back here. `scripts/subagent_cache_report.py` was written with it from the start.
+
+**Related, same day, same family:** counting a marker across a whole `.jsonl` measures every SessionStart a session ever had, not its current state — which is what turned 11 subagent transcripts in a month into a fabricated "22 of 44 subagents, 51M a day." The `ship-fleet` skill documents this exact error, and I made it anyway. Read the LAST injection, never the file-wide count.

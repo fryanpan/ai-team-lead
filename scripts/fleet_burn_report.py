@@ -63,6 +63,14 @@ def burn_for_day(path, day):
     across the day (e.g. Opus for implementation, Haiku for a polling loop)."""
     tot = blank_bucket()
     models = {}
+    # A transcript writes ONE RECORD PER CONTENT BLOCK, and every one of them
+    # repeats the SAME `usage` object for the request it belongs to. Summing
+    # records therefore counts each billed request once per block — measured at
+    # 2.17x on this repo's own transcript, 1.9x fleet-wide. Dedupe on requestId
+    # (falling back to the assistant message id) so each request is counted once.
+    # See docs/process/learnings.md, "Every transcript token count we had was
+    # ~1.9x too high". Do not "simplify" this set away.
+    seen_requests = set()
     with open(path) as f:
         for line in f:
             try: o = json.loads(line)
@@ -80,6 +88,11 @@ def burn_for_day(path, day):
             u = msg.get("usage")
             if not u:
                 continue
+            rid = o.get("requestId") or msg.get("id")
+            if rid is not None:
+                if rid in seen_requests:
+                    continue
+                seen_requests.add(rid)
             label = model_label(msg.get("model"))
             m = models.setdefault(label, blank_bucket())
             for bucket in (tot, m):

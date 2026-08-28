@@ -27,6 +27,7 @@ Turn count is what the weekly meter weights most heavily. Beyond the harness's o
 
 - **Combine communication with work.** Never spend a turn only sending a progress message.
 - **Chain bash with `&&`** when sequential — one call, not three.
+- **Name a cheap model when you dispatch mechanical work.** Sizing passes, QA walkers, sweeps and file scans do not need the model you are running. Measured 2026-08-28: of 3,163 subagent requests across the fleet, **0 ran on Haiku and 45 on Sonnet** — everything else was Opus or Fable, including the mechanical passes. The Agent tool takes a `model` argument; use it. This shifts load off the expensive meter, which is not the same as cutting tokens — a cheaper model that needs twice the turns is a loss.
 
 ## Planning
 

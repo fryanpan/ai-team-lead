@@ -107,16 +107,30 @@ fi
 #                     frontmatter therefore behaves exactly as it did before
 #                     this gating existed.
 #
-# MEASURED 2026-08-26, and the reason the appliesTo gate saves nothing yet:
-# this hook does NOT currently run for subagents. 586 subagents were dispatched
-# in the 7 days the payload log has been open and not one of them produced a
-# SessionStart payload; all 283 real payloads carry a top-level session_id and
-# none carries an `agent_type` field at all. (The single logged `agent_type` is
-# a hand-written probe with session_id "probe".) Subagents get the fleet rules
-# by a different route -- the project-instruction load of .claude/rules/*.md --
-# which this hook cannot reach. The appliesTo gate is correct and inert today;
-# it starts paying the moment the harness fires SessionStart for a subagent or
-# an agent-team member.
+# MEASURED 2026-08-26, re-measured 2026-08-28: the appliesTo gate is
+# STRUCTURALLY inert, not merely inert-for-now. This hook does not run for
+# subagents -- 586 subagents in the first 7 days of the payload log produced
+# zero SessionStart payloads, and 352 payloads later still not one carries an
+# `agent_type` (the handful that do are hand-written probes).
+#
+# The 2026-08-26 note guessed the wrong route for how subagents nonetheless
+# carry these rules. It is NOT the project-instruction load of
+# .claude/rules/*.md. A subagent INHERITS THE PARENT'S ALREADY-COMPUTED
+# BLOCK: its transcript holds one `type:"attachment"` entry whose
+# `.attachment.stdout` is byte-for-byte the parent session's SessionStart
+# additionalContext. Verified 2026-08-28 -- a subagent under a peer worktree
+# carried a 48,836-char block identical in length to that parent's own
+# injection at the time, and the rules appear exactly once in its transcript.
+# Re-measured the same day: the inheritance is REAL but RARE -- 11 subagent
+# transcripts in a month. Do not size it from a file-wide marker count.
+#
+# The consequence: NO agent_type-keyed gate here can ever reduce what a
+# subagent carries, because the hook has already returned before the subagent
+# exists. The only lever on subagent cost is THE SIZE OF THE BLOCK ITSELF.
+# Measured 2026-08-27: mean carried block 42,774 chars (17.1k tokens), carried
+# by 22 of 44 subagents, 51M tokens over 4,413 subagent turns -- 7.8% of that
+# day's whole subagent burn. Keep `appliesTo: main` on the rules that deserve
+# it (it is correct, and free), but do not expect it to save anything.
 #
 # The third gate is not frontmatter, it is a fact about the session:
 #

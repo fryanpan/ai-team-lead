@@ -20,7 +20,7 @@ WHY IT EXISTS AT ALL
 billing on its next request — but their Remote Control registrations do NOT
 follow. They stay bound to the previous account, so the fleet silently vanishes
 from the phone's session list. Observed 2026-07-31 on the Team -> Max switch:
-the ClientOrg session had to be disconnected and reconnected by hand before it
+one peer's session had to be disconnected and reconnected by hand before it
 reappeared under the personal account.
 
 There is no CLI for this; `/remote-control` is an interactive menu. This script

@@ -903,3 +903,28 @@ paragraphs and still no headings, so the section nesting stays wrong.
 Worth a positive control wherever markdown is inserted programmatically: assert
 the resulting block list contains a heading block per `###`. A source-vs-parsed
 mistake then fails loudly instead of rendering as one long paragraph.
+
+### The ❯ ghost, measured: 8 of 9 panes, and one sentinel settled it (2026-08-29)
+
+Pulling `/usage` for the token watch, I needed a session at an empty prompt. Eight
+of nine peer panes rendered text on the `❯` line — only one was blank. Eight
+people are not typing at once, so at least seven of those were ghosts, and the
+procedure's "skip any with unsent draft text" would have skipped the whole fleet.
+
+**The sentinel resolved it in one keystroke.** `send-keys "Z"` into the pane
+rendering `❯ read the rewritten Gates note` produced `❯ Z` — replaced, not
+appended, so the editor had been empty the whole time. `C-u` then cleared it and
+the pull ran normally.
+
+**Two of these nearly became a false report.** One pane rendered `❯ send ①–④,
+skip ⑤` — the exact approval I had been telling Bryan was outstanding since
+08-18. Grepping that session's transcript found the string 17 times and **every
+one was the agent's own proposed wording** for how Bryan could approve, echoed
+forward through summaries; there was no user turn. Had I read the pane as his
+reply I would have reported an approval that never happened and let four
+reconnection messages go out unauthorized. Three other panes' text appeared
+*nowhere* in their transcripts — neither sent nor written.
+
+So the ghost is not random: it can be the agent's own suggested next action
+rendered where a user message goes, which is exactly what makes it read as
+authentic. **Verify with the sentinel, not with plausibility.**

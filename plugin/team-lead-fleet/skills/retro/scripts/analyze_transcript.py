@@ -634,6 +634,13 @@ def _analyze_session(path: str, cutoff: datetime) -> SessionCost | None:
 
     sc = SessionCost(path=path, project=project, session_id=session_id, title="")
 
+    # A transcript writes one record per CONTENT BLOCK, and every block repeats
+    # the same `usage` object for the request that produced it. Summing records
+    # over-counts billed requests by ~2x (measured 2.17x on this repo). Dedupe on
+    # requestId, falling back to message.id; `uuid` does NOT work -- each block
+    # gets its own. See docs/process/learnings.md.
+    seen_requests: set = set()
+
     try:
         with open(path) as f:
             for line in f:
@@ -669,6 +676,12 @@ def _analyze_session(path: str, cutoff: datetime) -> SessionCost | None:
 
                 if ts < cutoff:
                     continue
+
+                rid = record.get("requestId") or msg.get("id")
+                if rid is not None:
+                    if rid in seen_requests:
+                        continue
+                    seen_requests.add(rid)
 
                 family = model_family(msg.get("model", ""))
                 if family not in sc.model_buckets:

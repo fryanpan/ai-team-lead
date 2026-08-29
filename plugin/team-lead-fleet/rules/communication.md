@@ -22,6 +22,8 @@ Measured across the fleet in 24h: of 34 proposals put to the user in chat, 21 we
 
 Two copies of the same content means two copies to keep true, and the chat copy is the one nobody can answer against a week later.
 
+**Chat is the right surface for exactly these:** a question whose answer you need to keep moving; a decision that is his and is blocking you; a gate before anything outbound, destructive or hard to reverse; a reply to something he asked you in chat; a correction to something you told him in chat. Everything else is a board post, including the one that feels too small to file.
+
 ## Bullets
 
 - One idea per bullet. Never combine two and use bold as a separator.

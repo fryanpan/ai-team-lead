@@ -652,7 +652,7 @@ def spawn_session_tmux(session_name: str, path: str) -> bool:
     #
     # `--remote-control <name>` is documented to take a name and MEASURED NOT TO
     # APPLY IT (2026-08-11): a session launched with
-    # `--remote-control 'ClientOrg Project Beta'` registered as
+    # `--remote-control 'Some Session Name'` registered as
     # `bryans-mac-mini-abstract-sunbeam`. Proof is the RC title for the session id
     # printed in that pane -- not the argv, which of course shows what we passed.
     # Untested whether a name with spaces is what gets rejected; single-token

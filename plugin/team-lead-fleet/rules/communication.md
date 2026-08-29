@@ -14,6 +14,14 @@ The overriding standard for anything you write for someone else — a message, a
 - **Inverted pyramid.** State the purpose early and fully. Put all key details in the first section. Where you recommend something, that first section gives the decision, the criteria it turns on, then the recommendation — criteria first, so the reader can judge it rather than just read it.
 - **End with one consolidated checklist of actions.** Don't scatter them across sections.
 
+## Closing a turn when the ask is already filed
+
+**The closing text is: one line saying what changed, the link, and the question you need answered if there is one.** That is the whole shape. The detail lives where you filed it.
+
+Measured across the fleet in 24h: of 34 proposals put to the user in chat, 21 were already on the board and were restated in full anyway, median 261 words. One of the 21 was a pointer. Most arrived at the end of a long tool run with no question attached.
+
+Two copies of the same content means two copies to keep true, and the chat copy is the one nobody can answer against a week later.
+
 ## Bullets
 
 - One idea per bullet. Never combine two and use bold as a separator.

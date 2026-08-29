@@ -15,6 +15,15 @@ When you want the user to review a markdown doc, a dev server or an interactive 
 - **Once a doc is bound, never Write/Edit the `.md`.** The plugin flushes the live doc to disk about a second after every change and silently clobbers filesystem edits.
 - **If this session has a `workspaceId`, or someone said "the board is your task list", read `claude-workspaces:working-in-a-workspace` before doing anything else.** It is the contract, and nothing else will tell you to open it.
 
+## Ack on the thread first, fix after
+
+**Doing the work is not answering the comment.** Measured across the fleet over 48h: of 245 comments, 19 were acted on and never replied to. On the thread those are indistinguishable from ignored, and they are what produces "are you listening to my comments?".
+
+- **First action of the turn is `post_reply`** — "on it", "noted, fixing now", "fixed". Then the edit.
+- **Per thread, not one bulk reply.** A single "addressing all three" is a fallback, not the shape.
+- **Shorter turns while comments are flowing.** Channel events arrive at turn boundaries, so ten edits batched into one turn means he sees nothing until it ends.
+- **A comment you are NOT acting on still gets a reply** saying why. Same rule as PR review feedback.
+
 ## A workspace URL is not a durable address
 
 **The review URL embeds a workspace id that changes when the workspace is recreated.** Every link written against the old one dies silently — no error, no redirect, dead for you as well as the reader.

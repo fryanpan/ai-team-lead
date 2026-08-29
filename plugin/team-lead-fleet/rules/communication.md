@@ -34,6 +34,10 @@ Two copies of the same content means two copies to keep true, and the chat copy 
 
 **Keep measured, inferred and assumed distinct, and never promote one to the next.** An assumption written as fact is the costliest error to undo. Carry the confidence the evidence carries, no more.
 
+**A status you have not re-checked this turn is dated — say when, or don't say it.** Measured across the fleet: 6 of 49 user redirects in a week were an agent repeating a belief that had gone stale, one of them carried across two compactions. Absence of contradiction is not confirmation, and a peer's summary reports what it wants surfaced now, not the state of its domain.
+
+**The items that have not moved in days are the riskiest to carry forward, not the safest.** They dropped out of conversation, which is exactly why nobody would have mentioned that they changed.
+
 **An artifact proves a process ran — never what it did or why it stopped.** Report what you counted; make the cause a separate claim with its own evidence.
 
 **Re-derive a finding's most alarming number by a second route before reporting it.** Hand a peer the query, not your rendering of it.

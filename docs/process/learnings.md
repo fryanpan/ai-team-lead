@@ -879,3 +879,27 @@ measure current state: **the name says a file exists, never what it says.** A fo
 that merely lags is a cleanup; a fork that inverts is a live behavioural bug, and
 only reading the text distinguishes them. Cost here was one overstated row in a
 report to Bryan, caught by the peer it was wrong about.
+
+### Markdown handed to a doc-insert tool can land as literal source (2026-08-29)
+
+A plan doc came back with `**Why.**` and `### 4. …` rendering as visible text.
+The insert path had put the markdown into a *single text block* instead of
+parsing it, so a `###` never became a heading — and because the heading never
+existed, the section above it swallowed the one below. The reader's comment
+anchored on a bare word from the middle of the run-on paragraph, which is what
+made it look like a styling problem rather than a structural one.
+
+**Which tool you used decides this.** `find_and_replace` and
+`rewrite_thread_region` keep their text inside one block, so multi-paragraph
+markdown handed to either lands raw. `insert_blocks_after_thread` parses — so the
+working path is to insert the parsed blocks, then `delete_block_at_anchor` on the
+old one.
+
+Two things generalize. **The tell is a comment anchor landing somewhere absurd** —
+that is cheaper to notice than reading the doc. And **the fix is re-inserting as
+parsed blocks, never stripping the asterisks**: stripping leaves unstyled
+paragraphs and still no headings, so the section nesting stays wrong.
+
+Worth a positive control wherever markdown is inserted programmatically: assert
+the resulting block list contains a heading block per `###`. A source-vs-parsed
+mistake then fails loudly instead of rendering as one long paragraph.

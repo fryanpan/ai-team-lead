@@ -51,8 +51,18 @@ Standalone deliverables go where the project's `CLAUDE.md` says (`docs_destinati
 
 Commit at each checkpoint, in logical commits whose messages explain *why*.
 
+## Executing a plan — pick by complexity
+
+Execution follows the default system prompt. There is no menu to present.
+
+- **Simple plan → implement it in the main agent.** No orchestration ceremony, no asking which approach to use. This is the common case.
+- **Complex plan with genuinely independent work → offer the `Workflow` tool.** The signal is parallelism, not length: several files, subsystems or research threads with no shared state. Sequential work with many steps is still a simple plan.
+
+**Clearing that bar is a reason to offer, not to fire.** `Workflow`'s own contract requires the user's opt-in, so say briefly what it would fan out over and roughly what it would cost, and let him choose. He can open with "use a workflow" or "ultracode" to skip the ask.
+
 ## Superpowers overrides
 
+- **Executing plans**: don't route plan execution through `superpowers:executing-plans` — it predates `Workflow` and is superseded by the section above. `superpowers:subagent-driven-development` is likewise dropped as a recommendation (2026-08-19).
 - **Brainstorming**: full design in one pass, not section by section. Fast-track to a design after one or two questions if the problem is already clear.
 - **Finishing a Development Branch**: use this project's ship skill — it encodes per-repo policy the default overrides.
 - **Never force-remove a worktree holding uncommitted files.** Run `git status --porcelain -uall` first and ask about anything you find. A worktree is the one place work exists nowhere else, and an agent has already destroyed a peer's uncommitted work this way.

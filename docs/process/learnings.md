@@ -847,3 +847,35 @@ On 2026-08-27 we established that every transcript token count was ~1.9x too hig
 **Rule: when a measurement error is recorded, fix the tool in the same pass and say in the learning which file was changed.** Deduping on `requestId` is now in `fleet_burn_report.py` with a comment pointing back here. `scripts/subagent_cache_report.py` was written with it from the start.
 
 **Related, same day, same family:** counting a marker across a whole `.jsonl` measures every SessionStart a session ever had, not its current state — which is what turned 11 subagent transcripts in a month into a fabricated "22 of 44 subagents, 51M a day." The `ship-fleet` skill documents this exact error, and I made it anyway. Read the LAST injection, never the file-wide count.
+
+## A forked rule file does not just add weight — it can invert the current rule (2026-08-29)
+
+The fleet plugin injects its rules at SessionStart and skips any whose local `.claude/rules/<name>.md` copy is **byte-identical**. Once a project's copy drifts, the skip stops applying and **both versions load** — the current one and the fork.
+
+Measured across the fleet: a third of live sessions were running under forks that reverse current guidance.
+
+- One project's `workflow-conventions.md` still said to notify the team-lead on task completion. The current fleet rule says explicitly not to.
+- One project's `feedback-loop.md` still auto-prompted `/retro` after every PR. The current rule says never to auto-prompt it.
+- One project's `live-feedback-default.md` predated the rename, so it carried only the old tool spellings and none of the dual-spelling requirement — a session reading it goes silently deaf to half the fleet.
+
+**The failure is invisible from both ends.** The peer behaves exactly as instructed and cannot tell which copy it is obeying; the rule author sees the current text in the plugin and assumes it shipped. Nothing errors. A drift check that compares repo to cache does not look at project-local copies at all.
+
+**Symlinking into the plugin fixes this only inside the plugin's own repo.** From any other repo the link target is an absolute path outside the tree, which is wrong to commit. **For every other project the fix is deletion** — the plugin already provides the rule, and a deleted file cannot drift.
+
+**When auditing, check for reversal, not just for duplication.** Byte-count drift ranks a large stale file above a small one; the small one that inverts a rule is the expensive one.
+
+### Scan the fork's content, not its name (2026-08-29)
+
+Sizing the rule-fork problem, I keyed the fleet scan to marker *names* — a repo
+with a local `feedback-loop.md` got counted as running the stale retro-autoprompt
+rule. One peer pushed back: its copy had already been fixed on 2026-08-13 and
+forbade the auto-prompt, so it had drifted from the plugin without reversing it.
+Grepping the actual wording across four repos then split the set three ways —
+reverses, drifted-but-agrees, and no local copy at all — where the name-keyed scan
+had shown one undifferentiated group.
+
+The failure is the same shape as counting a marker across a whole transcript to
+measure current state: **the name says a file exists, never what it says.** A fork
+that merely lags is a cleanup; a fork that inverts is a live behavioural bug, and
+only reading the text distinguishes them. Cost here was one overstated row in a
+report to Bryan, caught by the peer it was wrong about.

@@ -989,3 +989,13 @@ blaming steady-state usage.
 - **Find it in the transcript, not the pane:** grep the newest `.jsonl` for `out of usage credits`, and read the `message.model` field on recent assistant turns — a session on `claude-fable-5` when the Fable meter is exhausted is stopped by definition.
 - **A sibling session on the same model that has not taken a turn yet looks healthy and is not.** Its last turn succeeded because it predates the meter hitting 100; its next turn fails. Check the last turn's timestamp against the first refusal's, not against "now".
 - **The unblock is `/model`, and it is not free.** Moving a heavy burner off an exhausted sub-meter puts its load on the blended weekly meter. If that session is most of the fleet's burn, unblocking it pulls the blended exhaustion date in for everyone — surface the trade rather than making it.
+
+## A design doc is not the shipped protocol — check which branch runs (2026-08-29)
+
+**Reporting a project's method from `docs/product/specs/` or `docs/product/plans/` on `main` describes what was designed, not what runs.** In `weekly-review`, main is a scaffold: the April spec describes a four-dimension rubric, and the shipped estimator on the `v1-impl` worktree (`feat/rework-detection-clean`) derives from countables instead. Answering a peer's "how does your estimator work?" from the spec produced two confident, wrong claims.
+
+- **Check `git worktree list` and `git branch -a` before answering a question about behaviour.** A repo whose main holds only docs and whose implementation lives on a long-lived worktree branch looks complete from the doc tree alone.
+- **Query the artifacts, not the design.** The claim "there is no OK/HIGH/LOW verdict loop" died against `sqlite3` over `~/.local/share/weekly-review/runs/*/run.sqlite` — 123 hand-graded tasks, 105 OK / 11 HIGH / 2 LOW. Run databases, output tables and logs settle behaviour questions that specs only describe.
+- **Grep for call sites before saying a mechanism is used.** `apply_bias_correction` is defined and tested, and has zero call sites in `src/` — the fitted multiplier is computed under `--recalibrate` and never applied. "It exists in the code" and "it runs" are different claims.
+- **A column name is not its contents.** `estimate_reviews.confidence` holds OK/HIGH/LOW verdicts, with a few lowercase uncertainty values leaked in; the real uncertainty field is `enriched.uncertainty`. Read values, not schema.
+- **This is the same failure as trusting a pane or a process table.** A doc is an external surface describing state, and it goes stale the moment the code moves without it.

@@ -51,6 +51,19 @@ while read -r local_ref local_sha remote_ref remote_sha; do
 
   if ! python3 "$script" --diff-range "$range"; then
     exit_code=1
+    continue
+  fi
+
+  # Semantic pass. The regex gate only knows names someone already thought to
+  # list; this one catches unlisted real names, other people's project names and
+  # personal specifics. It was written to run here and never wired in, so for
+  # months the only pass that could catch an UNKNOWN name never ran.
+  # Runs only after the regex gate passes, so a blocked push isn't scanned twice.
+  haiku="$repo_root/scripts/scrub-haiku.py"
+  if [ -f "$haiku" ] && [ "${SCRUB_SKIP_HAIKU:-}" != "1" ]; then
+    if ! python3 "$haiku" --diff-range "$range"; then
+      exit_code=1
+    fi
   fi
 done
 

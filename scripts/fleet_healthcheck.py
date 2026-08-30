@@ -620,31 +620,30 @@ def check_load(spec):
 
 
 def check_socket_headroom(spec):
-    """Kernel TCP protocol control blocks in use -- the resource whose silent
-    exhaustion takes the whole machine off the network.
+    """Kernel TCP protocol control blocks in use -- a coarse tripwire, not a
+    diagnostic.
 
     On 2026-08-30 the machine lost all networking for 4.5 hours with 6-7.5GB of
-    RAM free. socket() was returning ENOBUFS system-wide: existing connections
-    kept working and every new one failed, which presents to a human as "the
-    network is down" and sends you looking at memory, where nothing is wrong.
+    RAM free: socket() returning ENOBUFS system-wide, existing connections fine
+    and every new one failing, which reads to a human as "the network is down"
+    and sends you looking at memory, where nothing is wrong. This check exists
+    so that failure announces itself early instead of being discovered as a dark
+    fleet in the morning.
 
-    Two properties make this worth a check rather than a postmortem. It is
-    CUMULATIVE, not rate-driven -- the machine sustained 14,533 sockets/sec at
-    03:00 and was fine, then failed at 04:24 at a tenth of that load, because
-    what matters is total sockets ever created, not the current rate. And it is
-    NOT RECOVERABLE short of a reboot: sockets abandoned by an exiting process
-    are reclaimed within 5s (measured), but these are attached to no living
-    process -- 172 socket FDs existed across every process while pcbcount held
-    18,802 -- so there is nothing to kill and restarting the offending server
-    does not clear it.
+    READ THE LIMITS BEFORE TRUSTING A NUMBER HERE. pcbcount is machine-wide and
+    attributes to nobody. It moved +1,574 in 90 seconds on an idle control, it
+    goes down as well as up, and two agents wasted hours deriving per-process
+    leak rates from it that a clean control then falsified. It is fit for "the
+    machine is far outside its normal band" and for nothing finer. To find WHO
+    is leaking, measure the suspect process -- lsof socket counts, peak
+    ESTABLISHED, mean TCP fds -- which is what actually held up.
 
-    Which makes early warning the entire value. It climbs monotonically for
-    hours before anything breaks, so a red here buys a reboot at a convenient
-    time instead of discovering a dark fleet in the morning. Idle costs ~nothing
-    (+2 over 260s); it moves only with socket churn, ~275 per test-suite run.
+    So the ceiling is deliberately far above the noise. Normal here is low tens
+    of thousands and drifts; the outage ran to several hundred thousand. A red
+    means look, with hours of runway, not that any particular program is at
+    fault.
 
-    Asserts an end state: no process is named and nothing is assumed about who
-    is leaking. Normal is low thousands.
+    Asserts an end state: no process named, nothing assumed about the cause.
     """
     raw = _sysctl("net.inet.tcp.pcbcount")
     if not raw.isdigit():

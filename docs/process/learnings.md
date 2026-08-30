@@ -1009,20 +1009,32 @@ blaming steady-state usage.
 - **Prove a restart loop is not running rather than inferring it from log totals.** `out.log` still held 195 shutdown cycles from before the fix; the lines carry no timestamps, so the count reads like an ongoing loop. Sample `grep -c "listening on"` twice 20s apart — a delta of 0, plus a server process with a healthy `etime`, settles it.
 - **On a shared machine, count everyone's processes.** Of the 10 Claude Code processes, 3 belonged to the other user on the Mac. Their footprint is real and is not yours to kill.
 
-## ENOBUFS with plenty of free RAM is a socket-count outage, not a memory outage (2026-08-30)
+## ENOBUFS with plenty of free RAM is a socket outage, not a memory outage (2026-08-30)
 
 The machine lost all networking for 4.5 hours and only a reboot cleared it. Free RAM held 6–7.5 GB the entire time. The failure was `socket(AF_INET, SOCK_STREAM)` returning ENOBUFS **system-wide** to every process independently — existing connections kept working, every new one failed. That split is the tell, and it presents to a user as "the network is down".
 
-**Do not reach for the memory explanation.** Three surfaces will each mislead you into it:
+**Do not reach for the memory explanation.** Three surfaces each mislead you into it:
 
-- **A `JetsamEvent` .ips is not proof of memory exhaustion.** Read the kill *reason*. `JETSAM_REASON_MEMORY_PERPROCESSLIMIT` means one process exceeded **its own** footprint cap; it fires on a completely idle machine. The `memoryStatus` fields inside the report are snapshot accounting across all processes, **not free RAM** — reading them as free RAM is what produced a confidently wrong diagnosis here. The files also get deleted within minutes, so grep the unified log for the `exited with exit reason` line instead of relying on the report.
-- **`memorystatus_available_pages` is the real free-memory series** and it is free in the idle-exit kill telemetry: `log show --predicate 'eventMessage CONTAINS "memorystatus_available_pages"'`, then × 16384 for bytes. Check it before claiming pressure.
-- **Instantaneous rate at onset tells you nothing when the resource is cumulative.** The machine sustained 14,533 sockets/sec at 03:00 and was fine; it failed at 04:24 at 1,469/sec. Anything that "fails at one tenth the load it survived ninety minutes ago" is an accumulating pool, not a rate-driven one.
+- **A `JetsamEvent` .ips is not proof of memory exhaustion.** Read the kill *reason*. `JETSAM_REASON_MEMORY_PERPROCESSLIMIT` means one process exceeded **its own** footprint cap; it fires on a completely idle machine. The `memoryStatus` fields inside are snapshot accounting across all processes, **not free RAM** — reading them as free RAM produced a confidently wrong diagnosis here, escalated to the user before it was checked. The files are also deleted within minutes, so grep the unified log for the `exited with exit reason` line instead.
+- **`memorystatus_available_pages` is the real free-memory series**, free in the idle-exit kill telemetry: `log show --predicate 'eventMessage CONTAINS "memorystatus_available_pages"'`, × 16384 for bytes.
+- **Instantaneous rate at onset tells you nothing about a cumulative resource.** The machine sustained 14,533 sockets/sec at 03:00 and was fine; it failed at 04:24 at 1,469/sec. Anything that fails at a tenth of the load it survived ninety minutes earlier is accumulating, not rate-driven.
 
-**How to measure the actual leak.** `net.inet.tcp.pcbcount` is a gauge; compare it to what `netstat -an -p tcp` lists. The gap is PCBs that exist with no connection behind them. The decisive observation was **TIME_WAIT = 0 while pcbcount = 17,540** — which kills the "it's just TIME_WAIT, 2×MSL = 30s drain" reading that both of us reached for first.
+### The metric trap — this is the part that cost the most
 
-**Isolate with an idle control, or you will measure the wrong thing.** The gap is proportional to socket *churn*, not to time: 260s idle moved it +2, while one test-suite run moved it +230 to +319. My own "+54/min background leak" was a peer's suite runs overlapping my sampling window — a contaminated control that briefly turned a per-run leak into an imaginary time-based one.
+**`net.inet.tcp.pcbcount` is machine-wide and unattributable. Do not use it to measure one program's leak.** Two agents spent hours building theories on the gap between it and `netstat -an -p tcp`, and every number either of us derived from it was wrong:
 
-**Global socket creation rate**, for scale: the kernel's `so_gencnt` appears in `tcp listen` / `tcp connect` log records. Take min and max over a window for a true count, not a sample.
+- One measured "+2 over 260s idle versus +230 per suite run" and concluded ~275 leaked per run.
+- The other measured "+54/min" and called it a background leak.
+- Re-run as a clean control with **nothing of ours running, the offset moved +1,574 in 90 seconds** — larger than either claimed effect, and it moves *down* as well as up.
 
-**What caused it here:** a session ran nine subagents in parallel overnight, and between them they invoked `bun test` 1,303 times. That suite stands up ~600 ephemeral listen sockets per run by design (265 test files, 441 listener call sites), leaking ~275, for ~358,000 total. The durable fix is a shared server across the suite — the only change that reduces *total sockets created*, which is what the leak is proportional to. Capping fan-out only buys time. `somaxconn` and MSL tuning are irrelevant to a cumulative leak.
+Every conclusion from it was unfalsifiable rather than merely wrong. **Measure the process you suspect: `lsof -p <pid>` socket counts, peak ESTABLISHED, mean TCP fds.** Those numbers held up and showed the fix working — peak ESTABLISHED 370 → 8, mean TCP fds 231 → 2.
+
+**Related trap:** an idle control taken while a *peer* is running its suite is not an idle control. One agent's "background leak" was the other's test runs overlapping the sampling window. On a shared machine, name what else is running before you call a window idle.
+
+### What was actually true
+
+- **Sockets abandoned by an exiting process ARE reclaimed** — measured: 500 opened and never closed, gone within 5s of process exit. So a leak that survives has to be held by something long-lived, which is where to look first.
+- **The root cause was in the normal path, not the error path.** Bun's `server.stop()` without `true` stops accepting new connections but leaves open ones alive; every teardown leaked them. The "45% of sockets leaked, far too high for an error path" instinct was right and pointed the search correctly.
+- **`stop(true)` fires every websocket close handler synchronously inside the call.** If those handlers write (meeting notes into a doc, say), teardown ordering matters — closing sockets before those writes drain silently loses data at shutdown. Fixing a socket leak can create a data-loss bug if the drain is not handled.
+
+**Cause of the outage:** nine subagents running in parallel overnight invoked `bun test` 1,303 times, ~10.2 million socket creations in 10.4 hours. The durable fix reduces *total sockets created* — shared server across the suite, plus the `stop(true)` fix. Capping fan-out only buys time. `somaxconn` and MSL tuning are irrelevant.

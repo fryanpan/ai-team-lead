@@ -619,6 +619,45 @@ def check_load(spec):
     return True, f"{spec['name']}: {per_core:.2f} per core"
 
 
+def check_socket_headroom(spec):
+    """Kernel TCP protocol control blocks in use -- the resource whose silent
+    exhaustion takes the whole machine off the network.
+
+    On 2026-08-30 the machine lost all networking for 4.5 hours with 6-7.5GB of
+    RAM free. socket() was returning ENOBUFS system-wide: existing connections
+    kept working and every new one failed, which presents to a human as "the
+    network is down" and sends you looking at memory, where nothing is wrong.
+
+    Two properties make this worth a check rather than a postmortem. It is
+    CUMULATIVE, not rate-driven -- the machine sustained 14,533 sockets/sec at
+    03:00 and was fine, then failed at 04:24 at a tenth of that load, because
+    what matters is total sockets ever created, not the current rate. And it is
+    NOT RECOVERABLE short of a reboot: sockets abandoned by an exiting process
+    are reclaimed within 5s (measured), but these are attached to no living
+    process -- 172 socket FDs existed across every process while pcbcount held
+    18,802 -- so there is nothing to kill and restarting the offending server
+    does not clear it.
+
+    Which makes early warning the entire value. It climbs monotonically for
+    hours before anything breaks, so a red here buys a reboot at a convenient
+    time instead of discovering a dark fleet in the morning. Idle costs ~nothing
+    (+2 over 260s); it moves only with socket churn, ~275 per test-suite run.
+
+    Asserts an end state: no process is named and nothing is assumed about who
+    is leaking. Normal is low thousands.
+    """
+    raw = _sysctl("net.inet.tcp.pcbcount")
+    if not raw.isdigit():
+        return False, f"{spec['name']}: PROBE-FAILED (net.inet.tcp.pcbcount -> {raw!r})"
+    pcbs = int(raw)
+    ceiling = spec.get("max_pcbs", 120000)
+    if pcbs > ceiling:
+        return False, (f"{spec['name']}: {pcbs:,} TCP PCBs (ceiling {ceiling:,}) -- "
+                       f"cumulative and only a reboot clears it; reboot on your "
+                       f"own schedule before socket() starts failing machine-wide")
+    return True, f"{spec['name']}: {pcbs:,} TCP PCBs"
+
+
 CHECKS = {
     "launchd": check_launchd,
     "port": check_port,
@@ -633,6 +672,7 @@ CHECKS = {
     "free_memory": check_free_memory,
     "swap": check_swap,
     "load": check_load,
+    "socket_headroom": check_socket_headroom,
 }
 
 

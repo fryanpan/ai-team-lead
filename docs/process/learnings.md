@@ -979,3 +979,13 @@ One was spinning at **310 CPU wakes/second**. A crash-restart loop around an
 expensive startup is a memory pump; the `ThrottleInterval` is what decides how fast
 it pumps. Check `grep -c "listening on" ` against `grep -c "hydrated"` before
 blaming steady-state usage.
+
+## A quota-exhausted peer answers every message with a synthetic refusal (2026-08-29)
+
+**When a model's weekly sub-meter hits 100%, a session pinned to that model does not go quiet — it answers every turn with a `<synthetic>` assistant message:** `You're out of usage credits. Run /usage-credits to keep using <model> or /model to switch models.` Real work stops; the turn loop does not.
+
+- **`send_message` to it produces nothing usable.** The peer receives the message and burns a refusal turn on it. A status ping cannot distinguish this from a peer that is busy, and the peer cannot tell you it is stuck.
+- **Its subagents keep pinging it.** Idle notifications from `teammate-message` events each trigger another refusal turn, so the stopped session keeps consuming turns while producing nothing.
+- **Find it in the transcript, not the pane:** grep the newest `.jsonl` for `out of usage credits`, and read the `message.model` field on recent assistant turns — a session on `claude-fable-5` when the Fable meter is exhausted is stopped by definition.
+- **A sibling session on the same model that has not taken a turn yet looks healthy and is not.** Its last turn succeeded because it predates the meter hitting 100; its next turn fails. Check the last turn's timestamp against the first refusal's, not against "now".
+- **The unblock is `/model`, and it is not free.** Moving a heavy burner off an exhausted sub-meter puts its load on the blended weekly meter. If that session is most of the fleet's burn, unblocking it pulls the blended exhaustion date in for everyone — surface the trade rather than making it.

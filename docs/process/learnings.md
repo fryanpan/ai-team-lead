@@ -928,3 +928,54 @@ reconnection messages go out unauthorized. Three other panes' text appeared
 So the ghost is not random: it can be the agent's own suggested next action
 rendered where a user message goes, which is exactly what makes it read as
 authentic. **Verify with the sentinel, not with plausibility.**
+
+## ERR_NO_BUFFER_SPACE is a RAM symptom, not a network one (2026-08-29)
+
+The Mac lost all new network connections at 16:43:42 PT — Chrome showed
+`ERR_NO_BUFFER_SPACE`, Tailscale and every Claude session dropped, but already-open
+tabs (google.com, claude.ai) kept working. Nothing was wrong with the network.
+
+**When free physical memory collapses, macOS cannot allocate mbufs, so `socket()`
+returns ENOBUFS system-wide.** Existing sockets already hold their buffers and keep
+running; every *new* connection fails. That split — old connections fine, new ones
+dead — is the tell, and it points at memory, not at the LAN, the ISP, or a tunnel.
+
+**Where the evidence is:**
+
+- `/Library/Logs/DiagnosticReports/JetsamEvent-*.ips` — a JSON body after the first
+  line. `memoryStatus.memoryPages.free` and the per-process `rpages` (× 16384 for
+  bytes) give an exact snapshot of who was holding what at the moment of failure.
+- `log show --predicate 'eventMessage CONTAINS "No buffer space"'` gives onset time
+  and the victim list. **Every process in that list is a victim, not a cause** — do
+  not read the top of the count as the culprit.
+- To rule out a socket flood or leak, count `tcp connect` against
+  `tcp_connection_summary` per process from the `kernel` predicate. Here it was 586
+  new connections in the 6 minutes before onset, with closes outnumbering opens.
+
+**What it actually was:** 840 processes wanting 35.5 GB on a 16 GB machine, 266 MB
+free, the compressor holding 32.7 GB in 7.3 GB. The kernel had been killing idle
+daemons for 52 minutes before the network went. Fleet share ≈ 10.8 GB: 51 `bun`
+processes (5.8 GB, of which the workspaces server alone was 2.6 GB), 13 Claude
+sessions (4.2 GB), 13 `node` (0.7 GB). Desktop apps were the co-equal half.
+
+**Two multipliers worth knowing:** each Claude session carries ~4 MCP children, so
+session count multiplies by four in the process table; and the workspaces server
+hydrates every doc into one process (5,622 docs, 2,549 markdown watchers → 2.6 GB),
+so it grows with the corpus and is the largest single process on the machine.
+
+**A quiet Cloudflare tunnel log is proof of absence here.** `cloudflared`'s log was
+1,900 lines of lifecycle events with zero 403/unauthorized/denied, and the tunnel is
+behind Cloudflare Access with one allowed email. Check it before speculating about
+inbound abuse — the answer is usually local.
+
+**The pump underneath it, found the same day.** The workspaces launchd job has
+`KeepAlive.Crashed = true` and `ThrottleInterval = 10`, and the server crashes with
+`no free port near 8787` when the previous process has not released the port yet.
+Today's logs carry **393 such crashes, 166 restarts and 180 full re-hydrations of
+5,622 docs** — every 10 seconds, launchd relaunched a process whose first act is to
+load the entire doc corpus. Two `bun` processes were alive at the failure snapshot
+holding 2.6 GB and 648 MB: an old server that had not exited and a new one mid-load.
+One was spinning at **310 CPU wakes/second**. A crash-restart loop around an
+expensive startup is a memory pump; the `ThrottleInterval` is what decides how fast
+it pumps. Check `grep -c "listening on" ` against `grep -c "hydrated"` before
+blaming steady-state usage.

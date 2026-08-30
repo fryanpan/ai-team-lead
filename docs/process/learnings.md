@@ -999,3 +999,12 @@ blaming steady-state usage.
 - **Grep for call sites before saying a mechanism is used.** `apply_bias_correction` is defined and tested, and has zero call sites in `src/` — the fitted multiplier is computed under `--recalibrate` and never applied. "It exists in the code" and "it runs" are different claims.
 - **A column name is not its contents.** `estimate_reviews.confidence` holds OK/HIGH/LOW verdicts, with a few lowercase uncertainty values leaked in; the real uncertainty field is `enriched.uncertainty`. Read values, not schema.
 - **This is the same failure as trusting a pane or a process table.** A doc is an external surface describing state, and it goes stale the moment the code moves without it.
+
+## The second ENOBUFS outage had a different cause than the first (2026-08-30)
+
+**Two identical-looking symptoms, two different causes — do not assume the known one recurred.** The 08-29 outage was a launchd crash-loop pumping a server that hydrated thousands of docs every 10s. The 08-30 outage looked the same from the browser (`ERR_NO_BUFFER_SPACE`, existing connections fine) and was ordinary aggregate pressure with **no runaway process at all**.
+
+- **Check the jetsam report before blaming the last culprit.** At 07:44: 791 processes wanting **21.3 GB on a 16 GB machine**, 102 MB free, compressor holding 16.6 GB in 6.2 GB. Nothing dominated — Chrome 4.8 GB / 31 procs, Claude Code 3.7 GB / 10 procs, bun 2.0 GB / 39 procs.
+- **The tell that the old cause is gone:** largest single `bun` was **93 MB** (it was 2,641 MB during the crash-loop), `no free port near 8787` count was **0**, and the server had `--no-port-walk`. Confirm a fix is holding by measuring its specific signature, not by the absence of an outage.
+- **Prove a restart loop is not running rather than inferring it from log totals.** `out.log` still held 195 shutdown cycles from before the fix; the lines carry no timestamps, so the count reads like an ongoing loop. Sample `grep -c "listening on"` twice 20s apart — a delta of 0, plus a server process with a healthy `etime`, settles it.
+- **On a shared machine, count everyone's processes.** Of the 10 Claude Code processes, 3 belonged to the other user on the Mac. Their footprint is real and is not yours to kill.

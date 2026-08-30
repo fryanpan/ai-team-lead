@@ -29,6 +29,7 @@ Usage:
   scrub-check.py --diff-range A..B          # scan files changed in range
   scrub-check.py --staged                   # scan files in git index
   scrub-check.py --scan-all-tracked         # scan every tracked file (audit)
+  scrub-check.py --messages A..B            # scan COMMIT MESSAGES in a range
 
 This tool does NOT read stdin; piping a diff at it is an error, not a scan.
 
@@ -415,15 +416,9 @@ def should_scan(path: str) -> bool:
     return False
 
 
-def scan_file(path: str, patterns: List[Tuple[str, re.Pattern]]) -> List[Tuple[int, str, str]]:
-    """Return [(line_no, label, line_text)] of matches."""
+def scan_text(text: str, patterns: List[Tuple[str, re.Pattern]]) -> List[Tuple[int, str, str]]:
+    """Return [(line_no, label, line_text)] of matches in a blob of text."""
     findings: List[Tuple[int, str, str]] = []
-    try:
-        with open(path, "rb") as f:
-            data = f.read()
-        text = data.decode("utf-8", errors="replace")
-    except (OSError, IOError):
-        return findings
     for line_no, line in enumerate(text.split("\n"), 1):
         # Skip lines that are intentional examples documenting the gate itself.
         if "scrub-allow" in line:
@@ -435,6 +430,17 @@ def scan_file(path: str, patterns: List[Tuple[str, re.Pattern]]) -> List[Tuple[i
     return findings
 
 
+def scan_file(path: str, patterns: List[Tuple[str, re.Pattern]]) -> List[Tuple[int, str, str]]:
+    """Return [(line_no, label, line_text)] of matches."""
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+        text = data.decode("utf-8", errors="replace")
+    except (OSError, IOError):
+        return []
+    return scan_text(text, patterns)
+
+
 def files_in_range(range_spec: str) -> List[str]:
     try:
         out = subprocess.run(
@@ -444,6 +450,31 @@ def files_in_range(range_spec: str) -> List[str]:
         return [f for f in out.strip().split("\n") if f]
     except subprocess.CalledProcessError:
         return []
+
+
+def messages_in_range(range_spec: str) -> List[Tuple[str, str]]:
+    """Return [(sha, commit_message)] for commits in the range.
+
+    Commit messages are a leak surface the file scan cannot see: the content of
+    a commit can be clean while its message names a person or a private project,
+    and once pushed the message is as permanent as the diff. Rewriting one later
+    means rewriting history.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "log", "--format=%H%x1f%B%x1e", range_spec],
+            capture_output=True, text=True, check=True,
+        ).stdout
+    except subprocess.CalledProcessError:
+        return []
+    records: List[Tuple[str, str]] = []
+    for chunk in out.split("\x1e"):
+        chunk = chunk.strip("\n")
+        if not chunk or "\x1f" not in chunk:
+            continue
+        sha, body = chunk.split("\x1f", 1)
+        records.append((sha.strip(), body))
+    return records
 
 
 def files_staged() -> List[str]:
@@ -479,12 +510,23 @@ def main() -> int:
         print(__doc__)
         return 0
 
-    if "--diff-range" in args:
+    messages: List[Tuple[str, str]] = []
+
+    if "--messages" in args:
+        idx = args.index("--messages")
+        if idx + 1 >= len(args):
+            print("[scrub-check] --messages needs a range argument", file=sys.stderr)
+            return 2
+        messages = messages_in_range(args[idx + 1])
+        files = []
+    elif "--diff-range" in args:
         idx = args.index("--diff-range")
         if idx + 1 >= len(args):
             print("[scrub-check] --diff-range needs an argument", file=sys.stderr)
             return 2
         files = files_in_range(args[idx + 1])
+        # A push publishes the messages as well as the diff, so scan both.
+        messages = messages_in_range(args[idx + 1])
     elif "--staged" in args:
         files = files_staged()
     elif "--scan-all-tracked" in args:
@@ -506,7 +548,7 @@ def main() -> int:
     # Filter: keep only files we'd scan and that exist on disk.
     files = [f for f in files if should_scan(f) and os.path.isfile(f)]
 
-    if not files:
+    if not files and not messages:
         return 0
 
     registry = find_registry()
@@ -556,6 +598,17 @@ def main() -> int:
 
     total = 0
     files_with_findings = set()
+    for sha, body in messages:
+        for line_no, label, line in scan_text(body, patterns):
+            if total == 0:
+                print(f"[scrub-check] leaks detected:", file=sys.stderr)
+            files_with_findings.add(f"commit {sha[:9]} (message)")
+            snippet = line.strip()
+            if len(snippet) > 100:
+                snippet = snippet[:97] + "..."
+            print(f"  commit {sha[:9]} message:{line_no}  ({label})", file=sys.stderr)
+            print(f"    > {snippet}", file=sys.stderr)
+            total += 1
     for f in files:
         for line_no, label, line in scan_file(f, patterns):
             if total == 0:
@@ -574,7 +627,9 @@ def main() -> int:
             file=sys.stderr,
         )
         print(
-            "[scrub-check] Fix: replace with a generic placeholder, anonymize, or move content to a gitignored path.",
+            "[scrub-check] Fix: replace with a generic placeholder, anonymize, or move content to a gitignored path.\n"
+            "  A finding in a COMMIT MESSAGE needs the commit reworded (git rebase -i / commit --amend),\n"
+            "  not a file edit — the message ships with the push.",
             file=sys.stderr,
         )
         print(

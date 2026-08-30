@@ -105,6 +105,7 @@ BASE_CHECKS = [
     {"type": "swap", "name": "swap", "max_used_gb": 8.0},
     {"type": "free_memory", "name": "free memory", "min_free_pct": 15},
     {"type": "load", "name": "load", "max_per_core": 1.5},
+    {"type": "socket_headroom", "name": "socket headroom", "max_pcbs": 120000},
 
     # --- alive and failing: the shape no process check can see ---
     {"type": "log_errors", "name": "email watcher", "max": 0,

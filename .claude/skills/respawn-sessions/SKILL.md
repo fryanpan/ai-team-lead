@@ -21,6 +21,8 @@ Attach to any session with `tmux a -t <session>` when you want a pane visible.
 | `plugin` | Kill+respawn any running session whose argv includes neither install key of the canonical fleet plugin (`plugin:claude-workspaces@claude-workspaces`, or the pre-rename `plugin:live-feedback@claude-live-feedback`). Use after enabling/upgrading a plugin globally. **Team Lead (self) is never killed**; if it lacks the plugin, the script flags it for manual restart. |
 | `all` | Kill+respawn every `respawn: true` session. Use as a full fleet reset. **Team Lead (self) is never killed.** |
 
+**Every mode takes `--only <substr>`, repeatable.** It restricts the mode to targets whose display name or path matches, case-insensitively — so a subset respawn is `--mode missing --only workspaces --only gomanzanas --execute`, not a reason to write your own loop. A mode is not all-or-nothing, and on 2026-08-30 assuming it was cost the fleet two extra restarts. Full flag list: `respawn.py --help`.
+
 ## Per-peer DISCORD_STATE_DIR scoping (automatic)
 
 Each spawned tmux session gets `DISCORD_STATE_DIR` set explicitly via `tmux new-session -e DISCORD_STATE_DIR=…`, so the peer doesn't inherit the team-lead's discord state. Two destinations:
@@ -31,6 +33,34 @@ Each spawned tmux session gets `DISCORD_STATE_DIR` set explicitly via `tmux new-
 Why this matters: without the per-session override, every peer inherits the team-lead's `DISCORD_STATE_DIR` from the team-lead's shell env (set by direnv). All peers then share the team-lead's bot + access.json + channel subscriptions. A single Discord post to the team-lead's channel fans out to every peer. The `-e` flag is critical — `new-session` ignores client env if the tmux server is already running, so just `export`ing the var in the parent shell doesn't help.
 
 Encoded in `respawn.py`'s `discord_state_dir_for(path)` + `spawn_session_tmux`.
+
+## Every session needs a name, and a nameless one fails silently
+
+`CW_AGENT_NAME` — and `FEEDBACK_AGENT_NAME`, which carries the same value for the pre-rename spelling — is what gives a session an identity on a claude-workspaces board. It comes from `session_name` in `registry.yaml`, and `spawn_session_tmux` passes both via `tmux new-session -e`.
+
+**Without it, a session reads the board perfectly and writes nothing.** It connects, it attaches, it receives every comment event as it arrives. Every write — a comment, a status note, a filed task — is refused with `author-required`, because an unnamed session collapses into the shared "agent" category and a category is not an author.
+
+That asymmetry is the whole hazard. There is no crash, no red banner, no missing tool. From the inside the session looks healthy and stays busy; from the outside it is a peer that hears everything the user says and answers none of it. On 2026-08-30 all eight tmux peers ran that way, and it surfaced only because the user asked one of them directly whether it was still connected.
+
+### Check it before trusting a cycled fleet
+
+```bash
+for s in $(tmux ls -F '#{session_name}'); do
+  printf '%-22s ' "$s"; tmux show-environment -t "$s" CW_AGENT_NAME 2>&1 | head -1
+done
+```
+
+Every line should print `CW_AGENT_NAME=<the registry session_name>`. A line reading `unknown variable` is a mute peer. It cannot be repaired in place — the value is read at startup, so the fix is always a relaunch: `--mode missing --only <name> --execute`.
+
+**Ask a suspected session to post something, not to read something.** Reading was never the broken half, so "I can see the board" is not evidence either way.
+
+### Hand-rolling a spawn drops it
+
+This is how it happened. An account cycle was run with a hand-written `tmux new-session` loop instead of this script, because of a wrong belief that the script could not do a subset. The loop carried `DISCORD_STATE_DIR` across and dropped both name variables — a third spawn path with none of the script's accumulated knowledge in it. All eight sessions came up mute.
+
+**Use `respawn.py` for any spawn, including a single session and including an account switch.** A spawn line has more load-bearing detail than it looks: the two name variables, `DISCORD_STATE_DIR` scoped per peer, `--continue` only where a transcript exists and never where `fresh_start: true`, and home-path resolution so a worktree session resumes its own transcript. A loop written from memory reproduces whatever the docs discuss at length and silently drops whatever lives in a docstring — which is not the same ranking as what matters.
+
+If you must hand-roll one anyway, copy the `-e` flags out of `spawn_session_tmux` verbatim rather than writing them from memory, then run the check above before calling the cycle done.
 
 ## What `--execute` actually does
 

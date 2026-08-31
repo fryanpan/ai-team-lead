@@ -1048,3 +1048,23 @@ Every conclusion from it was unfalsifiable rather than merely wrong. **Measure t
 - **`stop(true)` fires every websocket close handler synchronously inside the call.** If those handlers write (meeting notes into a doc, say), teardown ordering matters — closing sockets before those writes drain silently loses data at shutdown. Fixing a socket leak can create a data-loss bug if the drain is not handled.
 
 **Cause of the outage:** nine subagents running in parallel overnight invoked `bun test` 1,303 times, ~10.2 million socket creations in 10.4 hours. The durable fix reduces *total sockets created* — shared server across the suite, plus the `stop(true)` fix. Capping fan-out only buys time. `somaxconn` and MSL tuning are irrelevant.
+
+## Remote Control connectivity has a file to check — the pane and argv both lie (2026-08-30)
+
+`--remote-control <name>` on the command line proves only that the flag was passed. Eight peers carried it in argv and none was connected; the panes showed nothing about RC either way.
+
+**The authoritative surface is `~/.claude/sessions/<pid>.json`.** A session that has registered with the bridge has one, carrying `name`, `status`, and `bridgeSessionId`. A session that has not has only a `<pid>.<hash>.key` beside it and no `.json` at all.
+
+```bash
+for f in ~/.claude/sessions/*.json; do
+  python3 -c "import json;d=json.load(open('$f'));print(d.get('name'), d.get('pid'), d.get('status'), 'bridge' if d.get('bridgeSessionId') else 'NO-BRIDGE')"
+done
+```
+
+`lsof -nP -p <pid> -a -iTCP` is a good second signal: a connected session holds established sockets, and a peer stuck before startup holds **zero** — not even idle keepalives.
+
+**Why they were all unconnected: every one was still sitting at the dev-channel approval dialog.** A session parked on a startup dialog writes its key, so it looks half-alive on disk, and never registers. The `.json`/`.key` split is what distinguishes "started" from "started and connected".
+
+**The dismissal poller gave up too early.** It polled 12s/24s/36s after spawn and reported zero dialogs at each — the dialog had not rendered yet on a `--continue` resume with a large transcript. Zero-found is not the same as none-exist, so a poller must not treat an early clean pass as proof; bound it on the session reaching a ready footer, never on a fixed number of quiet passes.
+
+**Unresolved: `send-keys <session> Enter` vs `send-keys <session>.0 C-m`.** Several Enter passes left the dialogs up; one `C-m` pass targeting the pane explicitly advanced 7 of 7. That is suggestive, not conclusive — the Enter passes are not cleanly instrumented. Prefer `C-m` with an explicit `.0` pane target until someone isolates it.

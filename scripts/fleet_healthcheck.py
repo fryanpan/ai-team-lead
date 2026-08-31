@@ -39,6 +39,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -498,13 +499,87 @@ def check_log_errors(spec):
     return True, f"{spec['name']}: quiet"
 
 
-def check_session(spec):
-    """A Claude session must be running with the expected working directory."""
-    want = spec["cwd"]
+# Non-Apple-signed, so NOT subject to the gate that denies Apple-signed
+# binaries every operation on /Volumes/Data. That is the whole reason the heal
+# path below shells through tmux instead of exec'ing respawn.py directly:
+# python3 is Apple-signed and cannot read the script, and could not exec
+# ~/.local/bin/claude either, since that is a symlink onto the denied volume.
+# tmux is adhoc-signed, so once it is running it reaches everything.
+# See docs/process/fleet-ops.md.
+TMUX_BIN = "/opt/homebrew/bin/tmux"
+RESPAWN_PY = ("/Volumes/Data/Users/bryanchan/dev/ai-team-lead/"
+              ".claude/skills/respawn-sessions/respawn.py")
+
+HEAL_TIMEOUT_S = 180        # respawn.py polls startup dialogs for ~75s first
+HEAL_POLL_S = 10
+
+
+def _session_is_up(want):
     for pid, _argv in claude_sessions():
         if session_cwd(pid) == want:
-            return True, f"{spec['name']}: pid {pid}"
-    return False, f"{spec['name']}: NO SESSION at {want}"
+            return pid
+    return None
+
+
+def heal_session(spec, want):
+    """Respawn a downed always-up session, and wait to find out whether it worked.
+
+    Detection without remedy is what this exists to end. The RED for a dead
+    Discord-bot session fired on five consecutive runs across a 33-hour outage
+    while a family member waited for a reply, and nothing anywhere was defined
+    as acting on it (2026-08-30).
+
+    Deliberately `--mode missing`: it only fills gaps and kills nothing, so a
+    heal can never take down a session that is merely slow to appear in the
+    process table. `--mode all` would also abort outright here -- its
+    self-protection needs a parent claude PID and launchd has none.
+
+    Returns (attempted, note). A heal is reported, never silent: a session that
+    needs restarting three times a day is a different problem from one that is
+    simply up, and collapsing the two hides it.
+    """
+    only = spec.get("restart")
+    if not only:
+        return False, None
+    cmd = (f"python3 {shlex.quote(RESPAWN_PY)} --mode missing "
+           f"--only {shlex.quote(only)} --execute")
+    tag = "heal-" + re.sub(r"[^a-z0-9]+", "-", os.path.basename(want).lower())
+    try:
+        subprocess.run([TMUX_BIN, "kill-session", "-t", tag],
+                       capture_output=True, timeout=5)
+        r = subprocess.run(
+            [TMUX_BIN, "new-session", "-d", "-s", tag, "/bin/zsh", "-lc", cmd],
+            capture_output=True, text=True, timeout=15)
+    except Exception as e:
+        return True, f"heal FAILED to launch ({e!r})"
+    if r.returncode != 0:
+        return True, f"heal FAILED to launch ({r.stderr.strip()[:120]})"
+
+    waited = 0
+    while waited < HEAL_TIMEOUT_S:
+        time.sleep(HEAL_POLL_S)
+        waited += HEAL_POLL_S
+        pid = _session_is_up(want)
+        if pid:
+            return True, f"was DOWN, healed in {waited}s -> pid {pid}"
+    return True, f"heal ran but session still absent after {HEAL_TIMEOUT_S}s"
+
+
+def check_session(spec):
+    """A Claude session must be running with the expected working directory.
+
+    With `restart` set, a miss is repaired rather than merely reported.
+    """
+    want = spec["cwd"]
+    pid = _session_is_up(want)
+    if pid:
+        return True, f"{spec['name']}: pid {pid}"
+    attempted, note = heal_session(spec, want)
+    if not attempted:
+        return False, f"{spec['name']}: NO SESSION at {want}"
+    if note.startswith("was DOWN"):
+        return True, f"{spec['name']}: {note}"
+    return False, f"{spec['name']}: NO SESSION at {want} -- {note}"
 
 
 def check_channel_flags(spec):

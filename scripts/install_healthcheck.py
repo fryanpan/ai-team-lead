@@ -177,8 +177,19 @@ def registry_sessions():
     def flush():
         if key and always_up and path:
             real = os.path.realpath(os.path.expanduser(path))
+            # `restart` makes the check heal rather than only report; the value
+            # is passed to respawn.py's --only.
+            #
+            # It must be the BASENAME, not a path. respawn.py matches --only
+            # against the registry's ~-expanded path (/Users/...), while `cwd`
+            # above is deliberately the realpath (/Volumes/Data/...) because
+            # that is what a running session reports. Passing the realpath
+            # matches nothing and the heal aborts -- measured 2026-08-31, and
+            # the first version of this line got it wrong for exactly that
+            # reason. The basename is the one spelling common to both.
             out.append({"type": "session", "cwd": real,
-                        "name": f"session: {name or key}"})
+                        "name": f"session: {name or key}",
+                        "restart": os.path.basename(real)})
 
     for line in lines:
         m = re.match(r"^  ([A-Za-z0-9_.-]+):\s*$", line)

@@ -1068,3 +1068,19 @@ done
 **The dismissal poller gave up too early.** It polled 12s/24s/36s after spawn and reported zero dialogs at each — the dialog had not rendered yet on a `--continue` resume with a large transcript. Zero-found is not the same as none-exist, so a poller must not treat an early clean pass as proof; bound it on the session reaching a ready footer, never on a fixed number of quiet passes.
 
 **Unresolved: `send-keys <session> Enter` vs `send-keys <session>.0 C-m`.** Several Enter passes left the dialogs up; one `C-m` pass targeting the pane explicitly advanced 7 of 7. That is suggestive, not conclusive — the Enter passes are not cleanly instrumented. Prefer `C-m` with an explicit `.0` pane target until someone isolates it.
+
+## `--only` silently ignores a target that isn't respawnable (2026-08-31)
+
+`respawn.py --only <substr>` aborts loudly when NO `--only` matches anything. It says nothing when SOME match: an unmatched one is dropped with no line of output, and the run proceeds on the rest.
+
+That is how a plugin rollout quietly skipped two of the peers it was aimed at. `--only claude-live-feedback-plugin --only personal-finance` matched neither, because both entries carry `respawn: false` and `collect_targets()` only ever yields `respawn: true` — so the run restarted six peers and reported success while two named targets were never touched.
+
+**Read the `[only]` lines, not the exit code.** The dry run prints one per matched target; count them against what you asked for before adding `--execute`.
+
+**`respawn: false` is not "don't restart me" — it is "not part of a fleet restart".** A peer can be actively working, on this week's goals, and still be invisible to every mode of the script. For those, and for any session whose home is a worktree rather than its registry path, the script is not a tool that can reach them at all.
+
+## The drift check and the fleet are different questions (2026-08-31)
+
+`plugin: team-lead-fleet: 0.6.0 matches source` went green the moment `claude plugin update` populated the cache. Every session was still running 0.5.3 in memory at that instant, because rules load at SessionStart and nothing had restarted.
+
+The check compares **cache to source**. Delivery is **cache to session**, and only a probe of a peer's own latest injected rules block measures it. Treating the green as "the fleet is current" is the same error as reading a pane for state: a real signal, about something adjacent to the question asked.

@@ -780,7 +780,11 @@ done
 
 The general shape: when a bulk path and a single-item path both spawn the same thing, env passed by only one of them fails silently on exactly the items the bulk path skips.
 
-**Addendum (2026-08-30) — a hand-rolled spawn loop is a third path, and it reproduced this exactly.** Cycling eight peers onto a new account, the team-lead wrote its own `tmux new-session` loop instead of calling `respawn.py`, carried `DISCORD_STATE_DIR` across and dropped both name vars. All eight came up nameless. The loop was written by reading what the sessions needed rather than what the launcher passes, and the launcher's own comment block explains why the var exists — it was simply never opened. **If you are spawning a session outside `respawn.py`, diff your argv against `spawn_session_tmux` before you run it.**
+**Addendum (2026-08-30) — the reason a third spawn path existed at all was a capability the tool already had.** Cycling eight peers onto a new account, the team-lead needed a *subset* respawned, believed `respawn.py` offered only all-or-nothing, and wrote its own `tmux new-session` loop. `--only <substr>` has been in the script the whole time — repeatable, matching session name or path substring, documented in its own `--help` and spelled out in `weekly-plan/SKILL.md`. Neither `--help` nor the file was opened. All eight sessions came up nameless.
+
+**A loop written from memory of a tool keeps the parts you remember.** This one carried `DISCORD_STATE_DIR`, which the skill doc discusses at length, and dropped `CW_AGENT_NAME` / `FEEDBACK_AGENT_NAME`, which live only in `spawn_session_tmux`'s docstring. The omission tracks documentation prominence, not importance — so the parts most likely to be dropped are exactly the ones no one thought to put in the summary.
+
+**The transferable rule is not "don't hand-roll a spawn."** It is: *a belief that a tool cannot do something is a claim about the tool, and costs one `--help` to check.* Reimplementing around a gap that isn't there is how a working tool's guarantees get silently dropped. Check before you build the workaround.
 
 **A nameless session looks completely healthy from the inside.** It reads the board, receives every comment event, and is refused only on writes (`author-required`). So the peer keeps working, keeps seeing the user's comments, and answers none of them — the exact shape of "are you listening to my comments?". Nothing in the session's own view distinguishes it from a connected one; the only tell is a failed write.
 

@@ -1084,3 +1084,20 @@ That is how a plugin rollout quietly skipped two of the peers it was aimed at. `
 `plugin: team-lead-fleet: 0.6.0 matches source` went green the moment `claude plugin update` populated the cache. Every session was still running 0.5.3 in memory at that instant, because rules load at SessionStart and nothing had restarted.
 
 The check compares **cache to source**. Delivery is **cache to session**, and only a probe of a peer's own latest injected rules block measures it. Treating the green as "the fleet is current" is the same error as reading a pane for state: a real signal, about something adjacent to the question asked.
+
+## An account-switch respawn has a flag, and the default is the wrong one (2026-08-31)
+
+`docs/process/token-control.md` § "Account-switch runbook" gives the command as
+`respawn.py --mode running --execute --no-compact`. Run without `--no-compact`, the auto-accept answers
+the resume dialog with **Resume from summary**, so every peer comes back compacted. On 2026-08-31 that
+is what happened to all ten sessions after Bryan moved the fleet to a second account — nothing was
+lost that was on disk, but ten peers resumed from a summary they did not choose, mid-week, mid-task.
+
+- **The flag is the whole difference between "same peers, new account" and "ten summarized peers."**
+  Compaction is the default because most respawns want the context reduction; an account switch does
+  not, because the sessions are healthy and mid-flight.
+- **Read the runbook before running the command it documents.** The command was two lines away and
+  carried the flag; running it from memory dropped it.
+- **`--mode missing` afterwards is optional now.** The runbook's "fill any registry session that was
+  already down" predates the lean-fleet rule. A session that was deliberately spun down should stay
+  down — respawn what was running, and nothing else.

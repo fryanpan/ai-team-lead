@@ -780,6 +780,12 @@ done
 
 The general shape: when a bulk path and a single-item path both spawn the same thing, env passed by only one of them fails silently on exactly the items the bulk path skips.
 
+**Addendum (2026-08-30) — a hand-rolled spawn loop is a third path, and it reproduced this exactly.** Cycling eight peers onto a new account, the team-lead wrote its own `tmux new-session` loop instead of calling `respawn.py`, carried `DISCORD_STATE_DIR` across and dropped both name vars. All eight came up nameless. The loop was written by reading what the sessions needed rather than what the launcher passes, and the launcher's own comment block explains why the var exists — it was simply never opened. **If you are spawning a session outside `respawn.py`, diff your argv against `spawn_session_tmux` before you run it.**
+
+**A nameless session looks completely healthy from the inside.** It reads the board, receives every comment event, and is refused only on writes (`author-required`). So the peer keeps working, keeps seeing the user's comments, and answers none of them — the exact shape of "are you listening to my comments?". Nothing in the session's own view distinguishes it from a connected one; the only tell is a failed write.
+
+**Corollary for peers: report the symptom, not the diagnosis.** The peer here reported the missing var correctly, then twenty minutes later retracted the whole report because it found `respawn.py` passing the var and concluded it must have been looking at a different session. The code it read was correct and irrelevant — that path had not run. A retraction built on a plausible mechanism is as wrong as the original guess; the measurement (`tmux show-environment`) settles it in one command and was never run by either side until after the retraction.
+
 ## Counting worktrees as repos inflates a propagation surface (2026-08-27)
 
 A row claimed "five of six repos carry the bug" and drove a fleet-wide propagation plan. The real population was **two repos and eight worktrees of one of them**. `git rev-parse --show-toplevel` returns the worktree's own directory, so a loop over `~/dev/*/` that resolves toplevels reports each tree as its own repo and the count silently multiplies.

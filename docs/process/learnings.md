@@ -1280,3 +1280,30 @@ Both halves are true and the conclusion drawn from them was still wrong. Measure
 - **`uptime` is one command.** Every claim about machine-level state has a cheap direct check. There is no excuse for inferring it from prose.
 - **An external surface is not state — and that includes a peer's own account of the machine it runs on.** The existing rule covers tmux panes and process tables; a teammate's summary is the same category and reads as more authoritative, which makes it worse.
 - **A good explanation propagates faster than a measurement.** This one was adopted precisely because it was elegant: it resolved a contradiction, exonerated both parties, and produced an actionable criterion. Nothing about being useful, generous, or well-argued makes a claim true, and an explanation that makes a confusing situation feel resolved should raise the bar for checking it, not lower it.
+
+## The branch a guard exists for is the branch that never runs
+
+**2026-09-01.** `fleet_guard.py` watched two tmux monitor loops and revived any it
+found `down`. When no tmux server existed at all, `loop_status()` returned a
+different string — `no-server` — and `main()` only revives `down`. So on the one
+occasion the guard was built for, a cold boot, it notified and did nothing. Both
+loops stayed down ~70 minutes with the guard running the whole time.
+
+The `no-server` branch existed because of a stated impossibility: a comment in
+the file argued that revival "only works while a tmux server is already running,"
+since the loop inherits the server's disk access. That was wrong — access
+attaches to the tmux *binary*, so a server launchd starts itself reads the
+secondary volume identically. Measured with a private socket under
+`launchctl submit`: `SECONDARY-VOLUME-READABLE`.
+
+**Two things to take from it.**
+
+- **A special-cased "can't help here" branch is a claim, and it ages.** It was
+  written from one differential test, compiled into control flow, and then
+  nothing re-tested it — the guard degraded to a notifier in exactly the
+  scenario it was written for. Re-derive the constraint before you branch on it,
+  and leave the probe behind so the next agent can re-run it in one command.
+- **A selftest on the default socket tests the easy case.** The live socket
+  almost always has a server, so `--selftest` passed continuously while the
+  cold-boot path was broken. `--selftest --cold` moves to a socket with no
+  server, which is the condition that actually matters.

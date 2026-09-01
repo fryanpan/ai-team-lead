@@ -1180,3 +1180,17 @@ Two independent causes had to line up, and naming only one of them would have pr
 memory and load, and the token numbers looked fine throughout. A monitor is only blind in the
 dimension nobody thought to measure — if you build one resource watch, ask which *other* resource can
 end the day just as fast.
+
+## A launchd job can reach the denied volume by handing the work to the tmux server
+
+**2026-09-01.** The rule on this machine has been that a launchd-invoked Apple-signed binary is denied every operation on `/Volumes/Data`, and that anything needing that volume must therefore run in a tmux loop started from a Terminal — which is why the monitor loops die on every reboot and the healthcheck does not.
+
+Both halves are true and the conclusion drawn from them was still wrong. Measured from a real LaunchAgent: `tmux new-session -d -s <name> <script on the denied volume>` succeeds, and the spawned command reads the volume without trouble.
+
+**The tmux server forks the child, so the child inherits the server's access, not launchd's.** The launchd process never touches the volume itself — it writes to a socket in `/private/tmp`, which is boot disk. The sandbox is per-process and applies to the process that opens the file.
+
+**What this changes:** a launchd job can now own the lifecycle of a loop it cannot itself execute. Detection and remedy stop being two different mechanisms with two different durability stories.
+
+**The remaining limit is real and worth stating precisely:** it works only while a tmux server is already running. After a cold boot with no Terminal, a server started by launchd would carry launchd's own denied context, and revival genuinely cannot work. Report that case; do not paper over it.
+
+**The general shape:** "process A cannot do X" does not imply "A cannot cause X to happen." Check whether some already-privileged service will do it on A's behalf before accepting the limit and building around it.

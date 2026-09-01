@@ -44,3 +44,22 @@ When a launchd job genuinely must touch the secondary volume (e.g. the plugin ca
 - Bypass (use sparingly, never on a public repo without re-checking): `SCRUB_SKIP=1 git push ...`.
 - Periodic audit: `python3 scripts/scrub-check.py --scan-all-tracked` scans every tracked file (not just the diff).
 - Extending: edit `~/.config/team-lead/scrub-denylist.txt` (one pattern per line, plain string or `/regex/`).
+
+## Fleet guard — the minutes-scale half
+
+`scripts/fleet_guard.py` runs under launchd (`com.fryanpan.fleet-guard`) **every 120 seconds**, silent unless a band changes. It reads swap, free memory, load per core, orphaned test workers and the resident set of the claude process group — all via `sysctl` and `ps`, nothing on the secondary volume.
+
+**It exists because of cadence, not coverage.** The healthcheck has carried the same swap / free-memory / load checks since 2026-08-18. On 2026-08-31 the machine went from healthy to a hard freeze in about two hours, entirely between two scheduled runs: every one of those checks would have been RED and not one of them executed. An instrument sampled slower than the failure it watches cannot see the failure. The guard's thresholds sit *below* the healthcheck's RED lines on purpose — the point is lead time, and a warning at 95% swap arrives after the machine has stopped painting windows.
+
+- **Notifies on the crossing**, not on the state: on escalation, once on recovery, and at most every 30 minutes while critical. Firing every two minutes while a condition persists is how a check becomes furniture.
+- **State**: `guard-state.json` in the deploy root. **Log**: `~/Library/Logs/fleet-guard.log`, one line per run.
+- **Deployed by the same installer** — `python3 scripts/install_healthcheck.py` copies both programs and installs both agents.
+- **`--probe`** prints exactly what the process can and cannot do in whatever context it is running in. **`--selftest`** proves the revival path against a decoy session, so it can be run against the live fleet without firing a false "loop down" alert.
+
+### A launchd job CAN reach the secondary volume — through the tmux server
+
+Measured 2026-09-01 from a real LaunchAgent: `tmux new-session -d -s <name> <script on /Volumes/Data>` **works**, and the spawned command reads that volume fine.
+
+**The mechanism is inheritance.** The tmux *server* forks the child, so the child inherits the server's disk access rather than launchd's. The launchd process only ever talks to the server socket in `/private/tmp`, which is boot disk. This is a third route alongside `bun`, and it is the one to use for anything that has to be a long-running loop.
+
+**It holds only while a tmux server already exists.** After a cold boot with no Terminal there is nothing to inherit from — a server started *by* launchd would carry launchd's own denied context. The guard detects that case (`no-server`) and notifies rather than reporting a revival that did not happen. Closing that last gap needs Full Disk Access granted in System Settings, which is a manual, user-only change.

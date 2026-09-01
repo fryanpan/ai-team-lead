@@ -1,6 +1,6 @@
 ---
 name: respawn-sessions
-description: Respawn Bryan's long-running Claude Code sessions in detached tmux sessions. Three modes — `missing` (default, fill gaps), `plugin` (kill+respawn anyone lacking the live-feedback plugin), `all` (kill+respawn everyone). Auto-accepts dev-channel permission dialogs and sweeps orphan claude-hive servers. Also holds `self-respawn.sh` for the team-lead to cycle its own session (which the modes never kill) onto a new binary/plugin/settings.
+description: Respawn Bryan's long-running Claude Code sessions in detached tmux sessions. Four modes — `missing` (default, fill gaps), `plugin` (kill+respawn anyone lacking the fleet plugin), `all` (kill+respawn every registry entry), `running` (kill+respawn what is actually up, at its own cwd — the mode to use after a /login account switch). Auto-accepts dev-channel permission dialogs and sweeps orphan claude-hive servers. Also holds `self-respawn.sh` for the team-lead to cycle its own session (which the modes never kill) onto a new binary/plugin/settings.
 ---
 
 # Respawn Sessions
@@ -20,6 +20,17 @@ Attach to any session with `tmux a -t <session>` when you want a pane visible.
 | `missing` (default) | For each `respawn: true` project: spawn a fresh session ONLY if no claude is currently running with that project's `path` as cwd. Skips everything that's already up. **Safe.** |
 | `plugin` | Kill+respawn any running session whose argv includes neither install key of the canonical fleet plugin (`plugin:claude-workspaces@claude-workspaces`, or the pre-rename `plugin:live-feedback@claude-live-feedback`). Use after enabling/upgrading a plugin globally. **Team Lead (self) is never killed**; if it lacks the plugin, the script flags it for manual restart. |
 | `all` | Kill+respawn every `respawn: true` session. Use as a full fleet reset. **Team Lead (self) is never killed.** |
+| `running` | Kill+respawn every session that is **actually running, at its own cwd**, ignoring the registry. **This is the account-switch mode** — use it after Bryan runs `/login`. **Team Lead (self) is never killed.** |
+
+### After a `/login`, the mode is `running` — not `all`
+
+`--mode all` respawns what the registry *says* should be up, at the registry's canonical path. After an account switch you need the opposite: every session that is *actually* up has to cycle, or it keeps the old account's MCP handshakes. `all` gets this wrong in two specific ways, and both bit on 2026-09-01:
+
+- **It skips `respawn: false` sessions.** Workspaces is marked `respawn: false` and was 51% of that day's burn — the single most important session to move, silently excluded.
+- **It relocates a worktree session to the registry path.** The ClientOrg Project Beta peer came back at `~/dev/project-alpha` on an unrelated branch, resuming a different conversation, and looked completely healthy doing it.
+
+**The failure mode to watch for in yourself is patching those two symptoms by hand** — reaching for a raw `tmux new-session` for the session the mode skipped, and another for the one it misplaced. That is how both peers came up with no `CW_AGENT_NAME` and mute on the board. One `--mode running --execute` does the whole job.
+
 
 **Every mode takes `--only <substr>`, repeatable.** It restricts the mode to targets whose display name or path matches, case-insensitively — so a subset respawn is `--mode missing --only workspaces --only <second-project> --execute`, not a reason to write your own loop. A mode is not all-or-nothing, and on 2026-08-30 assuming it was cost the fleet two extra restarts. Full flag list: `respawn.py --help`.
 

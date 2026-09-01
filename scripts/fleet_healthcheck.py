@@ -999,6 +999,54 @@ def check_state_fresh(spec):
     return True, f"{spec['name']}: fresh ({age:.0f}m)"
 
 
+def check_monitor_loops(spec):
+    """Every tmux monitor loop the guard watches must be up.
+
+    Why this is not covered by the per-loop state checks: only one of the loops
+    writes a state file. `fleet-monitor` runs a report every two hours and
+    leaves nothing behind, so an age check has no artifact to read and its
+    death is invisible to every other instrument here. Both loops died in the
+    2026-08-31 reboot and stayed down ~70 minutes; a freshness check on the
+    budget watcher alone would have caught half of that.
+
+    The guard already records both loops' status every two minutes. Reading its
+    state file covers whichever loops exist without needing each one to grow a
+    heartbeat, and it stays correct when a loop is added.
+
+    The guard's own liveness is asserted separately (`launchd_ran` on
+    com.fryanpan.fleet-guard) -- but a state file written once and then
+    abandoned would still read healthy here, so its age is checked too. A
+    monitor that reports on another monitor has to prove it is itself awake.
+    """
+    path = os.path.expanduser(spec["path"])
+    limit = spec.get("max_age_minutes", 15)
+    if not os.path.exists(path):
+        return False, (f"{spec['name']}: MISSING {path} -- the guard has never "
+                       f"written state, so nothing is watching the loops")
+    age = (time.time() - os.path.getmtime(path)) / 60
+    if age > limit:
+        return False, (f"{spec['name']}: guard state STALE, {age:.0f}m old "
+                       f"(limit {limit}m) -- loop status below is not current")
+    try:
+        with open(path) as f:
+            loops = json.load(f).get("loops", {})
+    except Exception as exc:
+        return False, f"{spec['name']}: guard state unreadable ({exc})"
+    if not loops:
+        return False, f"{spec['name']}: guard state names no loops at all"
+
+    bad = {n: st for n, st in loops.items() if st not in ("up", "revived")}
+    if bad:
+        detail = ", ".join(f"{n} {st}" for n, st in sorted(bad.items()))
+        return False, (f"{spec['name']}: {detail} -- "
+                       f"{spec.get('why', 'a monitor loop is not running')}")
+    revived = sorted(n for n, st in loops.items() if st == "revived")
+    if revived:
+        return True, (f"{spec['name']}: {len(loops)} up "
+                      f"({', '.join(revived)} was restarted by the guard)")
+    return True, f"{spec['name']}: {len(loops)} up"
+
+
 def check_channel_flags(spec):
     """Every running session's launch line must carry the required channel flags.
 
@@ -1167,6 +1215,7 @@ CHECKS = {
     "session": check_session,
     "channel_flags": check_channel_flags,
     "state_fresh": check_state_fresh,
+    "monitor_loops": check_monitor_loops,
     "file_present": check_file_present,
     "token_resolvable": check_token_resolvable,
     "plugin_version": check_plugin_version,

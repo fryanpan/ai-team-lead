@@ -198,6 +198,15 @@ BASE_CHECKS = [
      "path": "~/Library/Application Support/team-lead/budget-watch.json",
      "max_age_minutes": 45},
 
+    # --- both tmux monitor loops, read out of the guard's own state. Only the
+    #     budget watcher leaves an artifact to age-check; fleet-monitor writes
+    #     nothing, so its death was invisible to every other check here. The
+    #     guard grades both every 2 minutes, so 15m is seven missed passes. ---
+    {"type": "monitor_loops", "name": "monitor loops",
+     "why": "a downed loop means the fleet is unwatched and nothing says so",
+     "path": "~/Library/Application Support/team-lead/guard-state.json",
+     "max_age_minutes": 15},
+
     # --- the monitor auditing itself. Editing the repo copy changes nothing;
     #     launchd execs the deployed copy. Without this, a forgotten redeploy
     #     means every check below silently runs the OLD file, three green times

@@ -1194,3 +1194,21 @@ Both halves are true and the conclusion drawn from them was still wrong. Measure
 **The remaining limit is real and worth stating precisely:** it works only while a tmux server is already running. After a cold boot with no Terminal, a server started by launchd would carry launchd's own denied context, and revival genuinely cannot work. Report that case; do not paper over it.
 
 **The general shape:** "process A cannot do X" does not imply "A cannot cause X to happen." Check whether some already-privileged service will do it on A's behalf before accepting the limit and building around it.
+
+## Only `bun` escapes the launchd sandbox — a non-Apple Python does not
+
+**2026-09-01.** `docs/process/fleet-ops.md` records that a launchd-invoked Apple-signed binary is denied everything on `/Volumes/Data`, while `~/.bun/bin/bun` reaches it fine, and explains this as Apple code signing being the gate rather than the disk. That explanation predicts any non-Apple interpreter would work too.
+
+**It does not.** The uv-managed CPython at `~/.local/share/uv/python/.../bin/python3` — a user install, not Apple-signed, living on the denied volume exactly like `bun` — produced no output at all from a real LaunchAgent. Same probe, same plist shape, same volume: `bun` reads, this does not.
+
+**So do not generalise from `bun` to "any user-installed binary".** Whatever grant `bun` has, it is specific to `bun`, and the honest statement is "bun works and nothing else has been shown to". Treat every other interpreter as denied until a probe under a real LaunchAgent says otherwise.
+
+**The practical consequence:** a Python loop that reads transcripts cannot be moved to launchd by swapping interpreters. The two routes that do work are delegating the file operations to `bun`, or handing the whole command to an existing tmux server, which forks the child with its own access.
+
+## A classifier denial can be scoped to one argument, so re-test before calling a capability blocked
+
+**2026-09-01.** `launchctl bootout gui/501/com.fryanpan.email-channel-watcher` was denied by the auto-mode classifier, and that got recorded and reported as "I cannot boot out launchd jobs". Later the identical command against a different label — `com.bryanchan.fleet-context-monitor` — ran and returned 0. Re-running the email one was denied again.
+
+**The denial is on the specific action, not on the verb.** Reporting the broader claim overstates the blocker and hands the user a permissions problem that is not the one they actually have.
+
+**Probe with a neighbouring, harmless target before generalising a denial** — and never route around it once confirmed. The correct move on a real denial is still to surface it and let the user decide.

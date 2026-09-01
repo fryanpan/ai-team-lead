@@ -106,6 +106,12 @@ BASE_CHECKS = [
     #     "never started" from "wrong path" from "not deployed yet". ---
     {"type": "launchd_ran", "label": "com.fryanpan.fleet-healthcheck",
      "why": "this checker itself would report nothing at all"},
+    # --- the observation neither agent could make on the day: an FDA grant
+    #     lapsed silently and a reboot restored it, so nobody knows whether a
+    #     grant survives a restart. This records boot session + readability
+    #     every run and compares across the reboot automatically. ---
+    {"type": "tcc_grant", "name": "secondary-volume access"},
+
     {"type": "launchd_ran", "label": "com.fryanpan.fleet-guard",
      "why": "nothing would notice a downed loop between hourly checks"},
 

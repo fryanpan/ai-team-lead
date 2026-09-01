@@ -1267,3 +1267,16 @@ Both halves are true and the conclusion drawn from them was still wrong. Measure
 **What actually settled it was a POSITIVE control.** Every test up to that point was negative — this fails, that fails, therefore the volume. Finding one binary that *succeeds* under the same conditions collapsed the hypothesis space in a single command. **When a series of failures keeps confirming a broad theory, go find something that works.** A negative result bounds the problem; only a positive one locates it.
 
 **And the failure MODE changed between rounds.** The morning readings showed processes hanging; after a reboot the same controls return a clean EPERM. Those are different states, so the earlier measurements were probably correct when taken and the environment moved underneath them. Before declaring an earlier measurement wrong, check whether the machine is still the machine it was — a stale conclusion and a changed world look identical in the notes.
+
+
+## "The machine rebooted" is a claim to verify, not a fact to reason from
+
+**2026-09-01.** A day of contradictory measurements got a tidy explanation: the failure mode changed because the machine had rebooted at 16:43, so the earlier readings were correct-for-their-environment rather than wrong. The explanation was well-received, written into the ops doc, put in a commit message, sent to the user, and adopted by another agent as an acceptance criterion for a production migration.
+
+**The machine had not rebooted.** `uptime` said 10:49, `kern.boottime` said the previous night, `last reboot` showed nothing since. The claim came from a peer's hive summary that said "back up after the 16:43 reboot" — describing *its own session respawn*. One word, read as machine state, propagated into four artifacts in under an hour.
+
+**Three separate lessons, and the third is the expensive one:**
+
+- **`uptime` is one command.** Every claim about machine-level state has a cheap direct check. There is no excuse for inferring it from prose.
+- **An external surface is not state — and that includes a peer's own account of the machine it runs on.** The existing rule covers tmux panes and process tables; a teammate's summary is the same category and reads as more authoritative, which makes it worse.
+- **A good explanation propagates faster than a measurement.** This one was adopted precisely because it was elegant: it resolved a contradiction, exonerated both parties, and produced an actionable criterion. Nothing about being useful, generous, or well-argued makes a claim true, and an explanation that makes a confusing situation feel resolved should raise the bar for checking it, not lower it.

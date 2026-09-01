@@ -79,6 +79,9 @@ _PREV_STATUS = None
 _STREAKS = {}
 
 
+_TCC_RECORD = {}
+
+
 def prev_status():
     """Last run's status file, or {} on the first run.
 
@@ -142,42 +145,91 @@ def claude_sessions():
     return out
 
 
-BUN = os.path.expanduser("~/.bun/bin/bun")
+# Candidate bun binaries, in preference order. Resolution is by PROBE, never by
+# path: which of these works depends on the context this script is running in
+# and on a TCC grant that has already lapsed once.
+#
+# TCC attaches per BINARY plus a Full Disk Access grant, not per volume
+# (verified 2026-09-01, see fleet-ops.md). So:
+#   - ~/.bun/bin/bun can NEVER work under launchd -- ~/.bun is a symlink into
+#     /Volumes/Data, so the binary itself is on the blocked volume and dies at
+#     exec. Granting it FDA cannot fix that. It stays here because it is the
+#     right choice from a shell, where there is no gate at all.
+#   - A boot-disk bun works under launchd only while it holds a grant. The
+#     claude-workspaces copy has one; it belongs to another project, so treat
+#     it as something that can vanish, never as a fixed dependency.
+BUN_CANDIDATES = [
+    os.path.expanduser("~/Library/Application Support/claude-workspaces/bin/bun"),
+    "/opt/homebrew/bin/bun",
+    os.path.expanduser("~/.bun/bin/bun"),
+]
+
+# A file on the secondary volume, used to probe for the capability we actually
+# need. Any tracked file on that volume would do.
+PROBE_DATA_FILE = "/Volumes/Data/Users/bryanchan/dev/ai-team-lead/README.md"
 
 # Seconds to wait on any bun call. Was 30, which turned a broken bun into a
 # three-minute run: six checks each burning a full timeout in series. A probe
 # that cannot answer in a few seconds is not going to answer.
 BUN_TIMEOUT = 6
-_BUN_OK = None
+_BUN_RESOLVED = None          # (path_or_None, reason)
+
+
+def resolve_bun():
+    """Pick a bun that can READ THE SECONDARY VOLUME here. Probed once, cached.
+
+    The old probe ran `console.log(1)` and asked only whether bun executes.
+    That is the wrong question, and it would pass a boot-disk bun with no Full
+    Disk Access while every dependent check failed -- the check would look
+    healthy and its dependents would each report their own private mystery,
+    which is the exact failure this probe was added to end.
+
+    So probe the capability, not the tool: have each candidate read a file on
+    the secondary volume. The first that returns its contents is the one every
+    other check uses.
+    """
+    global _BUN_RESOLVED
+    if _BUN_RESOLVED is not None:
+        return _BUN_RESOLVED
+
+    tried = []
+    script = (f"console.log(require('fs')"
+              f".readFileSync({PROBE_DATA_FILE!r},'utf8').length)")
+    for cand in BUN_CANDIDATES:
+        if not os.path.exists(cand):
+            tried.append(f"{os.path.basename(os.path.dirname(cand))}/bun: absent")
+            continue
+        try:
+            r = subprocess.run([cand, "-e", script], capture_output=True,
+                               text=True, cwd="/", timeout=BUN_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            tried.append(f"{cand}: hung")      # pre-reboot signature
+            continue
+        except Exception as exc:
+            tried.append(f"{cand}: {type(exc).__name__}")
+            continue
+        if r.returncode == 0 and r.stdout.strip().isdigit():
+            _BUN_RESOLVED = (cand, f"reads the secondary volume ({cand})")
+            return _BUN_RESOLVED
+        err = (r.stderr or "").strip().splitlines()
+        tried.append(f"{cand}: {err[-1][:60] if err else 'exit ' + str(r.returncode)}")
+
+    _BUN_RESOLVED = (None, "; ".join(tried))
+    return _BUN_RESOLVED
 
 
 def bun_works():
-    """Can bun actually execute in THIS context? Probed once, cached.
-
-    `docs/process/fleet-ops.md` records bun as the one binary that reaches
-    /Volumes/Data from a launchd job, measured 2026-08-25. On 2026-09-01 that
-    stopped being true: under launchd, bun produces no output at all -- not even
-    `console.log(1)` -- while running instantly from a shell. Every check that
-    delegates to bun then burned its full timeout and failed with a traceback,
-    which reads as six unrelated broken checks rather than one broken tool.
-
-    So probe the tool itself, once, and let the dependent checks fail fast and
-    say the same true thing.
-    """
-    global _BUN_OK
-    if _BUN_OK is None:
-        try:
-            r = subprocess.run([BUN, "-e", "console.log(1)"],
-                               capture_output=True, text=True, cwd="/",
-                               timeout=BUN_TIMEOUT)
-            _BUN_OK = r.returncode == 0 and r.stdout.strip() == "1"
-        except Exception:
-            _BUN_OK = False
-    return _BUN_OK
+    return resolve_bun()[0] is not None
 
 
-BUN_UNAVAILABLE = ("bun cannot execute in this context, so anything on the "
-                   "secondary volume is unreadable here -- see fleet-ops.md")
+def bun_path():
+    """The resolved binary. Callers must check bun_works() first."""
+    return resolve_bun()[0]
+
+
+BUN_UNAVAILABLE = ("no bun on this machine can read the secondary volume in "
+                   "this context, so anything stored there is unreadable "
+                   "here -- see fleet-ops.md")
 
 
 _PLUGIN_PROBE_JS = r"""
@@ -201,10 +253,10 @@ console.log(JSON.stringify(out));
 
 def exists_via_bun(path):
     """Existence test for a path that may resolve onto the secondary volume."""
-    if not os.path.exists(BUN) or not bun_works():
+    if not bun_works():
         return os.path.exists(path)
     r = subprocess.run(
-        [BUN, "-e",
+        [bun_path(), "-e",
          # `bun -e` argv is [bunPath, ...args] -- the path is argv[1], not [2].
          'process.exit(require("fs").existsSync(process.argv[1]) ? 0 : 1)',
          "--", path],
@@ -230,9 +282,9 @@ def probe_plugin_via_bun(cache_dir, source_manifest):
     Returns (live_version_dirs, source_version). Either may be None, meaning
     "could not determine" -- never confuse that with "found nothing".
     """
-    if not os.path.exists(BUN) or not bun_works():
+    if not bun_works():
         return None, None
-    r = subprocess.run([BUN, "-e", _PLUGIN_PROBE_JS, "--",
+    r = subprocess.run([bun_path(), "-e", _PLUGIN_PROBE_JS, "--",
                         cache_dir, source_manifest],
                        capture_output=True, text=True, cwd="/", timeout=BUN_TIMEOUT)
     if r.returncode != 0:
@@ -319,9 +371,9 @@ def check_self_version(spec):
     except OSError as e:
         return False, f"{spec['name']}: cannot read running copy {running}: {e}"
 
-    if not os.path.exists(BUN):
-        return False, f"{spec['name']}: cannot check -- no bun at {BUN}"
-    r = subprocess.run([BUN, "-e", _READ_SHA_JS, "--", source],
+    if not bun_works():
+        return False, f"{spec['name']}: cannot verify -- {BUN_UNAVAILABLE}"
+    r = subprocess.run([bun_path(), "-e", _READ_SHA_JS, "--", source],
                        capture_output=True, text=True, cwd="/", timeout=BUN_TIMEOUT)
     if r.returncode != 0:
         # Unreadable source is NOT a pass. Absence of a comparison is absence of
@@ -371,13 +423,13 @@ def check_archive_backlog(spec):
     # hide an entire class of unarchived transcript behind a green line.
     ignore = spec.get("ignore_dirs", [])
 
-    if not os.path.exists(BUN):
-        return False, f"{spec['name']}: cannot check -- no bun at {BUN}"
+    if not bun_works():
+        return False, f"{spec['name']}: cannot verify -- {BUN_UNAVAILABLE}"
     for label, pth in (("live store", live), ("archive", archive)):
         if not exists_via_bun(pth):
             return False, f"{spec['name']}: {label} MISSING at {pth}"
 
-    r = subprocess.run([BUN, "-e", _ARCHIVE_BACKLOG_JS, "--",
+    r = subprocess.run([bun_path(), "-e", _ARCHIVE_BACKLOG_JS, "--",
                         live, archive, *ignore],
                        capture_output=True, text=True, cwd="/", timeout=180)
     if r.returncode != 0:
@@ -618,6 +670,56 @@ def check_launchd_ran(spec):
     return True, f"{label}: {n} run(s), last exit {last or 'unknown'}"
 
 
+def check_tcc_grant(spec):
+    """Does the Full Disk Access grant still hold, and did it survive the reboot?
+
+    This exists because a grant lapsed silently on 2026-09-01 and took the
+    review surface down for 50 minutes. The recovery was to move the service's
+    binary to the boot disk and grant it FDA -- which fixes today, and leaves
+    open the question the incident actually raised: whether a grant survives a
+    restart, or whether the next reboot re-teaches us the same lesson.
+
+    Nobody could answer that on the day, because it needs an observation
+    spanning a reboot. So record the answer instead of reasoning about it: each
+    run stores the boot session it observed and whether the volume was readable.
+    When the boot session changes, the comparison against the stored one is the
+    measurement, and it is made automatically the first time the machine comes
+    back up.
+
+    Reported plainly either way -- "survived reboot" is the result worth having,
+    not just the failure.
+    """
+    name = spec["name"]
+    boot = _sysctl("kern.boottime") or "unknown"
+    resolved, reason = resolve_bun()
+    readable = resolved is not None
+
+    prior = prev_status().get("tcc", {})
+    was_boot, was_readable = prior.get("boot"), prior.get("readable")
+    _TCC_RECORD.update({"boot": boot, "readable": readable,
+                        "binary": resolved or None})
+
+    if was_boot and was_boot != boot:
+        # The machine restarted between runs. This is the whole point.
+        if was_readable and not readable:
+            return False, (f"{name}: THE GRANT DID NOT SURVIVE THE REBOOT -- the "
+                           f"volume was readable before the restart and is not "
+                           f"now. Re-granting Full Disk Access will fix today "
+                           f"and will lapse again the same way. Tried: {reason}")
+        if was_readable and readable:
+            return True, (f"{name}: grant SURVIVED a reboot (readable before and "
+                          f"after) via {os.path.basename(resolved)}")
+        if readable:
+            return True, f"{name}: readable after reboot (was not, before)"
+        return False, (f"{name}: still unreadable across a reboot -- a restart "
+                       f"is not the fix. Tried: {reason}")
+
+    if not readable:
+        return False, f"{name}: secondary volume UNREADABLE here -- {reason}"
+    return True, (f"{name}: readable via {os.path.basename(resolved)} "
+                  f"(no reboot since last run)")
+
+
 def check_port(spec):
     """Exactly one listener on the port, and it is the expected program.
 
@@ -787,12 +889,12 @@ def transcript_age_hours(cwd):
     os.path.getmtime here would fail in production while passing every test run
     by hand from a terminal.
     """
-    if not os.path.exists(BUN) or not bun_works():
+    if not bun_works():
         return None
     encoded = re.sub(r"[/_.]", "-", cwd)
     d = os.path.expanduser(f"~/.claude/projects/{encoded}")
     try:
-        r = subprocess.run([BUN, "-e", _TRANSCRIPT_AGE_JS, "--", d],
+        r = subprocess.run([bun_path(), "-e", _TRANSCRIPT_AGE_JS, "--", d],
                            capture_output=True, text=True, cwd="/", timeout=BUN_TIMEOUT)
         ms = float(r.stdout.strip() or 0)
     except Exception:
@@ -1017,6 +1119,7 @@ def check_load(spec):
 CHECKS = {
     "launchd": check_launchd,
     "launchd_ran": check_launchd_ran,
+    "tcc_grant": check_tcc_grant,
     "port": check_port,
     "http": check_http,
     "log_errors": check_log_errors,
@@ -1090,7 +1193,7 @@ def main():
     os.makedirs(STATE_DIR, exist_ok=True)
     with open(STATUS, "w") as f:
         json.dump({"checked_at": stamp, "red": red, "green": green,
-                   "streaks": _STREAKS}, f, indent=2)
+                   "streaks": _STREAKS, "tcc": _TCC_RECORD}, f, indent=2)
 
     if red:
         header = f"{len(red)} RED / {len(green)} ok"

@@ -99,8 +99,7 @@ The rule, in his words:
 
 Mechanics:
 
-- **Pull all THREE of his real calendars for Mon–Sun** — commitments land on any of them:
-  `fryanpan@gmail.com` (primary) · `Bryan's Work Calendar` (`4426rmvudfbaebrkmtj4jhep3g@group.calendar.google.com`) · **`Octoturtle Calendar` (`theoctoturtle@gmail.com`)**, the family/household calendar.
+- **Pull all THREE of his real calendars for Mon–Sun** — commitments land on any of them: his personal primary, his work calendar, and the family/household one. **The ids are in `registry.yaml` under `calendars:`**, which is gitignored; this repo is public and a calendar id is a real address, so they must not be written here.
 - **Octoturtle was missed for the week of 2026-08-31 and cost the capacity block ~5h in one day.** Logistics (9:30–12), State of the Union (12:30–13:30) and the 🐢🐙 block (15:30–16:30) all sat on it, and Wednesday was published as a full 7h day. He caught it on the doc: *"why didn't you notice those?"* A calendar that is not in the query is not judged and skipped — it is invisible, which is the worst failure mode this block has.
 - **Before trusting the set, run `list_calendars` and look for anything new.** The other ~16 entries are subscriptions (holidays, school, seminars, a family member's, a dance calendar) and are not his commitments — but a newly added personal or household calendar would look exactly like them and belongs in the three.
 - **Only subtract for meetings he has ACCEPTED — read his own `responseStatus` in the attendee list.** `accepted` counts; `needsAction` and `declined` do not. An invitation on the calendar is not a commitment, and treating a recurring standing invite as attendance is how a real working day gets written off. He said it plainly: *"Don't assume I'm going to [the] meeting and write general rules for it. Just look at my calendar and check if I said yes or not."* If he is the organizer, that counts as accepted.

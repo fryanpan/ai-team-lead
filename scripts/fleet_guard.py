@@ -63,10 +63,14 @@ RENOTIFY_CRITICAL_SEC = 30 * 60
 # These paths are on /Volumes/Data, which this process cannot read -- and does
 # not need to. It hands the path to tmux; the tmux SERVER forks the child, so
 # the loop inherits the server's disk access rather than launchd's. That is the
-# whole trick, and it is why revival works from here at all. It follows that
-# revival only works while a tmux server is already running: after a cold boot
-# with no Terminal, there is nothing to inherit from and the guard notifies
-# instead of pretending it fixed something.
+# whole trick, and it is why revival works from here at all.
+#
+# It does NOT follow that a server has to already exist. Access attaches to the
+# tmux binary, not to a running server, so a server launchd starts itself reads
+# the volume exactly as well as one started from a Terminal -- measured with a
+# fresh socket under `launchctl submit`, which is the cold-boot case. The guard
+# therefore revives from no-server too, and `--selftest --cold` is what proves
+# it on this machine rather than by argument.
 LOOPS = {
     "fleet-budget":
         "/Volumes/Data/Users/bryanchan/dev/ai-team-lead/scripts/fleet_budget_loop.sh",
@@ -74,6 +78,15 @@ LOOPS = {
         "/Volumes/Data/Users/bryanchan/dev/ai-team-lead/scripts/fleet_monitor_loop.sh",
 }
 TMUX = "/opt/homebrew/bin/tmux"
+# Socket override, used only by `--selftest --cold`. A named socket that no
+# server is listening on forces tmux to START one, which is the cold-boot
+# condition; the default socket almost always has a server already and would
+# quietly test the easy case instead.
+TMUX_SOCKET = ""
+
+
+def tmux():
+    return f"{TMUX} {TMUX_SOCKET}".rstrip()
 
 
 def sh(cmd, timeout=10):
@@ -190,13 +203,19 @@ def grade(m):
 
 
 def loop_status():
-    """Which monitor loops are alive."""
+    """Which monitor loops are alive.
+
+    A missing server reports "down", not a separate un-revivable state. After a
+    cold boot there is no server and both loops are down -- that is precisely
+    the moment the guard exists for, and `new-session` starts a server on its
+    own. Reporting it as "no-server" made the one case that matters the one
+    case the guard refused to act on.
+    """
     if not os.path.exists(TMUX):
         return {name: "no-tmux" for name in LOOPS}
-    out, rc = sh(f"{TMUX} ls")
+    out, rc = sh(f"{tmux()} ls")
     if rc != 0:
-        # No server at all -- every loop is down and nothing here can start one.
-        return {name: "no-server" for name in LOOPS}
+        return {name: "down" for name in LOOPS}
     live = {line.split(":", 1)[0] for line in out.splitlines() if ":" in line}
     return {name: ("up" if name in live else "down") for name in LOOPS}
 
@@ -208,26 +227,34 @@ def revive(name, command):
     reports success is the same false green this whole file exists to remove --
     it would report "restarted" forever while the session died on every attempt.
     """
-    sh(f"{TMUX} kill-session -t {name}")          # best effort; may not exist
-    out, rc = sh(f"{TMUX} new-session -d -s {name} {command}")
+    sh(f"{tmux()} kill-session -t {name}")        # best effort; may not exist
+    out, rc = sh(f"{tmux()} new-session -d -s {name} {command}")
     if rc != 0:
         return False, f"new-session rc={rc} {out[:120]}"
     time.sleep(3)                                  # let it fail if it is going to
-    out, rc = sh(f"{TMUX} has-session -t {name}")
+    out, rc = sh(f"{tmux()} has-session -t {name}")
     if rc != 0:
         return False, "session did not survive 3s -- loop script exited"
-    pane, _ = sh(f"{TMUX} capture-pane -p -t {name}")
+    pane, _ = sh(f"{tmux()} capture-pane -p -t {name}")
     return True, (pane.strip().splitlines() or ["(no output yet)"])[-1][:120]
 
 
-def selftest():
+def selftest(cold=False):
     """Prove the revival path from whatever context this is running in.
 
     Uses a decoy session name so it can be run against the live fleet without
     firing a real "monitor loop down" alert -- testing a monitor by breaking the
     thing it watches produces a false alarm someone has to chase.
+
+    `cold=True` moves to a private socket with no server on it, so tmux has to
+    start one. Without that the test rides an existing server started from a
+    Terminal and proves nothing about the case this guard is for.
     """
+    global TMUX_SOCKET
     name = "guard-selftest"
+    if cold:
+        TMUX_SOCKET = "-L guard-cold-probe"
+        sh(f"{tmux()} kill-server")   # ensure no server on this socket
     probe_cmd = ("/bin/bash -c 'ls /Volumes/Data/Users/bryanchan/dev "
                  ">/dev/null 2>&1 && echo SECONDARY-VOLUME-READABLE "
                  "|| echo SECONDARY-VOLUME-DENIED; sleep 30'")
@@ -238,7 +265,7 @@ def selftest():
           if ok and "READABLE" in detail else
           "  VERDICT: revival from this context will NOT give the loop disk "
           "access -- guard must notify instead of self-healing")
-    sh(f"{TMUX} kill-session -t {name}")
+    sh(f"{tmux()} kill-server" if cold else f"{tmux()} kill-session -t {name}")
     return 0
 
 
@@ -289,7 +316,7 @@ def probe():
     out, rc = sh("/bin/ps -axo pid= | /usr/bin/wc -l")
     print(f"  ps: rc={rc} procs={out}")
     print(f"  tmux binary present: {os.path.exists(TMUX)}")
-    out, rc = sh(f"{TMUX} ls")
+    out, rc = sh(f"{tmux()} ls")
     print(f"  tmux ls: rc={rc} out={out[:200]!r}")
     out, rc = sh("/bin/ls /Volumes/Data/Users/bryanchan/dev >/dev/null")
     print(f"  secondary volume readable (expected NO): rc={rc}")
@@ -301,7 +328,7 @@ def main():
         probe()
         return 0
     if "--selftest" in sys.argv:
-        return selftest()
+        return selftest(cold="--cold" in sys.argv)
 
     m = read_metrics()
     worst, bands = grade(m)

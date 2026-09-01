@@ -1154,3 +1154,29 @@ state on both.
   read more slowly.
 - **A boot-lazy window should 503, not 200-with-nothing.** Where you own the route, make it fail
   closed with a code — a caller cannot distinguish "not ready" from "no limit set" otherwise.
+
+## An uncapped test runner plus a full fleet will hard-freeze a 16GB machine (2026-08-31)
+
+The machine froze and rebooted. Measured four minutes before it went: load average **97** on 10
+cores, swap **19.4GB of 20GB** used, 4% free memory, swapins/swapouts in the millions, 544
+processes. No `.panic` file was written and no pre-crash log survived — a hard freeze, not a panic.
+
+Two independent causes had to line up, and naming only one of them would have produced the wrong fix.
+
+- **The trigger: a test runner with no worker cap.** The repo's `vitest.config.ts` set no
+  `poolOptions` / `maxForks` / `maxWorkers`, so vitest defaults to **one worker per core** — a single
+  `vitest run` forked ~19 processes. Check this in any repo whose tests an agent may launch
+  unattended; the default is sized for a developer's idle laptop, not a machine running a fleet.
+- **The trigger's second half: the workers were orphaned.** They had `PPID 1` and had been alive 14
+  minutes. Their parent had exited and they had been reparented to launchd, so nothing was ever going
+  to reap them. **A `ps` showing PPID 1 on a test worker means it is now permanent** — treat it as a
+  leak, not as a run in progress.
+- **The setup: fleet size against RAM.** A Claude Code session measures 0.34–0.99GB resident
+  (~0.6GB average). Twelve sessions is ~7GB of a 16GB machine before a browser or a build. Respawning
+  *everything that happened to be running* — rather than only what has live work — is what put the
+  machine at the line where an uncapped test run became fatal.
+
+**The instrument gap this exposes.** A token-budget watch says nothing about this: the failure was
+memory and load, and the token numbers looked fine throughout. A monitor is only blind in the
+dimension nobody thought to measure — if you build one resource watch, ask which *other* resource can
+end the day just as fast.

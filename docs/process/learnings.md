@@ -1101,3 +1101,20 @@ lost that was on disk, but ten peers resumed from a summary they did not choose,
 - **`--mode missing` afterwards is optional now.** The runbook's "fill any registry session that was
   already down" predates the lean-fleet rule. A session that was deliberately spun down should stay
   down — respawn what was running, and nothing else.
+
+## Testing a monitor by editing its live state fires a real false alert (2026-08-31)
+
+To check that a worsening picture breaks through a standing decision, I hand-edited the budget
+watcher's live state file — the same file its 15-minute loop reads. The loop picked up the doctored
+value mid-test and sent a real BREACH message quoting a decision "at 40%" that was never made.
+
+- **The script already had `--state PATH` for exactly this** and I did not use it. A monitor with a
+  configurable state path is telling you where the test seam is; a test that writes to production
+  state is not a test, it is an injection.
+- **The cost is trust, not correctness.** The code was right and the alert was wrong, which is the
+  worst combination — a channel that cries wolf once gets read more slowly forever, and this watcher's
+  entire value is that its messages get read immediately.
+- **A running loop makes state shared, mutable and concurrent.** Anything a daemon polls must be
+  treated as live production data even when it is "just a JSON file in Application Support".
+
+**The rule: point the test at a throwaway state path, or stop the loop first.** Never both-at-once.

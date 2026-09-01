@@ -1260,3 +1260,10 @@ Both halves are true and the conclusion drawn from them was still wrong. Measure
 - **Before acting on a differential result, ask what ELSE changed between the two arms.** The narrower hypothesis is the one that feels proven; it is usually the one that was merely not excluded.
 - **Reach for the most boring possible control.** `/bin/cat` settled in one command what a day of reasoning about the original binary's sandboxing did not.
 - **A workaround derived from a partial diagnosis is worse than no workaround**, because it gets deployed. This one reached a doc and a recommendation before the second test contradicted it.
+
+
+**Third revision, same day — and the correction was also incomplete.** The "volume-wide" conclusion above is wrong too. TCC attaches per *binary* plus a Full Disk Access grant: `/bin/cat` under launchd gets `Operation not permitted` on Data, while a boot-disk bun holding FDA reads the same file fine (`READ_OK bytes=11257`). The original probe failed because the bun binary under test was *itself* on the blocked volume, so it died at exec, not at the read — the one place neither differential could see, because both arms shared it.
+
+**What actually settled it was a POSITIVE control.** Every test up to that point was negative — this fails, that fails, therefore the volume. Finding one binary that *succeeds* under the same conditions collapsed the hypothesis space in a single command. **When a series of failures keeps confirming a broad theory, go find something that works.** A negative result bounds the problem; only a positive one locates it.
+
+**And the failure MODE changed between rounds.** The morning readings showed processes hanging; after a reboot the same controls return a clean EPERM. Those are different states, so the earlier measurements were probably correct when taken and the environment moved underneath them. Before declaring an earlier measurement wrong, check whether the machine is still the machine it was — a stale conclusion and a changed world look identical in the notes.

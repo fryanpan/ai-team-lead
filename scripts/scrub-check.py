@@ -499,6 +499,11 @@ def all_tracked_files() -> List[str]:
         return []
 
 
+KNOWN_FLAGS = {
+    "--help", "-h", "--messages", "--diff-range", "--staged", "--scan-all-tracked",
+}
+
+
 def main() -> int:
     if os.environ.get("SCRUB_SKIP") == "1":
         print("[scrub-check] SCRUB_SKIP=1 set — bypassing scan.", file=sys.stderr)
@@ -509,6 +514,20 @@ def main() -> int:
     if "--help" in args or "-h" in args:
         print(__doc__)
         return 0
+
+    # An unrecognised flag used to fall through to the positional branch, become
+    # a filename, get filtered for not existing, and exit 0 having scanned
+    # nothing. The empty-argv guard below does not catch it, because the argv is
+    # not empty. `--selftest` and a typo of a real flag both passed this way.
+    # The typo is the dangerous one: it lives in a hook or CI line nobody
+    # re-reads, and the gate stops gating while the exit code still says pass.
+    unknown = [a for a in args if a.startswith("-") and a not in KNOWN_FLAGS]
+    if unknown:
+        print(f"[scrub-check] unrecognised option(s): {' '.join(unknown)}\n"
+              f"  known: {' '.join(sorted(KNOWN_FLAGS))}\n"
+              f"  Refusing rather than treating them as filenames and exiting 0.",
+              file=sys.stderr)
+        return 2
 
     messages: List[Tuple[str, str]] = []
 
@@ -533,6 +552,18 @@ def main() -> int:
         files = all_tracked_files()
     else:
         files = args
+        # Only EXPLICIT arguments are required to exist. A derived list
+        # (--diff-range) legitimately names paths deleted in the range, and a
+        # path that exists but is filtered by should_scan is a real skip. A
+        # caller that names a file that is not there is simply wrong, and
+        # silently scanning nothing is the failure this gate is built to avoid.
+        missing = [f for f in args if not os.path.exists(f)]
+        if missing:
+            print("[scrub-check] named file(s) do not exist: "
+                  + " ".join(missing)
+                  + "\n  Refusing rather than scanning nothing and exiting 0.",
+                  file=sys.stderr)
+            return 2
         if not args:
             # This tool does NOT read stdin. Piping a diff into it used to scan
             # nothing and exit 0 — a clean-looking pass that established

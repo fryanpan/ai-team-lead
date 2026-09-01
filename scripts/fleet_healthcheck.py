@@ -75,6 +75,36 @@ CONFIG = os.path.join(STATE_DIR, "healthcheck-config.json")
 STATUS = os.path.join(STATE_DIR, "healthcheck-status.json")
 
 
+_PREV_STATUS = None
+_STREAKS = {}
+
+
+def prev_status():
+    """Last run's status file, or {} on the first run.
+
+    A per-run check cannot see a slow drip: a failure arriving every 40 minutes
+    never crosses a 3-per-90-minutes threshold in any single run, so it stays
+    green forever while being continuously broken. Carrying a streak across runs
+    is the cheapest way to give a check memory.
+    """
+    global _PREV_STATUS
+    if _PREV_STATUS is None:
+        try:
+            with open(STATUS) as f:
+                _PREV_STATUS = json.load(f)
+        except Exception:
+            _PREV_STATUS = {}
+    return _PREV_STATUS
+
+
+def bump_streak(name, had_error):
+    """Consecutive runs on which this check saw at least one error."""
+    prior = prev_status().get("streaks", {}).get(name, 0)
+    n = prior + 1 if had_error else 0
+    _STREAKS[name] = n
+    return n
+
+
 def sh(cmd, timeout=15):
     """Run a shell command, returning stdout ('' on any failure)."""
     try:
@@ -481,7 +511,13 @@ def check_log_errors(spec):
 
     window = spec.get("window_minutes", 60)
     pattern = re.compile(spec.get("pattern", "error"), re.I)
-    tail = sh(f"tail -n {spec.get('lines', 400)} {path!r}")
+
+    # Read enough lines to plausibly cover the window instead of a flat 400. On
+    # a chatty log a real error scrolls out of a fixed tail before a scheduled
+    # run ever sees it, and the check reports "quiet" on a log full of errors.
+    n_lines = spec.get("lines") or min(20000, max(400, window))
+    tail = sh(f"tail -n {n_lines} {path!r}")
+    tail_lines = tail.splitlines()
 
     # Work out what clock the log writes in, instead of assuming local.
     #
@@ -491,7 +527,7 @@ def check_log_errors(spec):
     # against the file's own mtime handles either clock without hardcoding an
     # offset that a DST change would invalidate.
     parsed = []
-    for line in tail.splitlines():
+    for line in tail_lines:
         m = re.search(r"(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})", line)
         if not m:
             parsed.append(None)
@@ -511,7 +547,7 @@ def check_log_errors(spec):
 
     cutoff = datetime.now() - timedelta(minutes=window)
     hits, dated = 0, 0
-    for line, ts in zip(tail.splitlines(), parsed):
+    for line, ts in zip(tail_lines, parsed):
         if not pattern.search(line):
             continue
         if ts:
@@ -525,12 +561,34 @@ def check_log_errors(spec):
             # the line never ages out until it scrolls past the tail.
             hits += 1
 
+    # Did the tail actually reach back across the window? If the oldest dated
+    # line is still inside it and we read every line we asked for, the log is
+    # busier than the read and the count below is an undercount. Say so rather
+    # than reporting a confident number derived from a partial read.
+    truncated = (known and len(tail_lines) >= n_lines
+                 and min(known) + skew > cutoff)
+
     limit = spec.get("max", 0)
+    streak = bump_streak(spec["name"], hits > 0)
+    max_streak = spec.get("max_error_streak")
+
     if hits > limit:
-        sample = next((l for l in reversed(tail.splitlines())
-                       if pattern.search(l)), "")
+        sample = next((l for l in reversed(tail_lines) if pattern.search(l)), "")
+        note = " [tail did not cover the window]" if truncated else ""
         return False, (f"{spec['name']}: {hits} error lines in last {window}m "
-                       f"(limit {limit}) -> {sample[:160]}")
+                       f"(limit {limit}){note} -> {sample[:160]}")
+
+    # Under the per-run limit, but erroring on every run for hours. That is a
+    # sustained failure that the threshold alone was built to miss.
+    if max_streak and streak >= max_streak:
+        sample = next((l for l in reversed(tail_lines) if pattern.search(l)), "")
+        return False, (f"{spec['name']}: erroring on {streak} consecutive runs "
+                       f"(under the {limit}/run limit each time, which is how "
+                       f"a slow drip hides) -> {sample[:160]}")
+
+    if truncated:
+        return True, (f"{spec['name']}: quiet, but the {n_lines}-line tail did "
+                      f"not reach back {window}m -- raise 'lines'")
     return True, f"{spec['name']}: quiet"
 
 
@@ -751,7 +809,8 @@ def main():
     stamp = datetime.now().isoformat(timespec="seconds")
     os.makedirs(STATE_DIR, exist_ok=True)
     with open(STATUS, "w") as f:
-        json.dump({"checked_at": stamp, "red": red, "green": green}, f, indent=2)
+        json.dump({"checked_at": stamp, "red": red, "green": green,
+                   "streaks": _STREAKS}, f, indent=2)
 
     if red:
         header = f"{len(red)} RED / {len(green)} ok"

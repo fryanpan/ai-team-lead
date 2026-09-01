@@ -160,16 +160,31 @@ BASE_CHECKS = [
     # attention at each review and carries no information. Restoring it needs
     # Bryan's Google account, so it cannot be fixed from here. Re-add both
     # entries (git history has them) if the GCP project is ever recreated.
+    # No silence bound here, deliberately. This receiver logs on Notion events,
+    # so its quiet measures Bryan's Notion activity, not the daemon -- 720m
+    # fired at 726m on 2026-09-01 while the process was listening and
+    # answering /health with 200. A liveness signal you cannot separate from a
+    # quiet weekend is not a liveness signal. Responsiveness is asserted by the
+    # http check below instead, which a wedged process fails and an idle one
+    # passes; the port check alone would not, since a hung process keeps its
+    # socket.
     {"type": "log_errors", "name": "notion receiver", "max": 3,
      "path": "~/Library/Logs/notion-channel-receiver.log",
      "pattern": r'"level":\s*"error"', "window_minutes": 90,
-     # Generous on purpose: this is "has not written in half a day", not "is
-     # quiet tonight". A silence bound tight enough to fire on an idle evening
-     # becomes furniture within a week.
-     "max_silence_minutes": 720, "max_error_streak": 6},
+     "max_error_streak": 6},
+    {"type": "http", "name": "notion receiver", "url": "http://127.0.0.1:8791/health"},
+    # `ignore` covers the broker start race, and nothing else. Every session's
+    # MCP server tries to start a broker if one is not already up; when one is,
+    # the attempt fails and logs at error level. It is the expected outcome of
+    # a correct design, and it was 70 of the 74 lines keeping this check red --
+    # so the genuine token warning arrived as 4 lines in a flood of 74. The
+    # honest fix is upstream (do not log an expected condition as an error);
+    # until that lands this states the tolerance in one place instead of
+    # narrowing the pattern until it catches nothing new.
     {"type": "log_errors", "name": "github broker", "max": 0,
      "path": "~/Library/Logs/github-channel-broker.log",
      "pattern": r"WARNING|error", "window_minutes": 1440,
+     "ignore": r"Failed to start server\. Is port \d+ in use\?",
      "max_silence_minutes": 360, "max_error_streak": 6},
 
     # --- running but inert: the broker answers {"ok":true} on /health with no

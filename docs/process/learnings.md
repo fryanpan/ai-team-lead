@@ -1317,3 +1317,14 @@ The cost was not the wrong sentence. It was that the directive used the claim to
 - **A durable directive that asserts external state must say when it was verified and what to look at.** "As of <date>, per <artifact>" — and name the file whose mtime or contents settles it. A bare present-tense claim about another machine's cron is indistinguishable from a stale one.
 - **Prefer a heartbeat to an assertion.** The fix here was a `.last-refresh` file carrying `last_run` and `exit_code`, committed by the job itself. The permission error was never the real defect; invisible staleness was, and a heartbeat is what makes the next failure show up in git history rather than in a surprise three months later.
 - **Same family as the killer item.** A pane is not state, a process table is not MCP health, and a sentence you wrote about a peer's launchd agent is not that agent.
+
+## A monitor whose arming depends on an agent reading a prompt is not armed
+
+The token-watch, the morning review and the weekly digest all run as session-scoped crons. They die on every team-lead respawn, and the re-arm is a SessionStart hook that **prints a directive asking the agent to arm them**. On 2026-09-01 `CronList` returned "No scheduled jobs" — the hook had fired, the directive was in context, and I had read past it. The last quota reading was 50 hours old.
+
+- **A step that only happens if a model notices a paragraph has no retry and no alarm.** It is indistinguishable from a step that ran. The hook was written to be idempotent, which is a property of the *call*, not of whether the call ever happens.
+- **Check the artifact, not the schedule.** "Is the cron armed?" is unanswerable from outside the session; "when was the last reading taken?" is answerable by anyone. `check_trend_log` parses the newest entry's own timestamp — deliberately not mtime, because the trend log lives inside a doc edited for unrelated reasons and mtime would have read fresh all week.
+- **The instrument that WAS running measured a different quantity, and that is why nothing looked wrong.** `fleet_budget_watch.py` reports the share split between projects inside a 5h window ("unprotected work holds 64%"). It is blind to the absolute pool — the same line prints at 4% and at 96% of the weekly quota. A green freshness check on it certified that a healthy instrument was running, which was true and irrelevant.
+- **34 checks, none of them on the thing that measures spend.** The monitoring covered daemons, ports, tunnels, memory, plugin versions and both monitor loops. Quota — the resource whose exhaustion stops all work — had no check at all, because it was "handled by the cron."
+
+**The general form, and this is the third instance in one day:** the guard, the peer's launchd job, and now this. A control that asserts something happens, with no artifact whose age contradicts it, degrades to a comment. Give every scheduled thing a heartbeat and check the heartbeat.

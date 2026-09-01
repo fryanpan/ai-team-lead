@@ -1328,3 +1328,14 @@ The token-watch, the morning review and the weekly digest all run as session-sco
 - **34 checks, none of them on the thing that measures spend.** The monitoring covered daemons, ports, tunnels, memory, plugin versions and both monitor loops. Quota — the resource whose exhaustion stops all work — had no check at all, because it was "handled by the cron."
 
 **The general form, and this is the third instance in one day:** the guard, the peer's launchd job, and now this. A control that asserts something happens, with no artifact whose age contradicts it, degrades to a comment. Give every scheduled thing a heartbeat and check the heartbeat.
+
+## Hand-rolling a session spawn drops the identity env, and the peer finds out later
+
+`respawn.py` passes `-e CW_AGENT_NAME` and `-e FEEDBACK_AGENT_NAME` on every `tmux new-session`. A hand-written `tmux new-session ... claude --continue` does not, and nothing about the resulting session looks wrong: it registers on the hive, takes turns, reads the board. The failure surfaces only on the first **write** — `post_reply` refuses with `author-required`, `post_status` with `shared-identity`.
+
+On 2026-09-01 I hand-spawned two peers this way, one of them the board lead. Both came up mute and neither could report it on the board, which is the surface where it would have been noticed.
+
+- **Use `respawn.py` even for a one-off.** `--only <name> --execute` exists for exactly this. If the target path is not the registry path — a worktree, say — pass the env explicitly rather than omitting it: the value is read at startup, so there is no repair short of another relaunch.
+- **The name is the one the board already knows**, not the registry `session_name`. Recover it from the peer's own transcript: `grep -o '"author":"[^"]*"' <transcript> | tail`. A worktree session and its parent project can carry different names.
+- **Audit after any manual spawn:** `for s in $(tmux ls -F '#{session_name}'); do tmux show-environment -t "$s" CW_AGENT_NAME; done`. `unknown variable` is a mute peer.
+- **A blanket healthcheck on this would be noisy**, not useful — the team-lead and the channel bridges run without the var and write fine, so the naive version REDs three healthy sessions. Identity has more than one source; check it per spawn, not per process.

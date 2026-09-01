@@ -35,6 +35,10 @@ A peer session runs only when it has live work: this week's committed goals, an 
 
 **Leave running:** always-up agents (`project_always_up_agents` memory) and peers on this week's committed goals. Their lifecycle belongs to `/weekly-plan`, not to ad-hoc cleanup.
 
+**Never hand-roll `tmux new-session ... claude`. Always go through `respawn.py`.** The command looks like a one-liner and is not: the script also passes `CW_AGENT_NAME` + `FEEDBACK_AGENT_NAME` (board identity), scopes `DISCORD_STATE_DIR` per peer, dismisses the startup dialogs, and sweeps orphan MCP servers. A hand-written spawn drops all four and the session still comes up looking healthy — it registers on the hive, takes turns, reads the board, and only fails on its first **write**, which is the surface where it would have reported the problem.
+
+The trigger is always "the mode didn't cover my case" — a `respawn: false` entry, a worktree path, a project the registry never got. **That is a reason to read `--help`, not to leave the script.** `--mode running` already handles every one of them; it existed and was documented for exactly this, and got bypassed anyway on 2026-09-01, twice in fifteen minutes. If a case genuinely has no mode, add one.
+
 ## Layout
 
 | Path | Holds |

@@ -504,6 +504,41 @@ def registry_home_for(path: str) -> Optional[str]:
     return None
 
 
+AGENT_NAME_VARS = ("CW_AGENT_NAME", "FEEDBACK_AGENT_NAME")
+
+
+def agent_name_from_env(pid: int) -> Optional[str]:
+    """The board identity this session is CURRENTLY running with.
+
+    argv's `-n` is the name a session was LAUNCHED with, and a hand-rolled
+    `tmux new-session ... claude --continue` has no `-n` at all. The fallbacks
+    after it -- the ancestor tmux session name, then a humanized basename --
+    are guesses derived from the path, and they are usually the wrong case
+    ("workspaces", "clientorg-project-beta"). Respawning under a guessed name
+    renames the peer on the board and orphans everything it wrote under its
+    real one, with no error on either side.
+
+    CW_AGENT_NAME is what claude-workspaces actually attributes writes to, so
+    it is the authority whenever argv is silent. Read from the live process
+    rather than from the registry: a worktree session's registry entry names
+    the parent project, which is not who the board knows.
+    """
+    try:
+        r = subprocess.run(["ps", "-p", str(pid), "-wwwE"],
+                           capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if r.returncode != 0:
+        return None
+    for var in AGENT_NAME_VARS:
+        # Values contain spaces, so stop at the next VAR= rather than at
+        # whitespace. Env in `ps -E` output is space-separated KEY=VALUE.
+        m = re.search(r"\b%s=(.*?)(?=\s+[A-Za-z_][A-Za-z0-9_]*=|$)" % var, r.stdout)
+        if m and m.group(1).strip():
+            return m.group(1).strip()
+    return None
+
+
 def collect_running_targets(running: Dict[int, Dict[str, str]],
                             self_pid: Optional[int]) -> List[Tuple[str, str]]:
     """Return (display_name, cwd) for every live claude except the team-lead.
@@ -545,7 +580,9 @@ def collect_running_targets(running: Dict[int, Dict[str, str]],
         # session that had ever been checked had -n last.
         m = re.search(r"\s-n\s+(.+?)(?=\s+--|$)", info["argv"])
         display = m.group(1).strip() if m else (
-            _ancestor_tmux_session(pid, pane_owner) or humanize(os.path.basename(cwd)))
+            agent_name_from_env(pid)
+            or _ancestor_tmux_session(pid, pane_owner)
+            or humanize(os.path.basename(cwd)))
         home = resolve_home_path(cwd)
         if home != cwd:
             print(f"[home] {display}: running in {cwd}\n"

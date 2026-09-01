@@ -796,6 +796,76 @@ def check_http(spec):
     return True, f"{spec['name']}: ok"
 
 
+def _parse_log_times(tail_lines, mtime):
+    """Timestamp each line, handling logs that stamp a TIME with no date.
+
+    The dated case is easy. The undated one is not, and it silently defeated
+    the window: a log writing `[broker 06:22:08]` never matched the date regex,
+    so every matching line was treated as "undated, and the file was written
+    recently, so it might be recent" -- which counts a warning from any hour of
+    any day forever. That is the same bug the dated path already fixed, in the
+    half nobody looked at, and it is what pins a check RED on a warning emitted
+    once at a restart hours earlier.
+
+    Anchoring: the last stamped line is assumed to be about as old as the
+    file's mtime, which also calibrates whatever clock the log writes in (these
+    daemons stamp UTC). Walking backwards, a time-of-day that is LATER than the
+    line after it means the log crossed midnight, so the date steps back a day.
+
+    Returns (timestamps, calibrated) -- `calibrated` is False when nothing
+    could be stamped at all, and the caller falls back to its old behaviour.
+    """
+    dated = re.compile(r"(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})")
+    parsed = []
+    for line in tail_lines:
+        m = dated.search(line)
+        if not m:
+            parsed.append(None)
+            continue
+        try:
+            parsed.append(datetime.strptime(f"{m.group(1)} {m.group(2)}",
+                                            "%Y-%m-%d %H:%M:%S"))
+        except ValueError:
+            parsed.append(None)
+    if any(parsed):
+        return parsed, True
+
+    # No dated line anywhere -- try time-only.
+    timeonly = re.compile(r"\b(\d{2}):(\d{2}):(\d{2})\b")
+    times = []
+    for line in tail_lines:
+        m = timeonly.search(line)
+        if not m:
+            times.append(None)
+            continue
+        h, mi, sec = (int(g) for g in m.groups())
+        times.append(None if h > 23 or mi > 59 or sec > 59
+                     else timedelta(hours=h, minutes=mi, seconds=sec))
+    if not any(t is not None for t in times):
+        return parsed, False
+
+    anchor = datetime.fromtimestamp(mtime)
+    last = next(t for t in reversed(times) if t is not None)
+    # Same wall-clock day as mtime by construction; the difference between the
+    # log's own last stamp and mtime's time-of-day is the clock offset.
+    day = anchor - timedelta(hours=anchor.hour, minutes=anchor.minute,
+                             seconds=anchor.second,
+                             microseconds=anchor.microsecond)
+    offset = anchor - (day + last)
+
+    out = [None] * len(times)
+    cur_day, prev = day, None
+    for i in range(len(times) - 1, -1, -1):
+        t = times[i]
+        if t is None:
+            continue
+        if prev is not None and t > prev:
+            cur_day -= timedelta(days=1)      # walked back past midnight
+        out[i] = cur_day + t + offset
+        prev = t
+    return out, True
+
+
 def check_log_errors(spec):
     """An error stream must be quiet in the recent window.
 
@@ -822,6 +892,16 @@ def check_log_errors(spec):
     window = spec.get("window_minutes", 60)
     pattern = re.compile(spec.get("pattern", "error"), re.I)
 
+    # Lines that match the error pattern but are a known, expected condition.
+    #
+    # Needed because the alternative is narrowing `pattern` until it only
+    # matches today's known failures, which is how a check stops catching
+    # anything new. An explicit ignore list keeps the pattern broad and states
+    # in one place what is deliberately tolerated -- and every entry must say
+    # WHY in the spec's comment, or it becomes a way to silence real faults.
+    ignore = spec.get("ignore")
+    ignore_re = re.compile(ignore, re.I) if ignore else None
+
     # Read enough lines to plausibly cover the window instead of a flat 400. On
     # a chatty log a real error scrolls out of a fixed tail before a scheduled
     # run ever sees it, and the check reports "quiet" on a log full of errors.
@@ -836,17 +916,7 @@ def check_log_errors(spec):
     # for every line in the tail. The window silently did nothing. Calibrating
     # against the file's own mtime handles either clock without hardcoding an
     # offset that a DST change would invalidate.
-    parsed = []
-    for line in tail_lines:
-        m = re.search(r"(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})", line)
-        if not m:
-            parsed.append(None)
-            continue
-        try:
-            parsed.append(datetime.strptime(f"{m.group(1)} {m.group(2)}",
-                                            "%Y-%m-%d %H:%M:%S"))
-        except ValueError:
-            parsed.append(None)
+    parsed, calibrated = _parse_log_times(tail_lines, mtime)
 
     known = [t for t in parsed if t]
     skew = timedelta(0)
@@ -857,8 +927,12 @@ def check_log_errors(spec):
 
     cutoff = datetime.now() - timedelta(minutes=window)
     hits, dated = 0, 0
+    ignored = 0
     for line, ts in zip(tail_lines, parsed):
         if not pattern.search(line):
+            continue
+        if ignore_re and ignore_re.search(line):
+            ignored += 1
             continue
         if ts:
             dated += 1
@@ -896,10 +970,14 @@ def check_log_errors(spec):
                        f"(under the {limit}/run limit each time, which is how "
                        f"a slow drip hides) -> {sample[:160]}")
 
+    # Say how much was ignored. A tolerated line is still a line, and an
+    # ignore rule that quietly swallows a flood is indistinguishable from a
+    # check that stopped working.
+    note = f" ({ignored} ignored)" if ignored else ""
     if truncated:
-        return True, (f"{spec['name']}: quiet, but the {n_lines}-line tail did "
-                      f"not reach back {window}m -- raise 'lines'")
-    return True, f"{spec['name']}: quiet"
+        return True, (f"{spec['name']}: quiet{note}, but the {n_lines}-line "
+                      f"tail did not reach back {window}m -- raise 'lines'")
+    return True, f"{spec['name']}: quiet{note}"
 
 
 _TRANSCRIPT_AGE_JS = r"""

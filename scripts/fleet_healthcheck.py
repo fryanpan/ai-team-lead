@@ -1099,6 +1099,46 @@ def _latest_trend_entry(text):
     return best
 
 
+_READ_TEXT_JS = r"""
+const fs = require("fs");
+// `bun -e` argv is [bunPath, ...args] -- slice(1), not slice(2).
+try {
+  process.stdout.write(fs.readFileSync(process.argv.slice(1)[0], "utf8"));
+} catch (e) { process.exit(3); }
+"""
+
+
+def read_text_via_bun(path):
+    """Read a file that may live on the secondary volume. (text, err).
+
+    Plain `open()` inside the launchd-exec'd checker gets `Operation not
+    permitted` on /Volumes -- the checker's own binary has no Full Disk Access,
+    and that is not fixable from here. Every other check that touches the repo
+    goes through the resolved bun for this reason; a check that reads directly
+    is not "simpler", it is a check that can only ever report the volume.
+
+    Learned by shipping it wrong: check_trend_log used io.open and went RED with
+    `Operation not permitted` on its first launchd run, which reads as "the
+    quota meter is broken" and is really "the monitor cannot see". Same family
+    as the peer-bravo job that failed every run for three months.
+    """
+    if bun_works():
+        try:
+            r = subprocess.run([bun_path(), "-e", _READ_TEXT_JS, "--", path],
+                               capture_output=True, text=True, cwd="/",
+                               timeout=BUN_TIMEOUT)
+        except (OSError, subprocess.SubprocessError) as exc:
+            return None, f"bun read failed ({type(exc).__name__})"
+        if r.returncode == 0:
+            return r.stdout, None
+        return None, f"bun could not read it (exit {r.returncode})"
+    try:
+        with io.open(path, encoding="utf-8") as fh:
+            return fh.read(), None
+    except OSError as exc:
+        return None, f"{exc} -- {BUN_UNAVAILABLE}"
+
+
 def check_trend_log(spec):
     """The quota meter must have been READ recently, not merely scheduled.
 
@@ -1115,13 +1155,15 @@ def check_trend_log(spec):
     """
     path = os.path.expanduser(spec["path"])
     limit_h = spec.get("max_age_hours", 8)
-    if not os.path.exists(path):
+    if not exists_via_bun(path):
         return False, f"{spec['name']}: MISSING {path}"
-    try:
-        with io.open(path, encoding="utf-8") as fh:
-            text = fh.read()
-    except OSError as exc:
-        return False, f"{spec['name']}: UNREADABLE ({exc})"
+    text, err = read_text_via_bun(path)
+    if text is None:
+        # Distinct wording on purpose: this RED means the MONITOR is blind, not
+        # that the meter went unread. Collapsing the two sends whoever reads it
+        # to re-arm a cron that was never the problem.
+        return False, (f"{spec['name']}: CANNOT BE READ FROM HERE, so this "
+                       f"check cannot say whether the meter is current -- {err}")
     latest = _latest_trend_entry(text)
     if latest is None:
         return False, f"{spec['name']}: no dated entry -- the meter has never been read"

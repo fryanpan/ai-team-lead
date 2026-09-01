@@ -460,6 +460,14 @@ def session_cwd(pid):
 # Each returns (ok: bool, detail: str). Detail is shown only when not ok, so
 # it must say what is wrong and where to look -- it is the whole notification.
 
+# A process is called inert only when all three of these hold at once. Each
+# alone is normal: daemons idle, small tools hold few descriptors, and anything
+# looks quiet at first. Together they mean it forked and never worked.
+INERT_MIN_AGE_SEC = 300      # below this, quiet is just "still starting"
+INERT_MAX_CPU_SEC = 1.0      # a process that has done work has burned a second
+INERT_MAX_FDS = 12           # script + config + socket + logs clears this easily
+
+
 def check_launchd(spec):
     """A LaunchAgent must have a live PID and a zero last-exit.
 
@@ -486,8 +494,128 @@ def check_launchd(spec):
             pid, last_exit = parts[0], parts[1]
             if pid == "-":
                 return False, f"{label}: NOT RUNNING (last exit {last_exit})"
+            inert = _inert_reason(label, pid)
+            if inert:
+                return False, f"{label}: LOADED BUT INERT -- pid {pid} {inert}"
             return True, f"{label}: pid {pid}"
     return False, f"{' / '.join(labels)}: not loaded in launchd at all"
+
+
+def _launchctl_field(label, field):
+    """One scalar out of `launchctl print`. Returns None when absent.
+
+    Only top-level fields are read: the output nests per-endpoint dicts that
+    repeat key names (`state` appears three times for a job with two sockets),
+    so the first match at minimum indentation is the job's own value.
+    """
+    out = sh(f"launchctl print gui/{os.getuid()}/{label}")
+    if not out:
+        return None
+    for line in out.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(f"{field} =") and line.startswith("\t" + field):
+            return stripped.split("=", 1)[1].strip()
+    return None
+
+
+def _inert_reason(label, pid):
+    """Whether a live pid has done nothing since it started -- '' if it looks fine.
+
+    This exists because a launchd job reported `state = running`, `runs = 1`,
+    `last exit code = (never exited)` while its process had never opened its own
+    entry script. The service was down for 50 minutes and every process-level
+    signal said healthy (2026-09-01). A PID is proof a fork happened, nothing
+    more.
+
+    Three independent measures must ALL indicate nothing-has-happened before
+    this fires, because each one alone has a legitimate explanation: a daemon
+    can idle at zero CPU, a small tool can hold few descriptors, and anything
+    can look quiet in its first seconds. Together they describe a process that
+    started and then never did any work at all.
+
+    Deliberately conservative -- a false RED here would land on a healthy
+    daemon, and this monitor has produced those before. Reports the raw numbers
+    rather than a verdict, so a human can disagree with the threshold.
+    """
+    ps = sh(f"/bin/ps -o etime=,time=,command= -p {pid}")
+    if not ps or not ps.strip():
+        return ""
+    parts = ps.strip().split(None, 2)
+    if len(parts) < 2:
+        return ""
+    alive_s = _etime_seconds(parts[0])
+    cpu_s = _cputime_seconds(parts[1])
+    if alive_s is None or cpu_s is None:
+        return ""
+    if alive_s < INERT_MIN_AGE_SEC or cpu_s >= INERT_MAX_CPU_SEC:
+        return ""
+    fds = sh(f"/usr/sbin/lsof -p {pid} 2>/dev/null | /usr/bin/wc -l")
+    try:
+        n_fds = int(fds.strip())
+    except (ValueError, AttributeError):
+        return ""          # cannot measure -> do not accuse
+    if n_fds >= INERT_MAX_FDS:
+        return ""
+    return (f"alive {int(alive_s)}s, {cpu_s:.1f}s CPU, {n_fds} open files "
+            f"-- started and did nothing")
+
+
+def _etime_seconds(text):
+    """ps etime: [[dd-]hh:]mm:ss."""
+    try:
+        days = 0
+        if "-" in text:
+            d, text = text.split("-", 1)
+            days = int(d)
+        bits = [int(x) for x in text.split(":")]
+        while len(bits) < 3:
+            bits.insert(0, 0)
+        return days * 86400 + bits[0] * 3600 + bits[1] * 60 + bits[2]
+    except (ValueError, IndexError):
+        return None
+
+
+def _cputime_seconds(text):
+    """ps time: [mmm:]ss.hh cumulative CPU."""
+    try:
+        bits = text.split(":")
+        return int(bits[0]) * 60 + float(bits[1]) if len(bits) == 2 else float(bits[0])
+    except (ValueError, IndexError):
+        return None
+
+
+def check_launchd_ran(spec):
+    """A SCHEDULED job must have actually fired at least once.
+
+    Separate from check_launchd because the two job shapes fail in opposite
+    directions. A daemon is unhealthy when it has no PID; a scheduled job has
+    no PID almost all the time, and asserting one would be red between every
+    run. What a scheduled job owes you is evidence it has ever executed.
+
+    `runs = 0` on a loaded job is the shape nothing else catches. Every other
+    check on a periodic job compares the freshness of what it writes -- and if
+    it has never run, that output has never existed, so a staleness check
+    cannot tell "never started" from "path is wrong" from "not installed yet".
+    All three read as one ambiguous missing file. `runs` distinguishes them:
+    the job is loaded, launchd agrees it should have fired, and it has not.
+
+    Counters reset when a job is re-bootstrapped, so a low count right after a
+    deploy is expected and only zero is treated as a failure.
+    """
+    label = spec["label"]
+    runs = _launchctl_field(label, "runs")
+    if runs is None:
+        return False, f"{label}: not loaded in launchd at all"
+    try:
+        n = int(runs)
+    except ValueError:
+        return True, f"{label}: loaded (runs unreadable: {runs!r})"
+    if n == 0:
+        return False, (f"{label}: LOADED BUT HAS NEVER RUN -- launchd accepted "
+                       f"the job and has not once executed it; "
+                       f"{spec.get('why', 'nothing it produces has ever existed')}")
+    last = _launchctl_field(label, "last exit code")
+    return True, f"{label}: {n} run(s), last exit {last or 'unknown'}"
 
 
 def check_port(spec):
@@ -888,6 +1016,7 @@ def check_load(spec):
 
 CHECKS = {
     "launchd": check_launchd,
+    "launchd_ran": check_launchd_ran,
     "port": check_port,
     "http": check_http,
     "log_errors": check_log_errors,

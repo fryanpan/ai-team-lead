@@ -98,6 +98,17 @@ BASE_CHECKS = [
     ***REMOVED***
     {"type": "launchd", "label": "***REMOVED***"},
 
+    # --- the scheduled half: these have no PID between runs, so check_launchd
+    #     would be red at every quiet moment. What they owe us is proof they
+    #     have ever fired. A job that has never run has never written its
+    #     output, so every freshness check on it reads as one ambiguous
+    #     missing file -- `runs = 0` is the only signal that separates
+    #     "never started" from "wrong path" from "not deployed yet". ---
+    ***REMOVED***
+     "why": "this checker itself would report nothing at all"},
+    ***REMOVED***
+     "why": "nothing would notice a downed loop between hourly checks"},
+
     # --- exactly one listener per port: two in different address families
     #     both bind successfully and silently steal each other's traffic ---
     {"type": "port", "port": 8791, "name": "notion receiver"},

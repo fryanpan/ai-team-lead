@@ -467,27 +467,63 @@ def check_log_errors(spec):
     path = os.path.expanduser(spec["path"])
     if not os.path.exists(path):
         return False, f"{spec['name']}: log missing at {path}"
+
+    # Silence is a failure mode, not a pass. A daemon whose logger thread dies,
+    # or that hangs without erroring, writes nothing -- which scans identically
+    # to a healthy quiet daemon. Opt-in per check, and set generously: the bound
+    # is for "this has not written in half a day", not for a quiet night.
+    mtime = os.path.getmtime(path)
+    silent_min = (time.time() - mtime) / 60
+    max_silence = spec.get("max_silence_minutes")
+    if max_silence and silent_min > max_silence:
+        return False, (f"{spec['name']}: log SILENT for {silent_min:.0f}m "
+                       f"(limit {max_silence}m) -- wedged, not quiet")
+
     window = spec.get("window_minutes", 60)
-    cutoff = datetime.now() - timedelta(minutes=window)
     pattern = re.compile(spec.get("pattern", "error"), re.I)
     tail = sh(f"tail -n {spec.get('lines', 400)} {path!r}")
 
-    hits, dated = 0, 0
+    # Work out what clock the log writes in, instead of assuming local.
+    #
+    # These daemons stamp in UTC while datetime.now() is local, which put every
+    # parsed timestamp seven hours in the FUTURE and made `ts >= cutoff` true
+    # for every line in the tail. The window silently did nothing. Calibrating
+    # against the file's own mtime handles either clock without hardcoding an
+    # offset that a DST change would invalidate.
+    parsed = []
     for line in tail.splitlines():
+        m = re.search(r"(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})", line)
+        if not m:
+            parsed.append(None)
+            continue
+        try:
+            parsed.append(datetime.strptime(f"{m.group(1)} {m.group(2)}",
+                                            "%Y-%m-%d %H:%M:%S"))
+        except ValueError:
+            parsed.append(None)
+
+    known = [t for t in parsed if t]
+    skew = timedelta(0)
+    if known:
+        drift = datetime.fromtimestamp(mtime) - max(known)
+        if abs(drift) > timedelta(minutes=5):
+            skew = drift
+
+    cutoff = datetime.now() - timedelta(minutes=window)
+    hits, dated = 0, 0
+    for line, ts in zip(tail.splitlines(), parsed):
         if not pattern.search(line):
             continue
-        m = re.search(r"(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})", line)
-        if m:
+        if ts:
             dated += 1
-            try:
-                ts = datetime.strptime(f"{m.group(1)} {m.group(2)}",
-                                       "%Y-%m-%d %H:%M:%S")
-                if ts >= cutoff:
-                    hits += 1
-            except ValueError:
-                pass
-        else:
-            hits += 1  # undated match in the tail: count it
+            if ts + skew >= cutoff:
+                hits += 1
+        elif silent_min <= window:
+            # Undated line, and the file has been written inside the window, so
+            # it could plausibly be recent. Counting these unconditionally is
+            # what kept a check RED on errors that had stopped hours earlier --
+            # the line never ages out until it scrolls past the tail.
+            hits += 1
 
     limit = spec.get("max", 0)
     if hits > limit:

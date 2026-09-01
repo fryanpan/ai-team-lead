@@ -775,6 +775,52 @@ def check_file_present(spec):
     return True, f"{spec['name']}: present"
 
 
+def check_token_resolvable(spec):
+    """A credential must be RESOLVABLE the way its consumer resolves it.
+
+    The predecessor of this check asserted that a token FILE existed, which was
+    correct only while the file was the sole source. Once the consumer gained a
+    keyring fallback, a green file check stopped proving the consumer could
+    authenticate, and a red one stopped meaning it could not -- the check was
+    measuring a thing that no longer determined the outcome.
+
+    So this mirrors the consumer's own resolution order rather than any one
+    source: environment first, then each candidate command. It reports WHICH
+    source answered, because "works, via the keyring" and "works, via the file"
+    fail in completely different ways later.
+
+    Never reads or prints a value. A command's output is measured for length
+    and then dropped; only the source name and a pass/fail leave this function.
+    """
+    name = spec["name"]
+    env_var = spec.get("env")
+    if env_var and os.environ.get(env_var, "").strip():
+        return True, f"{name}: resolvable from ${env_var}"
+
+    path = spec.get("path")
+    if path and exists_via_bun(os.path.expanduser(path)):
+        return True, f"{name}: resolvable from {path}"
+
+    for cmd in spec.get("commands", []):
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True,
+                               timeout=BUN_TIMEOUT, cwd="/")
+        except Exception:
+            continue
+        if r.returncode == 0 and len(r.stdout.strip()) > 0:
+            return True, f"{name}: resolvable from {spec.get('commands_label', cmd[0])}"
+
+    tried = []
+    if env_var:
+        tried.append(f"${env_var}")
+    if path:
+        tried.append(path)
+    if spec.get("commands"):
+        tried.append(spec.get("commands_label", "command fallback"))
+    return False, (f"{name}: NO SOURCE ANSWERED (tried {', '.join(tried)}) "
+                   f"-- {spec.get('why', '')}")
+
+
 def _sysctl(name):
     """One kernel read. sysctl is not subject to the secondary-volume gate that
     blocks an Apple-signed interpreter from touching /Volumes/Data -- it reads
@@ -849,6 +895,7 @@ CHECKS = {
     "channel_flags": check_channel_flags,
     "state_fresh": check_state_fresh,
     "file_present": check_file_present,
+    "token_resolvable": check_token_resolvable,
     "plugin_version": check_plugin_version,
     "archive_backlog": check_archive_backlog,
     "self_version": check_self_version,

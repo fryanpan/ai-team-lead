@@ -18,6 +18,40 @@ Bryan's own diagnosis, and the rule worth keeping: *"Perhaps we should have writ
 Fix applied: both rows moved back to `todo` with the hold in the transition note, and the goal band retitled `⏸ ON HOLD until Bryan reviews benchmark usage` so it is unmissable from the board for any agent that attaches later. Candidate for promotion to a fleet rule at the next `/weekly-plan` rather than mid-week.
 
 
+## The fleet ran out six times and the answer was already on disk (2026-09-01)
+
+Six 5-hour session-limit episodes between 08-29 and 09-01, five of them after
+Monday. Bryan discovered every one by noticing work had stopped. **Claude Code
+writes each rejection into the transcript** as
+`quotaLimits{"rateLimitType":"five_hour","status":"rejected"}` — the exact
+moment work stopped, with the reset time, needing no `/usage` pull and no
+calibration. Nothing read it.
+
+- **Grep for it before building a proxy.** Two instruments were built to infer
+  quota state and both were green through all six events, while the ground truth
+  sat in files we already parse for token counts. Ask what the harness already
+  records before designing a measurement.
+- **A share is not a level.** `fleet_budget_watch.py` reported "unprotected work
+  holds 64% of the 5h window" — scale-free, and the identical line prints at 4%
+  of the pool and at 96%. It was not wrong; it was answering a different
+  question than the one that matters when the pool empties. **A ratio can never
+  tell you how much is left.**
+- **A monitor built for a failure can ship with that exact failure.** The 5h
+  watch existed *because* subagent fan-out was 77% of burn and invisible to the
+  daily report — and it globbed `<project>/*.jsonl`, so it never read a single
+  subagent transcript. 2,329 of them on disk; a 2.4x undercount (185M reported
+  against 455M real). Whatever a new instrument is meant to see, prove it sees
+  it against an independent count before trusting a green.
+- **Calibrate thresholds off recorded failures, not off peaks.** The rolling
+  window at the first rejection of each episode ranged 442M–695M, median 507M.
+  A threshold at the median misses half the events it exists to predict; it
+  belongs below the LOWEST observed failure.
+- **A throttle can be at its floor and still not reach the burn.** The board
+  parallelism cap was already at 1. It caps task dispatches, not the Agent-tool
+  subagents a session spawns directly — which is where 78% of the burn was.
+  Verify a lever acts on the measured quantity, not on a correlated one.
+
+
 ## A new check that reads a file directly reports the monitor, not the thing (2026-09-01)
 
 `check_trend_log` shipped reading its file with `io.open`. Under launchd that is

@@ -21,7 +21,16 @@ Flags:
   --json              machine-readable output
   --notify            send a push when the verdict is BREACH
   --wake              hive-message Team Lead when the verdict TURNS to BREACH
+  --decide TEXT       record a standing decision for this breach and stop re-asking
   --state PATH        verdict state file (default under Application Support)
+
+A recorded decision is what separates a monitor from a nag. Without one, every
+re-wake re-litigates the same call with no memory of the last one -- which is
+the "surfaced it again" failure wearing a different hat. `--decide` stores the
+call and the share it was made at; the watch then stays quiet until the picture
+materially worsens (WORSEN_PP) or the decision goes stale (DECISION_TTL_MIN),
+and every later wake carries the standing decision so it is amended rather than
+made from scratch.
 
 What it does NOT do: throttle anyone. Pausing or slowing a peer's workflow is
 Tier 2 in docs/process/token-control.md — a judgement call, not a threshold. The
@@ -47,6 +56,13 @@ TEAM_LEAD_STABLE_ID = "6e87a52503d5"
 # is indistinguishable from none — the same "surfaced once" failure the whole
 # script exists to fix.
 REWAKE_MINUTES = 60
+DECIDE = argval("--decide", "", str)
+# A standing decision holds until the situation moves against it by this many
+# percentage points of unprotected share, or until it simply ages out. Both are
+# needed: "let it run" can be right at 72% and wrong at 85%, and it can also be
+# right at 18:30 and stale by morning.
+WORSEN_PP = 0.06
+DECISION_TTL_MIN = 240
 STATE = argval("--state", os.path.join(
     HOME, "Library", "Application Support", "team-lead", "budget-watch.json"))
 
@@ -216,17 +232,39 @@ def main():
     except (OSError, ValueError):
         pass
 
+    # carry the standing decision forward, or replace it when --decide is passed
+    if DECIDE:
+        decision = {"text": DECIDE,
+                    "at": now.astimezone().isoformat(timespec="seconds"),
+                    "share": round(unprotected_share, 4)}
+    else:
+        decision = prev.get("decision") or None
+        # a decision only governs the breach it was made about
+        if decision and verdict != "BREACH":
+            decision = None
+    out["decision"] = decision
+
+    def _mins_since(iso):
+        try:
+            t = datetime.datetime.fromisoformat(iso)
+            return (now - t.astimezone(datetime.timezone.utc)).total_seconds() / 60
+        except (ValueError, TypeError):
+            return None
+
     should_wake = False
-    if verdict == "BREACH":
-        if prev.get("verdict") != "BREACH":
+    if verdict == "BREACH" and not DECIDE:
+        if decision:
+            # A standing decision silences the wake until the picture actually
+            # changes. Silence is the POINT -- re-asking a question already
+            # answered is what trains a human to ignore the channel.
+            age = _mins_since(decision.get("at", ""))
+            worsened = unprotected_share - decision.get("share", 0) >= WORSEN_PP
+            should_wake = worsened or (age is None or age >= DECISION_TTL_MIN)
+        elif prev.get("verdict") != "BREACH":
             should_wake = True                      # newly breached
         else:
-            try:
-                last = datetime.datetime.fromisoformat(prev.get("woke_at", ""))
-                age = (now - last.astimezone(datetime.timezone.utc)).total_seconds() / 60
-                should_wake = age >= REWAKE_MINUTES
-            except (ValueError, TypeError):
-                should_wake = True
+            age = _mins_since(prev.get("woke_at", ""))
+            should_wake = age is None or age >= REWAKE_MINUTES
     out["woke_at"] = (now.astimezone().isoformat(timespec="seconds")
                       if should_wake else prev.get("woke_at", ""))
 
@@ -251,6 +289,9 @@ def main():
         print(f"{fleet:>14,}  {sum(b['turns'] for _, b in rows):>6,}         "
               f"fleet total  (* = protected)\n")
         print(f"verdict: {verdict}" + (f" — {detail}" if detail else ""))
+        if decision:
+            print(f"standing decision ({decision['at']}, at "
+                  f"{decision['share']:.0%}): {decision['text']}")
 
     if NOTIFY and verdict == "BREACH":
         subprocess.run(["osascript", "-e",
@@ -259,12 +300,18 @@ def main():
 
     if WAKE and should_wake:
         split = " · ".join(f"{k} {b['share']:.0%}" for k, b in rows[:4])
+        if decision:
+            why = (f"Standing decision from {decision['at']} at "
+                   f"{decision['share']:.0%}: \"{decision['text']}\". "
+                   f"It is now {unprotected_share:.0%} — amend or re-affirm that call, "
+                   f"do not make it from scratch.")
+        else:
+            why = ("Decide whether to throttle the top unprotected project or let it "
+                   "run, then record it with --decide so this stops re-asking.")
         text = (f"[budget-watch] BREACH on the trailing {WINDOW_H:g}h window. {detail}. "
                 f"Split: {split}. "
-                f"This is the 5h session-limit window, not the weekly meter. "
-                f"Decide now whether to throttle the top unprotected project or let it "
-                f"run — and say which, rather than re-reading the number next pass. "
-                f"State: {STATE}")
+                f"This is the {WINDOW_H:g}h session-limit window, not the weekly meter. "
+                f"{why} State: {STATE}")
         try:
             subprocess.run(
                 ["curl", "-s", "-m", "5", "-X", "POST", HIVE,

@@ -1212,3 +1212,16 @@ Both halves are true and the conclusion drawn from them was still wrong. Measure
 **The denial is on the specific action, not on the verb.** Reporting the broader claim overstates the blocker and hands the user a permissions problem that is not the one they actually have.
 
 **Probe with a neighbouring, harmless target before generalising a denial** — and never route around it once confirmed. The correct move on a real denial is still to surface it and let the user decide.
+
+## A tool that stops working turns every check that uses it into a separate mystery
+
+**2026-09-01.** `bun` stopped being executable under launchd. Six healthcheck checks delegate their file reads to it, and each one independently burned a 30-second timeout and failed with a raw `TimeoutExpired` traceback. The run went from seconds to three minutes and the report read as six unrelated broken checks.
+
+**The checks were not broken. One tool was.** Nothing in the output said so, because every check discovered the failure privately and described it in its own terms.
+
+**The fix is to probe the tool once, cache it, and let dependents fail fast against a shared explanation.** Run time went from ~180s to 9s and the report went from six tracebacks to two lines naming the actual cause.
+
+**Two rules fall out of this:**
+
+- **When N checks share a dependency, assert the dependency itself as its own check.** Otherwise a single root cause is reported N times in N vocabularies, and the reader has to do the correlation the monitor should have done.
+- **A check that cannot run must not report green.** Gating the dependents was the right move, and the first version returned a bare `None` from functions whose contract is `(ok, detail)`. "Could not determine" has to be a loud, explicit failure — not a pass, and not a crash.

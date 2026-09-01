@@ -29,6 +29,8 @@ When a launchd job genuinely must touch the secondary volume (e.g. the plugin ca
 | `~/.bun/bin/bun` | **works** — read a 162MB transcript, listed all 65 project dirs |
 
 - **The gate is per-binary, not per-path.** `bun` itself lives on the denied volume and launchd execs it fine — Apple code signing is what's gated, not the disk.
+- **⚠️ As of 2026-09-01 the bun exemption is NOT holding.** Under launchd, `bun -e 'console.log(1)'` produces no output at all and hangs until its timeout, while running instantly from a shell. Whatever grant bun had is gone — most likely a TCC entry cleared by the reboot. Until it is restored (Full Disk Access for `~/.bun/bin/bun` in System Settings, which only Bryan can grant), **every check that delegates to bun is blind**: plugin drift, checker-version drift, and the transcript archive backlog. They now say so explicitly rather than timing out.
+- **Do not generalise the exemption to other user-installed binaries.** A uv-managed CPython — same volume, also not Apple-signed — was measured on 2026-09-01 and produced nothing under a LaunchAgent. `bun` was specific, and is currently not working either.
 - **`stat` succeeds where `open` fails**, so a job can confirm a path exists and read zero bytes of it. That is how this masquerades as a working check.
 - **Relocating the script fixes `exec` only.** If the work touches that volume, the *program* must be `bun` — not a bash script launched from a safe directory.
 - **Every check asserts an end state, never a PID.** A process being up proved nothing in any real outage — see the 2026-08-11 learnings entry. If you add a check, make it fail when the thing stops *working*, not when it stops *running*.

@@ -224,8 +224,13 @@ def registry_sessions():
     def flush():
         if key and always_up and path:
             real = os.path.realpath(os.path.expanduser(path))
+            # max_idle_hours is long on purpose: idle is the correct state
+            # for a peer between tasks, so a tight bound would go red on a
+            # session working exactly as intended. This catches "alive and
+            # processing nothing at all", not "quiet this hour".
             out.append({"type": "session", "cwd": real,
-                        "name": f"session: {name or key}"})
+                        "name": f"session: {name or key}",
+                        "max_idle_hours": 36})
 
     for line in lines:
         m = re.match(r"^  ([A-Za-z0-9_.-]+):\s*$", line)

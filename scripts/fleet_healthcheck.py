@@ -37,6 +37,7 @@ Exit 0 = all green. Exit 1 = at least one RED.
 
 import hashlib
 import json
+import io
 import os
 import re
 import subprocess
@@ -1077,6 +1078,61 @@ def check_state_fresh(spec):
     return True, f"{spec['name']}: fresh ({age:.0f}m)"
 
 
+def _latest_trend_entry(text):
+    """Newest dated entry in the trend log, as a naive local datetime.
+
+    Entries look like ``2026-08-29 18:41 PT - ...`` in backticks, sometimes with
+    a ``~`` before the time when the minute was approximate. Returns None when
+    the log has no dated entry at all.
+    """
+    pat = re.compile(r"^`(\d{4}-\d{2}-\d{2})\s+~?(\d{1,2}):(\d{2})\s*PT",
+                     re.M)
+    best = None
+    for m in pat.finditer(text):
+        try:
+            d = datetime.strptime(m.group(1), "%Y-%m-%d").replace(
+                hour=int(m.group(2)), minute=int(m.group(3)))
+        except ValueError:
+            continue
+        if best is None or d > best:
+            best = d
+    return best
+
+
+def check_trend_log(spec):
+    """The quota meter must have been READ recently, not merely scheduled.
+
+    The token-watch runs as a session-scoped cron, which dies on every respawn.
+    Its re-arm is a SessionStart directive -- a prompt asking the agent to arm
+    it -- so a single missed read-through leaves the fleet with no quota
+    instrument at all, silently and indefinitely. That is what happened between
+    2026-08-30 and 2026-09-01: the last entry said "baseline broken, the next
+    read establishes a new one" and no next read ever came.
+
+    mtime is NOT the signal here. The trend log lives inside a doc that is
+    edited for unrelated reasons, so its mtime says the file was touched, not
+    that a reading was taken. Parse the newest entry's own timestamp instead.
+    """
+    path = os.path.expanduser(spec["path"])
+    limit_h = spec.get("max_age_hours", 8)
+    if not os.path.exists(path):
+        return False, f"{spec['name']}: MISSING {path}"
+    try:
+        with io.open(path, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError as exc:
+        return False, f"{spec['name']}: UNREADABLE ({exc})"
+    latest = _latest_trend_entry(text)
+    if latest is None:
+        return False, f"{spec['name']}: no dated entry -- the meter has never been read"
+    age_h = (datetime.now() - latest).total_seconds() / 3600
+    if age_h > limit_h:
+        return False, (f"{spec['name']}: STALE, last reading "
+                       f"{latest:%Y-%m-%d %H:%M} ({age_h:.0f}h ago, limit "
+                       f"{limit_h}h) -- token-watch cron is probably unarmed")
+    return True, f"{spec['name']}: read {age_h:.1f}h ago"
+
+
 def check_monitor_loops(spec):
     """Every tmux monitor loop the guard watches must be up.
 
@@ -1294,6 +1350,7 @@ CHECKS = {
     "channel_flags": check_channel_flags,
     "state_fresh": check_state_fresh,
     "monitor_loops": check_monitor_loops,
+    "trend_log": check_trend_log,
     "file_present": check_file_present,
     "token_resolvable": check_token_resolvable,
     "plugin_version": check_plugin_version,

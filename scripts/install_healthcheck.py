@@ -222,6 +222,19 @@ BASE_CHECKS = [
      "path": "~/Library/Application Support/team-lead/guard-state.json",
      "max_age_minutes": 15},
 
+    # --- did anyone actually READ the quota meter? The token-watch is a
+    #     session-scoped cron: it dies on every team-lead respawn, and its
+    #     re-arm is a SessionStart directive asking the agent to arm it. One
+    #     missed read-through and the fleet has no quota instrument, silently
+    #     and indefinitely -- exactly what happened 08-30 to 09-01. The budget
+    #     watch stayed green throughout because it measures the share split
+    #     between projects, not the absolute pool. 8h spans two of the three
+    #     daily runs, so a single skipped firing does not cry wolf. ---
+    {"type": "trend_log", "name": "quota trend log",
+     "why": "a dead token-watch reads exactly like a fleet that is fine",
+     "path": os.path.join(REPO, "docs/process/token-control.md"),
+     "max_age_hours": 8},
+
     # --- the monitor auditing itself. Editing the repo copy changes nothing;
     #     launchd execs the deployed copy. Without this, a forgotten redeploy
     #     means every check below silently runs the OLD file, three green times

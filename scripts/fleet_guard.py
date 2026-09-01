@@ -42,6 +42,12 @@ PREFERRED_ROOT = "/opt/fleet"
 FALLBACK_ROOT = os.path.join(HOME, "Library", "Application Support", "team-lead")
 STATE_DIR = PREFERRED_ROOT if os.path.isdir(PREFERRED_ROOT) else FALLBACK_ROOT
 STATE = os.path.join(STATE_DIR, "guard-state.json")
+HEALTHCHECK_STATUS = os.path.join(STATE_DIR, "healthcheck-status.json")
+
+# The healthcheck runs hourly. If its status file is older than this, a
+# scheduled cycle was missed -- which is exactly what happens when the
+# machine is too wedged to run it.
+HEALTHCHECK_STALE_MIN = (100, 240)
 
 # Bands are (warn, critical). Warn sits below the healthcheck's RED line on
 # purpose -- this instrument's job is lead time, not agreement.
@@ -152,6 +158,20 @@ def read_metrics():
     m["claude_sessions"] = sessions
     m["claude_gb"] = round(rss_total / 1024 / 1024, 2)
 
+    # Age of the hourly healthcheck's last completed run.
+    #
+    # A job that does not run cannot report that it did not run. That is not a
+    # gap in the healthcheck, it is a property of self-reporting, and the only
+    # cure is a second job on a different schedule asserting the first one's
+    # freshness. This guard is that second job. The 2026-08-31 freeze is the
+    # case: the machine was too wedged to run anything, and every instrument
+    # that could have said so was one of the things not running.
+    try:
+        age = (time.time() - os.path.getmtime(HEALTHCHECK_STATUS)) / 60
+        m["healthcheck_age_min"] = round(age, 1)
+    except OSError:
+        m["healthcheck_age_min"] = None
+
     return m
 
 
@@ -161,6 +181,8 @@ def grade(m):
         "memory": band(m["free_pct"], *FREE_PCT, higher_is_worse=False),
         "load": band(m["load_per_core"], *LOAD_PER_CORE),
         "orphan test workers": band(m["orphan_workers"], *ORPHAN_WORKERS),
+        "healthcheck freshness": band(m["healthcheck_age_min"],
+                                      *HEALTHCHECK_STALE_MIN),
     }
     rank = {"ok": 0, "unknown": 0, "warn": 1, "critical": 2}
     worst = max(bands.values(), key=lambda b: rank[b])
@@ -296,7 +318,8 @@ def main():
     detail = (f"swap {m['swap_gb']}GB · free {m['free_pct']}% · "
               f"load {m['load_per_core']}/core · orphan workers "
               f"{m['orphan_workers']} ({m['orphan_worker_gb']}GB) · "
-              f"{m['claude_sessions']} sessions ({m['claude_gb']}GB)")
+              f"{m['claude_sessions']} sessions ({m['claude_gb']}GB) · "
+              f"healthcheck {m['healthcheck_age_min']}m old")
     print(f"[{stamp}] {worst.upper()} {detail} · loops {loops}")
 
     state = load_state()

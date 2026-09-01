@@ -1238,3 +1238,11 @@ Both halves are true and the conclusion drawn from them was still wrong. Measure
 - **Does the supervisor verify the restart achieved the goal?** This one confirmed the process existed. Existence was never the question; binding the port was. A restart loop that checks liveness rather than function will happily restart forever into a broken state.
 
 **The tmux path was the working fallback here** — the tmux server forks the child, so it inherits the server's disk access rather than launchd's. Starting the same script under `tmux new-session` bound the port immediately.
+
+## A deploy button that restarts through a dead mechanism reports success and changes nothing
+
+**2026-09-01.** After the workspaces service was moved to a tmux stopgap, its `POST /api/deploy` endpoint kept working — it restarts the service with `launchctl kickstart`, and the launchd job was booted out. The call does nothing and says nothing. A deploy would have appeared to succeed while the running code never changed.
+
+**This is the supervisor failure one layer up.** Same shape as [a supervisor that self-heals through one mechanism], and the same fix applies: the action has to verify it achieved its goal, not that the command it ran returned.
+
+**When a service is moved off its normal process manager, enumerate everything that restarts it, not just what starts it.** Deploy endpoints, health-check auto-restarts, cron redeploys, and CI hooks all tend to hardcode the same manager, and every one of them becomes a silent no-op at once — while continuing to report success.

@@ -29,6 +29,7 @@ When a launchd job genuinely must touch the secondary volume (e.g. the plugin ca
 | `~/.bun/bin/bun` | **works** — read a 162MB transcript, listed all 65 project dirs |
 
 - **The gate is per-binary, not per-path.** `bun` itself lives on the denied volume and launchd execs it fine — Apple code signing is what's gated, not the disk.
+- **Root cause, narrowed by differential test (Workspaces peer, 2026-09-01).** `launchctl submit` of a bun copy on the SYSTEM volume executes fine; the `/Volumes/Data` binary hangs in dyld's `open()` of the executable itself. So it is not bun and not the script — it is TCC refusing the external volume to a launchd-spawned process, consistent with a grant cleared by the reboot. **A bun copy on the boot disk is therefore a viable workaround** if Full Disk Access cannot be granted.
 - **⚠️ As of 2026-09-01 the bun exemption is NOT holding.** Under launchd, `bun -e 'console.log(1)'` produces no output at all and hangs until its timeout, while running instantly from a shell. Whatever grant bun had is gone — most likely a TCC entry cleared by the reboot. Until it is restored (Full Disk Access for `~/.bun/bin/bun` in System Settings, which only Bryan can grant), **every check that delegates to bun is blind**: plugin drift, checker-version drift, and the transcript archive backlog. They now say so explicitly rather than timing out.
 - **Do not generalise the exemption to other user-installed binaries.** A uv-managed CPython — same volume, also not Apple-signed — was measured on 2026-09-01 and produced nothing under a LaunchAgent. `bun` was specific, and is currently not working either.
 - **`stat` succeeds where `open` fails**, so a job can confirm a path exists and read zero bytes of it. That is how this masquerades as a working check.
@@ -65,3 +66,10 @@ Measured 2026-09-01 from a real LaunchAgent: `tmux new-session -d -s <name> <scr
 **The mechanism is inheritance.** The tmux *server* forks the child, so the child inherits the server's disk access rather than launchd's. The launchd process only ever talks to the server socket in `/private/tmp`, which is boot disk. This is a third route alongside `bun`, and it is the one to use for anything that has to be a long-running loop.
 
 **It holds only while a tmux server already exists.** After a cold boot with no Terminal there is nothing to inherit from — a server started *by* launchd would carry launchd's own denied context. The guard detects that case (`no-server`) and notifies rather than reporting a revival that did not happen. Closing that last gap needs Full Disk Access granted in System Settings, which is a manual, user-only change.
+
+
+## While the workspaces service is tmux-hosted, its deploy path is a silent no-op
+
+`POST /api/deploy` restarts the service via `launchctl kickstart`. The launchd job is currently booted out, so that call does nothing and reports nothing — **a deploy will appear to succeed and change nothing.** Deploys are frozen until Full Disk Access is granted and the launchd job is restored.
+
+The live server is tmux session `cw-server`, started from a shell so it inherits working disk access. It does not survive a reboot. `healthcheck` reports this correctly as `com.fryanpan.claude-workspaces: not loaded in launchd at all` — that RED is true and should stay red until the job is restored.

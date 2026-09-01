@@ -145,10 +145,15 @@ BASE_CHECKS = [
     # entries (git history has them) if the GCP project is ever recreated.
     {"type": "log_errors", "name": "notion receiver", "max": 3,
      "path": "~/Library/Logs/notion-channel-receiver.log",
-     "pattern": r'"level":\s*"error"', "window_minutes": 90},
+     "pattern": r'"level":\s*"error"', "window_minutes": 90,
+     # Generous on purpose: this is "has not written in half a day", not "is
+     # quiet tonight". A silence bound tight enough to fire on an idle evening
+     # becomes furniture within a week.
+     "max_silence_minutes": 720},
     {"type": "log_errors", "name": "github broker", "max": 0,
      "path": "~/Library/Logs/github-channel-broker.log",
-     "pattern": r"WARNING|error", "window_minutes": 1440},
+     "pattern": r"WARNING|error", "window_minutes": 1440,
+     "max_silence_minutes": 360},
 
     # --- running but inert: the broker answers {"ok":true} on /health with no
     #     token and simply never polls, so only the file itself is evidence ---

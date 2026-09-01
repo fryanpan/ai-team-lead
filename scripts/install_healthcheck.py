@@ -29,6 +29,7 @@ import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(REPO, "scripts", "fleet_healthcheck.py")
+GUARD_SRC = os.path.join(REPO, "scripts", "fleet_guard.py")
 REGISTRY = os.path.join(REPO, "registry.yaml")
 
 HOME = os.path.expanduser("~")
@@ -60,12 +61,21 @@ def deploy_root():
 
 STATE_DIR = deploy_root()
 DEST = os.path.join(STATE_DIR, "fleet_healthcheck.py")
+GUARD_DEST = os.path.join(STATE_DIR, "fleet_guard.py")
 CONFIG = os.path.join(STATE_DIR, "healthcheck-config.json")
 OVERLAY = os.path.join(HOME, ".config", "team-lead", "healthcheck-extra.json")
 
 LABEL = "com.fryanpan.fleet-healthcheck"
 PLIST = os.path.join(HOME, "Library", "LaunchAgents", f"{LABEL}.plist")
 HOURS = [8, 13, 18]
+
+# The guard is a second, much faster agent -- see the module docstring in
+# fleet_guard.py. It exists because HOURS above cannot be tightened: the full
+# check does network round-trips and 3x/day is the right cadence for those.
+# Machine pressure needs minutes, so it gets its own job with its own budget.
+GUARD_LABEL = "com.fryanpan.fleet-guard"
+GUARD_PLIST = os.path.join(HOME, "Library", "LaunchAgents", f"{GUARD_LABEL}.plist")
+GUARD_INTERVAL = 120
 
 # Every check below asserts an END STATE. Each maps to a specific outage that a
 # liveness check called green on -- see the module docstring in the checker.
@@ -79,7 +89,6 @@ BASE_CHECKS = [
                                  "com.fryanpan.live-feedback"]},
     {"type": "launchd", "label": "live-feedback.cloudflared"},
     {"type": "launchd", "label": "notion-channel.cloudflared"},
-    {"type": "launchd", "label": "com.fryanpan.email-channel-watcher"},
 
     # --- exactly one listener per port: two in different address families
     #     both bind successfully and silently steal each other's traffic ---
@@ -107,9 +116,12 @@ BASE_CHECKS = [
     {"type": "load", "name": "load", "max_per_core": 1.5},
 
     # --- alive and failing: the shape no process check can see ---
-    {"type": "log_errors", "name": "email watcher", "max": 0,
-     "path": "~/Library/Logs/email-channel-watcher.log",
-     "pattern": r'"level":\s*"error"', "window_minutes": 90},
+    # Email watcher checks RETIRED 2026-09-01. Its Google Cloud project was
+    # deleted, so it 401s on every poll -- 72 error lines per 90m, red on every
+    # run for days. A check that is red every single run is furniture: it costs
+    # attention at each review and carries no information. Restoring it needs
+    # Bryan's Google account, so it cannot be fixed from here. Re-add both
+    # entries (git history has them) if the GCP project is ever recreated.
     {"type": "log_errors", "name": "notion receiver", "max": 3,
      "path": "~/Library/Logs/notion-channel-receiver.log",
      "pattern": r'"level":\s*"error"', "window_minutes": 90},
@@ -291,6 +303,7 @@ def main():
     os.makedirs(STATE_DIR, exist_ok=True)
 
     shutil.copy2(SRC, DEST)
+    shutil.copy2(GUARD_SRC, GUARD_DEST)
     os.chmod(DEST, 0o755)
     print(f"deployed checker -> {DEST}")
 
@@ -355,6 +368,29 @@ def main():
         print(f"bootstrap FAILED: {r.stderr.strip()}", file=sys.stderr)
         return 1
     print(f"scheduled {LABEL} at {', '.join(f'{h}:20' for h in HOURS)} local")
+
+    guard_plist = {
+        "Label": GUARD_LABEL,
+        "ProgramArguments": ["/usr/bin/python3", GUARD_DEST],
+        "StartInterval": GUARD_INTERVAL,
+        "RunAtLoad": True,
+        "StandardOutPath": os.path.join(HOME, "Library/Logs/fleet-guard.log"),
+        "StandardErrorPath": os.path.join(HOME, "Library/Logs/fleet-guard.log"),
+        "EnvironmentVariables": {
+            "HOME": HOME,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+        },
+    }
+    with open(GUARD_PLIST, "wb") as f:
+        plistlib.dump(guard_plist, f)
+    subprocess.run(["launchctl", "bootout", f"gui/{uid}/{GUARD_LABEL}"],
+                   capture_output=True)
+    r = subprocess.run(["launchctl", "bootstrap", f"gui/{uid}", GUARD_PLIST],
+                       capture_output=True, text=True)
+    if r.returncode:
+        print(f"guard bootstrap FAILED: {r.stderr.strip()}", file=sys.stderr)
+        return 1
+    print(f"scheduled {GUARD_LABEL} every {GUARD_INTERVAL}s")
     return 0
 
 

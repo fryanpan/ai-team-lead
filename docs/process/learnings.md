@@ -1225,3 +1225,16 @@ Both halves are true and the conclusion drawn from them was still wrong. Measure
 
 - **When N checks share a dependency, assert the dependency itself as its own check.** Otherwise a single root cause is reported N times in N vocabularies, and the reader has to do the correlation the monitor should have done.
 - **A check that cannot run must not report green.** Gating the dependents was the right move, and the first version returned a bare `None` from functions whose contract is `(ok, detail)`. "Could not determine" has to be a loud, explicit failure — not a pass, and not a crash.
+
+## A supervisor that self-heals through one mechanism dies with that mechanism
+
+**2026-09-01.** The Workspaces server has a supervisor that watches its own port and restarts the process when it is alive-but-unbound. It worked exactly as designed: it detected the stall and restarted via launchd. But bun had stopped executing under launchd that morning, so the restart came back inert — 0.0% CPU, 7 file descriptors, no socket, the entry script never opened — and launchd reported `state = running`, `runs = 1`, `last exit code = (never exited)`.
+
+**A recoverable stall became a 50-minute outage because the recovery path ran through the thing that was broken.** Without the supervisor the process would have sat stalled and been just as down; with it, the service was restarted into a state that looked healthier to launchd than the stall did.
+
+**Two things to check on anything that restarts itself:**
+
+- **Does the recovery path share a failure mode with the thing it recovers?** Restarting a launchd job via launchd, a container via its own orchestrator, a process via a wrapper it spawned — the supervisor cannot outlive its own substrate. A fallback that uses a *different* mechanism is the whole value.
+- **Does the supervisor verify the restart achieved the goal?** This one confirmed the process existed. Existence was never the question; binding the port was. A restart loop that checks liveness rather than function will happily restart forever into a broken state.
+
+**The tmux path was the working fallback here** — the tmux server forks the child, so it inherits the server's disk access rather than launchd's. Starting the same script under `tmux new-session` bound the port immediately.

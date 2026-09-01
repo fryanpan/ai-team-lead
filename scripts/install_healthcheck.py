@@ -98,6 +98,17 @@ BASE_CHECKS = [
     {"type": "launchd", "label": "live-feedback.cloudflared"},
     {"type": "launchd", "label": "notion-channel.cloudflared"},
 
+    # --- the scheduled half: these have no PID between runs, so check_launchd
+    #     would be red at every quiet moment. What they owe us is proof they
+    #     have ever fired. A job that has never run has never written its
+    #     output, so every freshness check on it reads as one ambiguous
+    #     missing file -- `runs = 0` is the only signal that separates
+    #     "never started" from "wrong path" from "not deployed yet". ---
+    {"type": "launchd_ran", "label": "com.fryanpan.fleet-healthcheck",
+     "why": "this checker itself would report nothing at all"},
+    {"type": "launchd_ran", "label": "com.fryanpan.fleet-guard",
+     "why": "nothing would notice a downed loop between hourly checks"},
+
     # --- exactly one listener per port: two in different address families
     #     both bind successfully and silently steal each other's traffic ---
     {"type": "port", "port": 8791, "name": "notion receiver"},

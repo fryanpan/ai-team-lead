@@ -85,6 +85,38 @@ PROTECTED = {
 # a quiet fleet has no contention to resolve.
 FLOOR_ENGAGE = 0.55
 
+# ---------------------------------------------------- the absolute ceiling
+# Everything above this point measures the SPLIT between projects. A split is
+# scale-free: the identical "unprotected holds 64%" line prints at 4% of the
+# pool and at 96%. So the share verdict was green through both account
+# exhaustions it was built to catch, and was not wrong -- it was answering a
+# different question than the one that matters when the pool runs out.
+#
+# These thresholds are CALIBRATED, not chosen. Rolling 5h fleet burn was
+# reconstructed hourly across the five days to 2026-09-01, against the known
+# exhaustion events:
+#
+#   08-31 02:00   799.6M   <- peak; overnight burn-through
+#   08-31 19:00   759.7M   <- evening, the run that cost the second account
+#   09-01 14:00   671.9M
+#
+# Nothing survived above ~800M, so that is where the window empties. WATCH at
+# 500M is roughly 60% of it -- early enough to act, high enough that an ordinary
+# busy afternoon does not trip it. CEILING at 650M is the last point where a
+# Tier 2 call still has time to matter.
+#
+# Two honest limits on this number, both of which argue for acting EARLY on it:
+#   - It sums raw tokens, and cache reads bill far cheaper than fresh input.
+#     The real limit is weighted, so this correlates with exhaustion rather than
+#     measuring it.
+#   - It is fleet-wide, while the limit is per-account. With the fleet on one
+#     account at a time that is the same thing; it stops being so the moment
+#     sessions are split across accounts.
+#
+# Re-derive them after any exhaustion event rather than trusting these forever.
+WINDOW_WATCH_TOKENS = argval("--watch-tokens", 500_000_000, int)
+WINDOW_CEILING_TOKENS = argval("--ceiling-tokens", 650_000_000, int)
+
 def carry_decision(decision, verdict, now):
     """Should a standing decision survive this wake?
 
@@ -150,6 +182,25 @@ def project_of(transcript_dir):
             return rest[0]
     return name
 
+def transcripts_under(project_dir):
+    """Every transcript billing to this project, subagents included.
+
+    The plain `<dir>/*.jsonl` glob this replaced saw ONLY main-agent sessions.
+    Subagent transcripts live one and two levels down --
+    `<dir>/<session-id>/subagents/agent-*.jsonl` -- and there are thousands of
+    them. Measured 2026-09-01: the old glob reported 185M for the trailing 5h
+    while the true figure was 455M, a 2.4x undercount.
+
+    That is this instrument's whole reason for existing, inverted. It was built
+    after 2026-08-31, where the finding was that subagent fan-out was 77% of
+    fleet burn and "invisible to the report we actually read" -- and it shipped
+    with the same blindness, so it reported OK through the burn it was added to
+    catch. A watcher that cannot see the dominant consumer is not a quieter
+    watcher, it is a green light.
+    """
+    return glob.glob(os.path.join(project_dir, "**", "*.jsonl"), recursive=True)
+
+
 def window_burn(path, cutoff):
     """Sum per-turn usage for turns at or after `cutoff` (an aware datetime).
 
@@ -205,7 +256,7 @@ def main():
         if not os.path.isdir(d):
             continue
         key = project_of(d)
-        for tp in glob.glob(os.path.join(d, "*.jsonl")):
+        for tp in transcripts_under(d):
             # cheap skip: a file untouched since the cutoff has nothing in window
             try:
                 if datetime.datetime.fromtimestamp(
@@ -222,7 +273,9 @@ def main():
             b["files"] += 1
 
     fleet = sum(b["tokens"] for b in per_project.values()) or 1
+    fleet_tokens = sum(b["tokens"] for b in per_project.values())
     rows = sorted(per_project.items(), key=lambda kv: -kv[1]["tokens"])
+    top_burner = rows[0][0] if rows else "nobody"
     for _, b in rows:
         b["share"] = b["tokens"] / fleet
 
@@ -236,7 +289,21 @@ def main():
 
     top = rows[0] if rows else None
     verdict, detail = "OK", ""
-    if unprotected_share >= FLOOR_ENGAGE and headroom < reserve:
+    # The absolute reading is checked FIRST and wins. When the window itself is
+    # emptying, which project holds which share is a second-order question --
+    # and reporting the split alone is what let two accounts die green.
+    if fleet_tokens >= WINDOW_CEILING_TOKENS:
+        verdict = "BREACH"
+        detail = (f"5h window at {fleet_tokens/1e6:.0f}M, past the "
+                  f"{WINDOW_CEILING_TOKENS/1e6:.0f}M ceiling -- nothing has "
+                  f"survived above ~800M. Top burner: {top_burner}")
+    elif fleet_tokens >= WINDOW_WATCH_TOKENS:
+        verdict = "WATCH"
+        detail = (f"5h window at {fleet_tokens/1e6:.0f}M, past the "
+                  f"{WINDOW_WATCH_TOKENS/1e6:.0f}M watch line "
+                  f"({fleet_tokens/WINDOW_CEILING_TOKENS:.0%} of ceiling). "
+                  f"Top burner: {top_burner}")
+    elif unprotected_share >= FLOOR_ENGAGE and headroom < reserve:
         verdict = "BREACH"
         offender = next((k for k, b in rows if k not in PROTECTED), None)
         detail = (f"unprotected work holds {unprotected_share:.0%} of the "

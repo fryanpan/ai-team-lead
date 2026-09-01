@@ -75,7 +75,7 @@ STATE = argval("--state", os.path.join(
 # named here is unprotected, which is the correct default: most weeks most
 # projects are not load-bearing, and protecting everything protects nothing.
 PROTECTED = {
-    "project-alpha": 0.30,   # ClientOrg Project Beta — this week's goal 2
+    "project-alpha": 0.30,   # this week's goal 2
     "ai-team-lead": 0.10,            # coordination has to survive a squeeze
 }
 # Below this share of the window, nobody is throttled regardless of the split —

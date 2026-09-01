@@ -1073,7 +1073,7 @@ done
 
 `respawn.py --only <substr>` aborts loudly when NO `--only` matches anything. It says nothing when SOME match: an unmatched one is dropped with no line of output, and the run proceeds on the rest.
 
-That is how a plugin rollout quietly skipped two of the peers it was aimed at. `--only claude-live-feedback-plugin --only personal-finance` matched neither, because both entries carry `respawn: false` and `collect_targets()` only ever yields `respawn: true` — so the run restarted six peers and reported success while two named targets were never touched.
+That is how a plugin rollout quietly skipped two of the peers it was aimed at. `--only claude-live-feedback-plugin --only <another-project>` matched neither, because both entries carry `respawn: false` and `collect_targets()` only ever yields `respawn: true` — so the run restarted six peers and reported success while two named targets were never touched.
 
 **Read the `[only]` lines, not the exit code.** The dry run prints one per matched target; count them against what you asked for before adding `--execute`.
 

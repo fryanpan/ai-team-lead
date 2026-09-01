@@ -102,7 +102,7 @@ Mechanics:
 - **Pull all THREE of his real calendars for Mon–Sun** — commitments land on any of them:
   `fryanpan@gmail.com` (primary) · `Bryan's Work Calendar` (`4426rmvudfbaebrkmtj4jhep3g@group.calendar.google.com`) · **`Octoturtle Calendar` (`theoctoturtle@gmail.com`)**, the family/household calendar.
 
-- **Before trusting the set, run `list_calendars` and look for anything new.** The other ~16 entries are subscriptions (holidays, school, seminars, Colleague A's, a Berlin dance calendar) and are not his commitments — but a newly added personal or household calendar would look exactly like them and belongs in the three.
+- **Before trusting the set, run `list_calendars` and look for anything new.** The other ~16 entries are subscriptions (holidays, school, seminars, a family member's, a dance calendar) and are not his commitments — but a newly added personal or household calendar would look exactly like them and belongs in the three.
 - **Only subtract for meetings he has ACCEPTED — read his own `responseStatus` in the attendee list.** `accepted` counts; `needsAction` and `declined` do not. An invitation on the calendar is not a commitment, and treating a recurring standing invite as attendance is how a real working day gets written off. He said it plainly: *"Don't assume I'm going to [the] meeting and write general rules for it. Just look at my calendar and check if I said yes or not."* If he is the organizer, that counts as accepted.
 - Only count hours **inside 9am–5pm**. An early or evening call does not reduce the number; the 7h baseline already reserves that time.
  Don't subtract for it.

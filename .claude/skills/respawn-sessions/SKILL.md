@@ -21,7 +21,7 @@ Attach to any session with `tmux a -t <session>` when you want a pane visible.
 | `plugin` | Kill+respawn any running session whose argv includes neither install key of the canonical fleet plugin (`plugin:claude-workspaces@claude-workspaces`, or the pre-rename `plugin:live-feedback@claude-live-feedback`). Use after enabling/upgrading a plugin globally. **Team Lead (self) is never killed**; if it lacks the plugin, the script flags it for manual restart. |
 | `all` | Kill+respawn every `respawn: true` session. Use as a full fleet reset. **Team Lead (self) is never killed.** |
 
-**Every mode takes `--only <substr>`, repeatable.** It restricts the mode to targets whose display name or path matches, case-insensitively — so a subset respawn is `--mode missing --only workspaces --only gomanzanas --execute`, not a reason to write your own loop. A mode is not all-or-nothing, and on 2026-08-30 assuming it was cost the fleet two extra restarts. Full flag list: `respawn.py --help`.
+**Every mode takes `--only <substr>`, repeatable.** It restricts the mode to targets whose display name or path matches, case-insensitively — so a subset respawn is `--mode missing --only workspaces --only <second-project> --execute`, not a reason to write your own loop. A mode is not all-or-nothing, and on 2026-08-30 assuming it was cost the fleet two extra restarts. Full flag list: `respawn.py --help`.
 
 ## Per-peer DISCORD_STATE_DIR scoping (automatic)
 

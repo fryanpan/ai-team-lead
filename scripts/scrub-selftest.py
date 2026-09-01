@@ -236,6 +236,26 @@ def main() -> int:
         r = run([], registry, denylist)
         expect("refuses when given no files (does not read stdin)", r.returncode, 2, r.stderr)
 
+        # The fourth costume. The no-files guard above catches an EMPTY argv,
+        # but an unrecognised flag is not empty -- it falls through to the
+        # positional branch, becomes a filename, gets filtered for not existing,
+        # and lands on the same `return 0`. `--selftest`, and a typo of a real
+        # flag, both exited 0 while scanning nothing. A typo'd flag is the
+        # dangerous one: it is most likely in a hook or CI line nobody re-reads,
+        # where the gate silently stops gating and the exit code still says pass.
+        r = run(["--selftest"], registry, denylist)
+        expect("refuses an unknown flag", r.returncode, 2, r.stderr)
+
+        r = run(["--scan-all-trackd"], registry, denylist)
+        expect("refuses a typo of a real flag", r.returncode, 2, r.stderr)
+
+        # A named file that is not there is a broken caller, not a clean tree.
+        # Distinct from a file that exists and is legitimately skipped, and
+        # distinct from a derived list (--diff-range) where a deleted path is
+        # normal -- so this must apply to explicit arguments only.
+        r = run([os.path.join(tmp, "does-not-exist.md")], registry, denylist)
+        expect("refuses a named file that does not exist", r.returncode, 2, r.stderr)
+
         # --- Cases below run from INSIDE a repo that carries its own
         # registry.yaml. Everything above passes in both shapes; these two only
         # fail in this one, which is why they exist.

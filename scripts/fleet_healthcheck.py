@@ -144,6 +144,41 @@ def claude_sessions():
 
 BUN = os.path.expanduser("~/.bun/bin/bun")
 
+# Seconds to wait on any bun call. Was 30, which turned a broken bun into a
+# three-minute run: six checks each burning a full timeout in series. A probe
+# that cannot answer in a few seconds is not going to answer.
+BUN_TIMEOUT = 6
+_BUN_OK = None
+
+
+def bun_works():
+    """Can bun actually execute in THIS context? Probed once, cached.
+
+    `docs/process/fleet-ops.md` records bun as the one binary that reaches
+    /Volumes/Data from a launchd job, measured 2026-08-25. On 2026-09-01 that
+    stopped being true: under launchd, bun produces no output at all -- not even
+    `console.log(1)` -- while running instantly from a shell. Every check that
+    delegates to bun then burned its full timeout and failed with a traceback,
+    which reads as six unrelated broken checks rather than one broken tool.
+
+    So probe the tool itself, once, and let the dependent checks fail fast and
+    say the same true thing.
+    """
+    global _BUN_OK
+    if _BUN_OK is None:
+        try:
+            r = subprocess.run([BUN, "-e", "console.log(1)"],
+                               capture_output=True, text=True, cwd="/",
+                               timeout=BUN_TIMEOUT)
+            _BUN_OK = r.returncode == 0 and r.stdout.strip() == "1"
+        except Exception:
+            _BUN_OK = False
+    return _BUN_OK
+
+
+BUN_UNAVAILABLE = ("bun cannot execute in this context, so anything on the "
+                   "secondary volume is unreadable here -- see fleet-ops.md")
+
 
 _PLUGIN_PROBE_JS = r"""
 const fs = require("fs");
@@ -166,14 +201,14 @@ console.log(JSON.stringify(out));
 
 def exists_via_bun(path):
     """Existence test for a path that may resolve onto the secondary volume."""
-    if not os.path.exists(BUN):
+    if not os.path.exists(BUN) or not bun_works():
         return os.path.exists(path)
     r = subprocess.run(
         [BUN, "-e",
          # `bun -e` argv is [bunPath, ...args] -- the path is argv[1], not [2].
          'process.exit(require("fs").existsSync(process.argv[1]) ? 0 : 1)',
          "--", path],
-        capture_output=True, cwd="/", timeout=30)
+        capture_output=True, cwd="/", timeout=BUN_TIMEOUT)
     return r.returncode == 0
 
 
@@ -195,11 +230,11 @@ def probe_plugin_via_bun(cache_dir, source_manifest):
     Returns (live_version_dirs, source_version). Either may be None, meaning
     "could not determine" -- never confuse that with "found nothing".
     """
-    if not os.path.exists(BUN):
+    if not os.path.exists(BUN) or not bun_works():
         return None, None
     r = subprocess.run([BUN, "-e", _PLUGIN_PROBE_JS, "--",
                         cache_dir, source_manifest],
-                       capture_output=True, text=True, cwd="/", timeout=30)
+                       capture_output=True, text=True, cwd="/", timeout=BUN_TIMEOUT)
     if r.returncode != 0:
         return None, None
     try:
@@ -273,6 +308,8 @@ def check_self_version(spec):
     secondary volume, so the source read goes through bun; the deployed copy is
     on the boot disk and reads normally.
     """
+    if not bun_works():
+        return False, f"{spec['name']}: cannot verify -- {BUN_UNAVAILABLE}"
     source = os.path.expanduser(spec["source"])
     running = os.path.abspath(__file__)
 
@@ -285,7 +322,7 @@ def check_self_version(spec):
     if not os.path.exists(BUN):
         return False, f"{spec['name']}: cannot check -- no bun at {BUN}"
     r = subprocess.run([BUN, "-e", _READ_SHA_JS, "--", source],
-                       capture_output=True, text=True, cwd="/", timeout=30)
+                       capture_output=True, text=True, cwd="/", timeout=BUN_TIMEOUT)
     if r.returncode != 0:
         # Unreadable source is NOT a pass. Absence of a comparison is absence of
         # information, and this monitor never converts that into a green line.
@@ -324,6 +361,8 @@ def check_archive_backlog(spec):
     the right interpreter: stat succeeds on that volume where open fails, so a
     denied checker reports a healthy mtime on data it cannot read.
     """
+    if not bun_works():
+        return False, f"{spec['name']}: cannot verify -- {BUN_UNAVAILABLE}"
     live = os.path.expanduser(spec["live_root"])
     archive = os.path.expanduser(spec["archive_root"])
     max_age = float(spec.get("max_age_days", 21))
@@ -592,12 +631,77 @@ def check_log_errors(spec):
     return True, f"{spec['name']}: quiet"
 
 
+_TRANSCRIPT_AGE_JS = r"""
+const fs = require("fs"), path = require("path");
+// `bun -e` argv is [bunPath, ...args] -- slice(1), not slice(2).
+const dir = process.argv.slice(1)[0];
+let newest = 0;
+try {
+  for (const f of fs.readdirSync(dir)) {
+    if (!f.endsWith(".jsonl")) continue;
+    const m = fs.statSync(path.join(dir, f)).mtimeMs;
+    if (m > newest) newest = m;
+  }
+} catch (e) {}
+console.log(String(newest));
+"""
+
+
+def transcript_age_hours(cwd):
+    """Hours since this session's newest transcript was written, or None.
+
+    The transcript is the only record of what a session actually PROCESSED --
+    the project's own killer item is that a pane is a render and cannot show
+    what a session received. A PID cannot either.
+
+    Routed through bun because ~/.claude is a symlink onto /Volumes/Data, where
+    an Apple-signed interpreter under launchd is denied even a stat. A plain
+    os.path.getmtime here would fail in production while passing every test run
+    by hand from a terminal.
+    """
+    if not os.path.exists(BUN) or not bun_works():
+        return None
+    encoded = re.sub(r"[/_.]", "-", cwd)
+    d = os.path.expanduser(f"~/.claude/projects/{encoded}")
+    try:
+        r = subprocess.run([BUN, "-e", _TRANSCRIPT_AGE_JS, "--", d],
+                           capture_output=True, text=True, cwd="/", timeout=BUN_TIMEOUT)
+        ms = float(r.stdout.strip() or 0)
+    except Exception:
+        return None
+    if not ms:
+        return None
+    return (time.time() - ms / 1000) / 3600
+
+
 def check_session(spec):
-    """A Claude session must be running with the expected working directory."""
+    """A Claude session must be running AND have processed something recently.
+
+    The PID half is not sufficient and never was: a session wedged on a
+    permission dialog, or crash-looping, keeps a process with the right cwd and
+    reads green indefinitely.
+
+    The honest limit of the freshness half: an idle session and a wedged session
+    both have a quiet transcript, and idle is the correct state for most peers.
+    So the age is reported always and only fails past a deliberately long bound,
+    which catches "has not processed anything in over a day" rather than "is not
+    answering right now". Anything tighter would go red on a peer that is
+    working exactly as intended, and a check that cries wolf on healthy state is
+    worse than no check.
+    """
     want = spec["cwd"]
     for pid, _argv in claude_sessions():
-        if session_cwd(pid) == want:
-            return True, f"{spec['name']}: pid {pid}"
+        if session_cwd(pid) != want:
+            continue
+        age = transcript_age_hours(want)
+        if age is None:
+            return True, f"{spec['name']}: pid {pid} (transcript age unknown)"
+        limit = spec.get("max_idle_hours")
+        if limit and age > limit:
+            return False, (f"{spec['name']}: pid {pid} alive but has processed "
+                           f"nothing for {age:.1f}h (limit {limit}h) -- "
+                           f"running is not the same as working")
+        return True, f"{spec['name']}: pid {pid}, last turn {age:.1f}h ago"
     return False, f"{spec['name']}: NO SESSION at {want}"
 
 

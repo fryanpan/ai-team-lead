@@ -1118,3 +1118,21 @@ value mid-test and sent a real BREACH message quoting a decision "at 40%" that w
   treated as live production data even when it is "just a JSON file in Application Support".
 
 **The rule: point the test at a throwaway state path, or stop the loop first.** Never both-at-once.
+
+## A committed skill file can be silently reverted by something outside the session (2026-08-31)
+
+Two skill files — `weekly-plan/SKILL.md` and `respawn-sessions/SKILL.md` — were rewritten at the
+same second, three minutes after a commit that added content to one of them. The rewrite reflowed
+every markdown table to padded-pipe alignment (a formatter's signature) **and reverted the file to a
+pre-commit state**: it dropped the Octoturtle calendar bullets, the `--only` paragraph, the
+"every session needs a name" section, and the entire numbered Steps list. Nothing in the session
+touched them.
+
+- **The tell is a table reflow next to missing content.** A formatter alone changes whitespace. A
+  formatter writing from a stale editor buffer changes whitespace *and* rolls the file back.
+- **`git status` after a commit is a check worth running, not noise.** These would have been shipped
+  as a "revert my own work" commit by the next person who staged everything.
+- **Restore from HEAD, don't re-edit.** `git checkout -- <file>` after copying the clobbered copies
+  aside; HEAD held the good version because the commit landed before the clobber.
+- **Do not chase the culprit past the evidence.** Two files, one timestamp, no formatter config in
+  the repo. That is enough to know what happened; it is not enough to name what did it.

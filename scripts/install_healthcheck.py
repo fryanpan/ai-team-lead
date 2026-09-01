@@ -149,11 +149,11 @@ BASE_CHECKS = [
      # Generous on purpose: this is "has not written in half a day", not "is
      # quiet tonight". A silence bound tight enough to fire on an idle evening
      # becomes furniture within a week.
-     "max_silence_minutes": 720},
+     "max_silence_minutes": 720, "max_error_streak": 6},
     {"type": "log_errors", "name": "github broker", "max": 0,
      "path": "~/Library/Logs/github-channel-broker.log",
      "pattern": r"WARNING|error", "window_minutes": 1440,
-     "max_silence_minutes": 360},
+     "max_silence_minutes": 360, "max_error_streak": 6},
 
     # --- running but inert: the broker answers {"ok":true} on /health with no
     #     token and simply never polls, so only the file itself is evidence ---

@@ -1136,3 +1136,21 @@ touched them.
   aside; HEAD held the good version because the commit landed before the clobber.
 - **Do not chase the culprit past the evidence.** Two files, one timestamp, no formatter config in
   the repo. That is enough to know what happened; it is not enough to name what did it.
+
+## An empty read during an announced restart is not a broken control (2026-08-31)
+
+A peer announced a ~1 minute prod restart. Seconds later a `GET` against its control route returned
+an **empty body with HTTP 200** for two resources, and the obvious reading — the control I depend on
+is down, in the middle of an incident — was wrong. A re-probe moments later returned 200 with correct
+state on both.
+
+- **One sample of an external surface, taken when you have been told it is restarting, is not
+  state.** Same family as the pane-capture rule in `CLAUDE.md`: the surface renders something, and
+  what it renders during a transition is not what it holds.
+- **Always print the status code** (`curl -w '%{http_code} %{size_download}'`). An empty 200 and a
+  connection failure look identical when you only capture the body, and they mean opposite things.
+- **Re-probe before escalating.** The cost of one extra request is nothing; the cost of reporting a
+  safety control as broken during the incident it exists to handle is that the next real report gets
+  read more slowly.
+- **A boot-lazy window should 503, not 200-with-nothing.** Where you own the route, make it fail
+  closed with a code — a caller cannot distinguish "not ready" from "no limit set" otherwise.

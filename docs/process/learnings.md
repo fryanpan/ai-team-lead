@@ -1307,3 +1307,13 @@ secondary volume identically. Measured with a private socket under
   almost always has a server, so `--selftest` passed continuously while the
   cold-boot path was broken. `--selftest --cold` moves to a socket with no
   server, which is the condition that actually matters.
+
+## A claim about someone else's machine ages into a fact nobody re-checks
+
+A session-start directive asserted that a peer ran "the whole pipeline at 07:00 daily" via launchd. It was written once, in August, and re-injected into every session after that. It was never true — the peer had one *weekly* job, and that job had failed every run for three months while its archive silently froze.
+
+The cost was not the wrong sentence. It was that the directive used the claim to **forbid the check**: "do NOT ask it to run a refresh, the data half is already handled." A guard built on an unverified belief about another process turned into a standing instruction not to look.
+
+- **A durable directive that asserts external state must say when it was verified and what to look at.** "As of <date>, per <artifact>" — and name the file whose mtime or contents settles it. A bare present-tense claim about another machine's cron is indistinguishable from a stale one.
+- **Prefer a heartbeat to an assertion.** The fix here was a `.last-refresh` file carrying `last_run` and `exit_code`, committed by the job itself. The permission error was never the real defect; invisible staleness was, and a heartbeat is what makes the next failure show up in git history rather than in a surprise three months later.
+- **Same family as the killer item.** A pane is not state, a process table is not MCP health, and a sentence you wrote about a peer's launchd agent is not that agent.

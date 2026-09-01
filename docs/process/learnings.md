@@ -17,6 +17,32 @@ Bryan's own diagnosis, and the rule worth keeping: *"Perhaps we should have writ
 
 Fix applied: both rows moved back to `todo` with the hold in the transition note, and the goal band retitled `⏸ ON HOLD until Bryan reviews benchmark usage` so it is unmissable from the board for any agent that attaches later. Candidate for promotion to a fleet rule at the next `/weekly-plan` rather than mid-week.
 
+
+## A new check that reads a file directly reports the monitor, not the thing (2026-09-01)
+
+`check_trend_log` shipped reading its file with `io.open`. Under launchd that is
+`Operation not permitted` on `/Volumes` on every run — the checker's own binary
+has no Full Disk Access, and cannot grant itself any. It went RED on its first
+real run with `UNREADABLE`, which reads as "the quota meter is broken" and
+actually means "the monitor is blind."
+
+- **The repo already had the answer and the new code walked past it.** Every
+  other check that touches the repo goes through `resolve_bun()`, which probes
+  for a binary that can actually read the volume. A direct `open()` is not the
+  simpler version of that; it is the version that can only ever describe its own
+  sandbox.
+- **Write the two failures in different words.** `CANNOT BE READ FROM HERE`
+  sends someone to Full Disk Access; `STALE` sends them to the token-watch cron.
+  One RED, one meaning — collapsing them costs a whole diagnostic pass.
+- **The generalisation:** when adding a check, ask what it reports when its own
+  access fails. If that answer is indistinguishable from the failure it exists
+  to catch, it is not a monitor yet.
+
+Same family as the launchd job that failed every run from 2026-06-01 to
+2026-09-01 for exactly this reason, and as the killer item in `CLAUDE.md`: an
+external surface is not state.
+
+
 ## A Watch That Is Silent On Green Cannot Be Told Apart From A Dead Watch (2026-08-19)
 
 Bryan's second quota pool ran to exhaustion overnight and I did not know. His correction: *"The Thursday token is out, and you would know if you'd been keeping an eye on usage -- it's your responsibility."* He was right, and the mechanism failure is worth more than the apology.

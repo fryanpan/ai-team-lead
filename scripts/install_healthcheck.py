@@ -230,6 +230,9 @@ BASE_CHECKS = [
     #     watch stayed green throughout because it measures the share split
     #     between projects, not the absolute pool. 8h spans two of the three
     #     daily runs, so a single skipped firing does not cry wolf. ---
+    {"type": "rate_limit_hits", "name": "session-limit hits",
+     "why": "six episodes in four days were each found by Bryan, not by us",
+     "window_hours": 24},
     {"type": "trend_log", "name": "quota trend log",
      "why": "a dead token-watch reads exactly like a fleet that is fine",
      "path": os.path.join(REPO, "docs/process/token-control.md"),

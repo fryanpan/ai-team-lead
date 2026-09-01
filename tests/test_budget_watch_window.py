@@ -90,9 +90,14 @@ def test_window_burn_excludes_turns_before_the_cutoff(tmp_path):
 
 
 def test_the_ceiling_is_below_the_lowest_observed_exhaustion(tmp_path):
-    """Calibration guard. The observed burn-throughs sat at 760M and 800M in a
-    5h window; a ceiling at or above that fires only once it is too late."""
-    assert fbw.WINDOW_CEILING_TOKENS < 750_000_000
+    """Calibration guard, against the measured record rather than a guess.
+
+    Six 5-hour rate-limit episodes are recorded in the transcripts between
+    2026-08-29 and 2026-09-01. The rolling window at the first rejection of each
+    ranged 442M to 695M. A ceiling at or above the LOWEST of those is green
+    through the episode it most needed to predict -- setting it near the median
+    (507M) would have missed two of six."""
+    assert fbw.WINDOW_CEILING_TOKENS < 442_000_000  # lowest measured rejection
     assert fbw.WINDOW_WATCH_TOKENS < fbw.WINDOW_CEILING_TOKENS
 
 

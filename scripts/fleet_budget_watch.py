@@ -88,34 +88,40 @@ FLOOR_ENGAGE = 0.55
 # ---------------------------------------------------- the absolute ceiling
 # Everything above this point measures the SPLIT between projects. A split is
 # scale-free: the identical "unprotected holds 64%" line prints at 4% of the
-# pool and at 96%. So the share verdict was green through both account
-# exhaustions it was built to catch, and was not wrong -- it was answering a
-# different question than the one that matters when the pool runs out.
+# pool and at 96%. So the share verdict was green through every session-limit
+# hit it was built to catch, and was not wrong -- it was answering a different
+# question than the one that matters when the window empties.
 #
-# These thresholds are CALIBRATED, not chosen. Rolling 5h fleet burn was
-# reconstructed hourly across the five days to 2026-09-01, against the known
-# exhaustion events:
+# These thresholds are MEASURED, not chosen. Claude Code records every 5-hour
+# rate-limit rejection in the transcript as
+# `quotaLimits{"rateLimitType":"five_hour","status":"rejected"}`, so the exact
+# moment each episode began is on disk. Reconstructing the rolling 5h burn at
+# the first rejection of each episode (2026-08-29 to 2026-09-01):
 #
-#   08-31 02:00   799.6M   <- peak; overnight burn-through
-#   08-31 19:00   759.7M   <- evening, the run that cost the second account
-#   09-01 14:00   671.9M
+#   08-29 12:38   507M      08-31 22:18   503M
+#   08-31 15:27   472M      09-01 01:33   442M   <- lowest
+#   08-31 17:04   695M      09-01 13:31   658M
 #
-# Nothing survived above ~800M, so that is where the window empties. WATCH at
-# 500M is roughly 60% of it -- early enough to act, high enough that an ordinary
-# busy afternoon does not trip it. CEILING at 650M is the last point where a
-# Tier 2 call still has time to matter.
+# Six episodes, lowest 442M, median 507M. So the window can empty anywhere from
+# ~440M up. CEILING sits below the lowest observed failure, not near the median:
+# a threshold set at the median is green through half of the events it exists
+# to predict. WATCH at 300M is the last point where reducing fan-out still
+# changes the outcome.
 #
-# Two honest limits on this number, both of which argue for acting EARLY on it:
-#   - It sums raw tokens, and cache reads bill far cheaper than fresh input.
-#     The real limit is weighted, so this correlates with exhaustion rather than
-#     measuring it.
-#   - It is fleet-wide, while the limit is per-account. With the fleet on one
-#     account at a time that is the same thing; it stops being so the moment
-#     sessions are split across accounts.
+# Three honest limits, all of which argue for acting EARLY rather than trusting
+# the number precisely:
+#   - It sums raw tokens, and cache reads bill far cheaper than fresh input, so
+#     this correlates with exhaustion rather than measuring it. That is why the
+#     spread is 442M-695M rather than a clean line.
+#   - It is fleet-wide, while the limit is per-account. Same thing while the
+#     fleet runs on one account; not once sessions are split across accounts.
+#   - It is a leading indicator only. The EXACT signal is the rejection record
+#     itself -- see check_rate_limit_hits in fleet_healthcheck.py, which reads
+#     the same transcripts and needs no calibration at all.
 #
-# Re-derive them after any exhaustion event rather than trusting these forever.
-WINDOW_WATCH_TOKENS = argval("--watch-tokens", 500_000_000, int)
-WINDOW_CEILING_TOKENS = argval("--ceiling-tokens", 650_000_000, int)
+# Re-derive after any new episode instead of trusting these forever.
+WINDOW_WATCH_TOKENS = argval("--watch-tokens", 300_000_000, int)
+WINDOW_CEILING_TOKENS = argval("--ceiling-tokens", 420_000_000, int)
 
 def carry_decision(decision, verdict, now):
     """Should a standing decision survive this wake?
@@ -295,8 +301,9 @@ def main():
     if fleet_tokens >= WINDOW_CEILING_TOKENS:
         verdict = "BREACH"
         detail = (f"5h window at {fleet_tokens/1e6:.0f}M, past the "
-                  f"{WINDOW_CEILING_TOKENS/1e6:.0f}M ceiling -- nothing has "
-                  f"survived above ~800M. Top burner: {top_burner}")
+                  f"{WINDOW_CEILING_TOKENS/1e6:.0f}M ceiling -- the lowest "
+                  f"window we have actually been rate-limited at is 442M. "
+                  f"Top burner: {top_burner}")
     elif fleet_tokens >= WINDOW_WATCH_TOKENS:
         verdict = "WATCH"
         detail = (f"5h window at {fleet_tokens/1e6:.0f}M, past the "

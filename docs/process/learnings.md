@@ -1197,6 +1197,8 @@ Both halves are true and the conclusion drawn from them was still wrong. Measure
 
 ## Only `bun` escapes the launchd sandbox — a non-Apple Python does not
 
+**Superseded 2026-09-01, same day.** The framing here — that the exemption is per-binary — is wrong. A later control (`/bin/cat` of a Data-volume file via `launchctl submit`, which hangs while a system-file read returns) proves the denial is **volume-wide for every launchd-spawned process**, Apple-signed or not. Relocating the binary to the boot disk does not help: it launches and then hangs on its first Data-volume read. Keep the entry for the measurement; ignore the conclusion.
+
 **2026-09-01.** `docs/process/fleet-ops.md` records that a launchd-invoked Apple-signed binary is denied everything on `/Volumes/Data`, while `~/.bun/bin/bun` reaches it fine, and explains this as Apple code signing being the gate rather than the disk. That explanation predicts any non-Apple interpreter would work too.
 
 **It does not.** The uv-managed CPython at `~/.local/share/uv/python/.../bin/python3` — a user install, not Apple-signed, living on the denied volume exactly like `bun` — produced no output at all from a real LaunchAgent. Same probe, same plist shape, same volume: `bun` reads, this does not.
@@ -1246,3 +1248,15 @@ Both halves are true and the conclusion drawn from them was still wrong. Measure
 **This is the supervisor failure one layer up.** Same shape as [a supervisor that self-heals through one mechanism], and the same fix applies: the action has to verify it achieved its goal, not that the command it ran returned.
 
 **When a service is moved off its normal process manager, enumerate everything that restarts it, not just what starts it.** Deploy endpoints, health-check auto-restarts, cron redeploys, and CI hooks all tend to hardcode the same manager, and every one of them becomes a silent no-op at once — while continuing to report success.
+
+## A differential test isolates the variable you varied, not the cause
+
+**2026-09-01.** Diagnosing why launchd could no longer start a service, a differential test showed a copy of the binary on the system volume ran fine while the copy on `/Volumes/Data` hung in dyld's `open()`. Clean result, one variable, obvious conclusion: the binary's location is the problem. It was written into the ops doc as a viable workaround and relayed to Bryan as the cheap fix.
+
+**Relocating the binary did not work.** It launched and then hung on its first read of the data volume. A second control — `/bin/cat` of a data-volume file via `launchctl submit`, hanging identically while a system-file read returned — moved the boundary from *this binary* to *the whole volume, for every launchd-spawned process*. `cat` is Apple-signed and unrelated to the original binary.
+
+**Both tests were correctly run and the first conclusion was still wrong**, because varying binary location cannot distinguish "the binary's location matters" from "any access to that volume fails" — the relocated binary differed in two ways at once, and only one of them was the variable under test.
+
+- **Before acting on a differential result, ask what ELSE changed between the two arms.** The narrower hypothesis is the one that feels proven; it is usually the one that was merely not excluded.
+- **Reach for the most boring possible control.** `/bin/cat` settled in one command what a day of reasoning about the original binary's sandboxing did not.
+- **A workaround derived from a partial diagnosis is worse than no workaround**, because it gets deployed. This one reached a doc and a recommendation before the second test contradicted it.

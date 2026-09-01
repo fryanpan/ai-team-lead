@@ -67,7 +67,15 @@ OVERLAY = os.path.join(HOME, ".config", "team-lead", "healthcheck-extra.json")
 
 LABEL = "com.fryanpan.fleet-healthcheck"
 PLIST = os.path.join(HOME, "Library", "LaunchAgents", f"{LABEL}.plist")
-HOURS = [8, 13, 18]
+# Hourly, at :20. It was 3x/day until 2026-09-01, when the log showed the
+# cost: the 18:20 run was green, the machine froze around 21:00, and the
+# 23:22 run that caught it -- load 13.70/core, both ports down, two tunnels
+# unreachable, two sessions dead -- only happened because a human triggered
+# it by hand. The next scheduled run at 08:20 would have found everything
+# recovered and green, and a multi-hour outage would exist in no record
+# anywhere. A green run costs no tokens, so the schedule was the only thing
+# buying that blindness.
+HOURLY_MINUTE = 20
 
 # The guard is a second, much faster agent -- see the module docstring in
 # fleet_guard.py. It exists because HOURS above cannot be tightened: the full
@@ -102,7 +110,20 @@ BASE_CHECKS = [
     #     about what the public hostname routes to. ---
     {"type": "http", "name": "notion tunnel", "expect": '"status":"ok"',
      "url": "https://notion-bridge.fryanpan.com/health"},
-    {"type": "http", "name": "live-feedback local", "url": "http://127.0.0.1:8787/"},
+    # An expect marker, because without one this passed on ANY non-empty body
+    # -- a wrong service on the port, an error page, or a stale static response
+    # all read green.
+    {"type": "http", "name": "live-feedback local", "expect": "<title>Workspaces</title>",
+     "url": "http://127.0.0.1:8787/"},
+    # End-to-end through the cloudflared tunnel, mirroring the notion one. The
+    # launchd check on that tunnel only asserts a live PID, so a wedged or
+    # misrouted tunnel -- precisely the bug class this checker exists for -- read
+    # green forever. This hostname has no Access application in front of it, so
+    # the response comes from the origin app rather than from Cloudflare: that
+    # JSON body is only producible by the server at the far end of the tunnel,
+    # and Cloudflare's own failure pages (1033, 502) are HTML that cannot match.
+    {"type": "http", "name": "live-feedback tunnel", "expect": '"error":"not_found"',
+     "url": "https://recall.fryanpan.com/"},
     {"type": "http", "name": "github broker", "expect": '"ok":true',
      "url": "http://127.0.0.1:7902/health"},
 
@@ -348,7 +369,8 @@ def main():
     plist = {
         "Label": LABEL,
         "ProgramArguments": ["/usr/bin/python3", DEST],
-        "StartCalendarInterval": [{"Hour": h, "Minute": 20} for h in HOURS],
+        # Minute with no Hour means every hour, at that minute.
+        "StartCalendarInterval": [{"Minute": HOURLY_MINUTE}],
         "RunAtLoad": True,
         "StandardOutPath": os.path.join(HOME, "Library/Logs/fleet-healthcheck.log"),
         "StandardErrorPath": os.path.join(HOME, "Library/Logs/fleet-healthcheck.log"),
@@ -367,7 +389,7 @@ def main():
     if r.returncode:
         print(f"bootstrap FAILED: {r.stderr.strip()}", file=sys.stderr)
         return 1
-    print(f"scheduled {LABEL} at {', '.join(f'{h}:20' for h in HOURS)} local")
+    print(f"scheduled {LABEL} hourly at :{HOURLY_MINUTE:02d} local")
 
     guard_plist = {
         "Label": GUARD_LABEL,

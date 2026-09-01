@@ -156,9 +156,20 @@ BASE_CHECKS = [
      "max_silence_minutes": 360, "max_error_streak": 6},
 
     # --- running but inert: the broker answers {"ok":true} on /health with no
-    #     token and simply never polls, so only the file itself is evidence ---
-    {"type": "file_present", "name": "github token", "why": "broker cannot poll without it",
-     "path": "~/.config/github-claude-channel/env"},
+    #     token and simply never polls, so /health is not evidence of anything.
+    #     This used to assert the token FILE existed. That stopped being the
+    #     question once the broker gained a keyring fallback: the file can be
+    #     absent and the broker perfectly healthy. Assert what actually
+    #     determines the outcome -- that SOME source answers, in the broker's
+    #     own order -- and name which one, since a keyring-backed token and a
+    #     file-backed one expire and break differently. ---
+    {"type": "token_resolvable", "name": "github token",
+     "why": "broker cannot poll without a token from any source",
+     "env": "GITHUB_TOKEN",
+     "path": "~/.config/github-claude-channel/env",
+     "commands": [["/opt/homebrew/bin/gh", "auth", "token"],
+                  ["/usr/local/bin/gh", "auth", "token"]],
+     "commands_label": "gh keyring"},
 
     # --- the budget watcher is a tmux loop, not a launchd job, so nothing
     #     restarts it and nothing notices it stopped. Its tmux session can be

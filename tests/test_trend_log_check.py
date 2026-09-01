@@ -102,3 +102,51 @@ def test_a_malformed_date_is_skipped_not_fatal(tmp_path):
                 (_stamp(1), "- 40% - OK"))
     ok, msg = fhc.check_trend_log(spec)
     assert ok, msg
+
+
+def test_an_unreadable_file_says_the_monitor_is_blind_not_that_the_meter_is_stale(monkeypatch, tmp_path):
+    """The two REDs have different owners and must not share wording.
+
+    "STALE" sends someone to re-arm the token-watch cron. "CANNOT BE READ FROM
+    HERE" sends them to Full Disk Access. Shipping the first when the second is
+    true wasted a full diagnostic pass on 2026-09-01.
+    """
+    p = tmp_path / "token-control.md"
+    p.write_text("`2026-09-01 13:07 PT - fine`\n", encoding="utf-8")
+    monkeypatch.setattr(fhc, "exists_via_bun", lambda _p: True)
+    monkeypatch.setattr(fhc, "read_text_via_bun",
+                        lambda _p: (None, "Operation not permitted"))
+    ok, msg = fhc.check_trend_log({"name": "quota trend log", "path": str(p)})
+    assert ok is False
+    assert "CANNOT BE READ FROM HERE" in msg
+    assert "STALE" not in msg
+
+
+def test_a_readable_file_is_judged_on_its_newest_entry_not_on_bun(monkeypatch, tmp_path):
+    """The bun path is plumbing; the verdict still comes from the timestamp."""
+    p = tmp_path / "token-control.md"
+    monkeypatch.setattr(fhc, "exists_via_bun", lambda _p: True)
+    monkeypatch.setattr(
+        fhc, "read_text_via_bun",
+        lambda _p: ("`2026-01-01 08:00 PT - ancient`\n", None))
+    ok, msg = fhc.check_trend_log({"name": "quota trend log", "path": str(p)})
+    assert ok is False
+    assert "STALE" in msg
+
+
+def test_read_text_via_bun_falls_back_to_a_direct_read_when_bun_is_absent(monkeypatch, tmp_path):
+    """No bun is not the same as no file. A boot-disk path must still read."""
+    p = tmp_path / "plain.md"
+    p.write_text("hello", encoding="utf-8")
+    monkeypatch.setattr(fhc, "bun_works", lambda: False)
+    text, err = fhc.read_text_via_bun(str(p))
+    assert text == "hello"
+    assert err is None
+
+
+def test_read_text_via_bun_reports_the_tcc_hint_when_the_direct_read_fails(monkeypatch):
+    """The fallback's error must name the cause, not just the errno."""
+    monkeypatch.setattr(fhc, "bun_works", lambda: False)
+    text, err = fhc.read_text_via_bun("/Volumes/Data/definitely/not/here.md")
+    assert text is None
+    assert fhc.BUN_UNAVAILABLE in err

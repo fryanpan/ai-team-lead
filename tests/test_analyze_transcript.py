@@ -7,7 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # Add the skill directory to sys.path so we can import the module
-_SKILL_DIR = Path(__file__).resolve().parent.parent / "templates" / "skills" / "retro" / "scripts"
+_SKILL_DIR = (Path(__file__).resolve().parent.parent
+              / "plugin" / "team-lead-fleet" / "skills" / "retro" / "scripts")
 sys.path.insert(0, str(_SKILL_DIR))
 
 from analyze_transcript import (

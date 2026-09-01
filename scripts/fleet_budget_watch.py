@@ -63,6 +63,9 @@ DECIDE = argval("--decide", "", str)
 # right at 18:30 and stale by morning.
 WORSEN_PP = 0.06
 DECISION_TTL_MIN = 240
+# How long the breach must stay GONE before a standing decision is discarded.
+# Anything shorter treats a single quiet sample as the end of the episode.
+EPISODE_OVER_MIN = 90
 STATE = argval("--state", os.path.join(
     HOME, "Library", "Application Support", "team-lead", "budget-watch.json"))
 
@@ -81,6 +84,44 @@ PROTECTED = {
 # Below this share of the window, nobody is throttled regardless of the split —
 # a quiet fleet has no contention to resolve.
 FLOOR_ENGAGE = 0.55
+
+def carry_decision(decision, verdict, now):
+    """Should a standing decision survive this wake?
+
+    A decision governs an EPISODE, not a sample. The original rule dropped it
+    the instant one wake came back non-breach, which sounds like "the breach it
+    was made about is over" and is not: the fleet oscillates across the
+    threshold, so a single quiet sample between two breaches erased the decision
+    and the next breach asked from scratch. That is exactly the hourly
+    re-litigation --decide exists to stop, reintroduced by the code meant to
+    scope it.
+
+    An episode ends only once the breach has stayed gone for EPISODE_OVER_MIN.
+    Staleness is handled separately by DECISION_TTL_MIN and WORSEN_PP.
+    """
+    if not decision:
+        return None
+    if verdict == "BREACH":
+        decision.pop("clear_since", None)      # still the same episode
+        return decision
+    since = decision.get("clear_since")
+    if not since:
+        decision["clear_since"] = now.astimezone().isoformat(timespec="seconds")
+        return decision
+    if _mins_since_iso(since, now) >= EPISODE_OVER_MIN:
+        return None                            # episode genuinely over
+    return decision
+
+
+def _mins_since_iso(iso, now):
+    """Minutes between an ISO timestamp and now; a huge number if unparseable,
+    so a corrupt value expires a decision rather than pinning it forever."""
+    try:
+        from datetime import datetime as _dt
+        return (now.astimezone() - _dt.fromisoformat(iso)).total_seconds() / 60
+    except Exception:
+        return float("inf")
+
 
 def encode(c): return re.sub(r"[/_.]", "-", c)
 def sh(a): return subprocess.run(a, capture_output=True, text=True).stdout
@@ -238,10 +279,7 @@ def main():
                     "at": now.astimezone().isoformat(timespec="seconds"),
                     "share": round(unprotected_share, 4)}
     else:
-        decision = prev.get("decision") or None
-        # a decision only governs the breach it was made about
-        if decision and verdict != "BREACH":
-            decision = None
+        decision = carry_decision(prev.get("decision") or None, verdict, now)
     out["decision"] = decision
 
     def _mins_since(iso):

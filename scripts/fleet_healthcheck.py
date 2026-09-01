@@ -670,6 +670,47 @@ def check_launchd_ran(spec):
     return True, f"{label}: {n} run(s), last exit {last or 'unknown'}"
 
 
+def reboot_recovery_report(red, green):
+    """First run after a restart: what came back, and what did not.
+
+    A volume-readability probe alone would have called this morning's outage
+    green -- the disk was fine and the service was not serving. "Readable" and
+    "serving" are different questions, and the one that actually hurt was the
+    second. So on the first run after a boot-session change, compare every check
+    that was green before the restart against what is red now: anything in both
+    sets is something the reboot took away and nothing brought back.
+
+    Returns None when no restart happened, which is almost every run.
+    """
+    was = prev_status()
+    was_boot = was.get("tcc", {}).get("boot")
+    now_boot = _TCC_RECORD.get("boot")
+    if not was_boot or not now_boot or was_boot == now_boot:
+        return None
+
+    def names(details):
+        return {d.split(":", 1)[0].strip() for d in details if ":" in d}
+
+    was_ok, now_bad, now_ok = names(was.get("green", [])), names(red), names(green)
+    lost = sorted(was_ok & now_bad)
+    gone = sorted(was_ok - now_bad - now_ok)   # check no longer runs at all
+
+    grant = ("secondary-volume access still readable"
+             if _TCC_RECORD.get("readable") else
+             "SECONDARY VOLUME NOT READABLE -- the FDA grant did not survive")
+
+    if not lost and not gone:
+        return (f"REBOOT DETECTED -- all {len(was_ok)} previously-green checks "
+                f"came back. {grant}.")
+    parts = [f"REBOOT DETECTED -- {len(lost) + len(gone)} of {len(was_ok)} "
+             f"previously-green checks did NOT come back. {grant}."]
+    if lost:
+        parts.append("  did not recover: " + ", ".join(lost))
+    if gone:
+        parts.append("  no longer being checked: " + ", ".join(gone))
+    return "\n".join(parts)
+
+
 def check_tcc_grant(spec):
     """Does the Full Disk Access grant still hold, and did it survive the reboot?
 
@@ -1190,10 +1231,19 @@ def main():
         (green if ok else red).append(detail)       # never a silent pass
 
     stamp = datetime.now().isoformat(timespec="seconds")
+    recovery = reboot_recovery_report(red, green)
     os.makedirs(STATE_DIR, exist_ok=True)
     with open(STATUS, "w") as f:
         json.dump({"checked_at": stamp, "red": red, "green": green,
-                   "streaks": _STREAKS, "tcc": _TCC_RECORD}, f, indent=2)
+                   "streaks": _STREAKS, "tcc": _TCC_RECORD,
+                   "reboot_recovery": recovery}, f, indent=2)
+
+    # Printed before everything else, and notified on its own: this line is the
+    # answer to a question nobody will be awake to ask.
+    if recovery:
+        print(recovery)
+        if not quiet:
+            notify("Fleet: first run after reboot", recovery.splitlines()[0])
 
     if red:
         header = f"{len(red)} RED / {len(green)} ok"

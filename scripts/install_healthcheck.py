@@ -105,7 +105,6 @@ BASE_CHECKS = [
     {"type": "swap", "name": "swap", "max_used_gb": 8.0},
     {"type": "free_memory", "name": "free memory", "min_free_pct": 15},
     {"type": "load", "name": "load", "max_per_core": 1.5},
-    {"type": "socket_headroom", "name": "socket headroom", "max_pcbs": 120000},
 
     # --- alive and failing: the shape no process check can see ---
     {"type": "log_errors", "name": "email watcher", "max": 0,
@@ -122,6 +121,16 @@ BASE_CHECKS = [
     #     token and simply never polls, so only the file itself is evidence ---
     {"type": "file_present", "name": "github token", "why": "broker cannot poll without it",
      "path": "~/.config/github-claude-channel/env"},
+
+    # --- the budget watcher is a tmux loop, not a launchd job, so nothing
+    #     restarts it and nothing notices it stopped. Its tmux session can be
+    #     alive while the loop inside is dead. The state file's mtime is the
+    #     only proof a run completed. Interval is 15m; 45m is three missed
+    #     runs, which is a real stall rather than a slow pass. ---
+    {"type": "state_fresh", "name": "budget watch",
+     "why": "5h-window burn watch is not iterating; a quota wall would go unseen",
+     "path": "~/Library/Application Support/team-lead/budget-watch.json",
+     "max_age_minutes": 45},
 
     # --- the monitor auditing itself. Editing the repo copy changes nothing;
     #     launchd execs the deployed copy. Without this, a forgotten redeploy
@@ -177,19 +186,8 @@ def registry_sessions():
     def flush():
         if key and always_up and path:
             real = os.path.realpath(os.path.expanduser(path))
-            # `restart` makes the check heal rather than only report; the value
-            # is passed to respawn.py's --only.
-            #
-            # It must be the BASENAME, not a path. respawn.py matches --only
-            # against the registry's ~-expanded path (/Users/...), while `cwd`
-            # above is deliberately the realpath (/Volumes/Data/...) because
-            # that is what a running session reports. Passing the realpath
-            # matches nothing and the heal aborts -- measured 2026-08-31, and
-            # the first version of this line got it wrong for exactly that
-            # reason. The basename is the one spelling common to both.
             out.append({"type": "session", "cwd": real,
-                        "name": f"session: {name or key}",
-                        "restart": os.path.basename(real)})
+                        "name": f"session: {name or key}"})
 
     for line in lines:
         m = re.match(r"^  ([A-Za-z0-9_.-]+):\s*$", line)

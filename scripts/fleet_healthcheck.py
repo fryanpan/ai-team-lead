@@ -39,7 +39,6 @@ import hashlib
 import json
 import os
 import re
-import shlex
 import subprocess
 import sys
 import time
@@ -499,87 +498,36 @@ def check_log_errors(spec):
     return True, f"{spec['name']}: quiet"
 
 
-# Non-Apple-signed, so NOT subject to the gate that denies Apple-signed
-# binaries every operation on /Volumes/Data. That is the whole reason the heal
-# path below shells through tmux instead of exec'ing respawn.py directly:
-# python3 is Apple-signed and cannot read the script, and could not exec
-# ~/.local/bin/claude either, since that is a symlink onto the denied volume.
-# tmux is adhoc-signed, so once it is running it reaches everything.
-# See docs/process/fleet-ops.md.
-TMUX_BIN = "/opt/homebrew/bin/tmux"
-RESPAWN_PY = ("/Volumes/Data/Users/bryanchan/dev/ai-team-lead/"
-              ".claude/skills/respawn-sessions/respawn.py")
-
-HEAL_TIMEOUT_S = 180        # respawn.py polls startup dialogs for ~75s first
-HEAL_POLL_S = 10
-
-
-def _session_is_up(want):
+def check_session(spec):
+    """A Claude session must be running with the expected working directory."""
+    want = spec["cwd"]
     for pid, _argv in claude_sessions():
         if session_cwd(pid) == want:
-            return pid
-    return None
+            return True, f"{spec['name']}: pid {pid}"
+    return False, f"{spec['name']}: NO SESSION at {want}"
 
 
-def heal_session(spec, want):
-    """Respawn a downed always-up session, and wait to find out whether it worked.
+def check_state_fresh(spec):
+    """A watcher's state file must have been written recently.
 
-    Detection without remedy is what this exists to end. The RED for a dead
-    Discord-bot session fired on five consecutive runs across a 33-hour outage
-    while a family member waited for a reply, and nothing anywhere was defined
-    as acting on it (2026-08-30).
+    For monitors that run as a tmux loop rather than a launchd job: there is no
+    daemon to ask, and the tmux session existing proves only that a shell is
+    alive, not that the loop inside it is still iterating. The state file's
+    mtime is the one signal that means "a run actually completed".
 
-    Deliberately `--mode missing`: it only fills gaps and kills nothing, so a
-    heal can never take down a session that is merely slow to appear in the
-    process table. `--mode all` would also abort outright here -- its
-    self-protection needs a parent claude PID and launchd has none.
-
-    Returns (attempted, note). A heal is reported, never silent: a session that
-    needs restarting three times a day is a different problem from one that is
-    simply up, and collapsing the two hides it.
+    A dead budget watcher is worse than no budget watcher -- it reads as
+    "nothing is wrong" forever, which is precisely the failure it was built to
+    end. So its liveness is checked here rather than trusted.
     """
-    only = spec.get("restart")
-    if not only:
-        return False, None
-    cmd = (f"python3 {shlex.quote(RESPAWN_PY)} --mode missing "
-           f"--only {shlex.quote(only)} --execute")
-    tag = "heal-" + re.sub(r"[^a-z0-9]+", "-", os.path.basename(want).lower())
-    try:
-        subprocess.run([TMUX_BIN, "kill-session", "-t", tag],
-                       capture_output=True, timeout=5)
-        r = subprocess.run(
-            [TMUX_BIN, "new-session", "-d", "-s", tag, "/bin/zsh", "-lc", cmd],
-            capture_output=True, text=True, timeout=15)
-    except Exception as e:
-        return True, f"heal FAILED to launch ({e!r})"
-    if r.returncode != 0:
-        return True, f"heal FAILED to launch ({r.stderr.strip()[:120]})"
-
-    waited = 0
-    while waited < HEAL_TIMEOUT_S:
-        time.sleep(HEAL_POLL_S)
-        waited += HEAL_POLL_S
-        pid = _session_is_up(want)
-        if pid:
-            return True, f"was DOWN, healed in {waited}s -> pid {pid}"
-    return True, f"heal ran but session still absent after {HEAL_TIMEOUT_S}s"
-
-
-def check_session(spec):
-    """A Claude session must be running with the expected working directory.
-
-    With `restart` set, a miss is repaired rather than merely reported.
-    """
-    want = spec["cwd"]
-    pid = _session_is_up(want)
-    if pid:
-        return True, f"{spec['name']}: pid {pid}"
-    attempted, note = heal_session(spec, want)
-    if not attempted:
-        return False, f"{spec['name']}: NO SESSION at {want}"
-    if note.startswith("was DOWN"):
-        return True, f"{spec['name']}: {note}"
-    return False, f"{spec['name']}: NO SESSION at {want} -- {note}"
+    path = os.path.expanduser(spec["path"])
+    limit = spec.get("max_age_minutes", 60)
+    if not os.path.exists(path):
+        return False, f"{spec['name']}: MISSING {path} -- watcher has never run"
+    age = (time.time() - os.path.getmtime(path)) / 60
+    if age > limit:
+        return False, (f"{spec['name']}: STALE, last run {age:.0f}m ago "
+                       f"(limit {limit}m) -- the loop is not iterating")
+    return True, f"{spec['name']}: fresh ({age:.0f}m)"
 
 
 def check_channel_flags(spec):
@@ -694,44 +642,6 @@ def check_load(spec):
     return True, f"{spec['name']}: {per_core:.2f} per core"
 
 
-def check_socket_headroom(spec):
-    """Kernel TCP protocol control blocks in use -- a coarse tripwire, not a
-    diagnostic.
-
-    On 2026-08-30 the machine lost all networking for 4.5 hours with 6-7.5GB of
-    RAM free: socket() returning ENOBUFS system-wide, existing connections fine
-    and every new one failing, which reads to a human as "the network is down"
-    and sends you looking at memory, where nothing is wrong. This check exists
-    so that failure announces itself early instead of being discovered as a dark
-    fleet in the morning.
-
-    READ THE LIMITS BEFORE TRUSTING A NUMBER HERE. pcbcount is machine-wide and
-    attributes to nobody. It moved +1,574 in 90 seconds on an idle control, it
-    goes down as well as up, and two agents wasted hours deriving per-process
-    leak rates from it that a clean control then falsified. It is fit for "the
-    machine is far outside its normal band" and for nothing finer. To find WHO
-    is leaking, measure the suspect process -- lsof socket counts, peak
-    ESTABLISHED, mean TCP fds -- which is what actually held up.
-
-    So the ceiling is deliberately far above the noise. Normal here is low tens
-    of thousands and drifts; the outage ran to several hundred thousand. A red
-    means look, with hours of runway, not that any particular program is at
-    fault.
-
-    Asserts an end state: no process named, nothing assumed about the cause.
-    """
-    raw = _sysctl("net.inet.tcp.pcbcount")
-    if not raw.isdigit():
-        return False, f"{spec['name']}: PROBE-FAILED (net.inet.tcp.pcbcount -> {raw!r})"
-    pcbs = int(raw)
-    ceiling = spec.get("max_pcbs", 120000)
-    if pcbs > ceiling:
-        return False, (f"{spec['name']}: {pcbs:,} TCP PCBs (ceiling {ceiling:,}) -- "
-                       f"cumulative and only a reboot clears it; reboot on your "
-                       f"own schedule before socket() starts failing machine-wide")
-    return True, f"{spec['name']}: {pcbs:,} TCP PCBs"
-
-
 CHECKS = {
     "launchd": check_launchd,
     "port": check_port,
@@ -739,6 +649,7 @@ CHECKS = {
     "log_errors": check_log_errors,
     "session": check_session,
     "channel_flags": check_channel_flags,
+    "state_fresh": check_state_fresh,
     "file_present": check_file_present,
     "plugin_version": check_plugin_version,
     "archive_backlog": check_archive_backlog,
@@ -746,7 +657,6 @@ CHECKS = {
     "free_memory": check_free_memory,
     "swap": check_swap,
     "load": check_load,
-    "socket_headroom": check_socket_headroom,
 }
 
 

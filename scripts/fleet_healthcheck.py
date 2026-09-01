@@ -1139,6 +1139,98 @@ def read_text_via_bun(path):
         return None, f"{exc} -- {BUN_UNAVAILABLE}"
 
 
+_RATE_LIMIT_JS = r"""
+const fs = require("fs"), path = require("path");
+// `bun -e` argv is [bunPath, ...args] -- slice(1), not slice(2).
+const [root, sinceMs] = process.argv.slice(1);
+const since = Number(sinceMs);
+const hits = [];
+function walk(dir, depth) {
+  if (depth > 4) return;
+  let ents = [];
+  try { ents = fs.readdirSync(dir, {withFileTypes: true}); } catch (e) { return; }
+  for (const e of ents) {
+    const full = path.join(dir, e.name);
+    if (e.isDirectory()) { walk(full, depth + 1); continue; }
+    if (!e.name.endsWith(".jsonl")) continue;
+    let st; try { st = fs.statSync(full); } catch (e) { continue; }
+    if (st.mtimeMs < since) continue;          // cheap skip
+    let text; try { text = fs.readFileSync(full, "utf8"); } catch (e) { continue; }
+    if (!text.includes('"quotaLimits"')) continue;
+    for (const line of text.split("\n")) {
+      if (!line.includes('"rateLimitType":"five_hour"')) continue;
+      let o; try { o = JSON.parse(line); } catch (e) { continue; }
+      const q = (o.message && o.message.quotaLimits) || o.quotaLimits;
+      if (!q || q.status !== "rejected") continue;
+      const t = Date.parse(o.timestamp || "");
+      if (!t || t < since) continue;
+      hits.push({t, project: dir.split("/projects/")[1] || dir, resetsAt: q.resetsAt});
+    }
+  }
+}
+walk(root, 0);
+console.log(JSON.stringify(hits));
+"""
+
+
+def check_rate_limit_hits(spec):
+    """Did the fleet actually get rate-limited? Not a proxy -- the record.
+
+    Claude Code writes every 5-hour session-limit rejection into the transcript
+    as `quotaLimits{"rateLimitType":"five_hour","status":"rejected"}`. That is
+    ground truth: the moment work stopped, on disk, needing no calibration and
+    no `/usage` pull.
+
+    Nothing read it. Six episodes between 2026-08-29 and 2026-09-01 -- five of
+    them after Monday, one at 13:31 on 2026-09-01 that blocked two projects for
+    over two hours -- and every one of them was discovered by Bryan noticing the
+    fleet had stopped. Meanwhile the weekly meter was 52h stale and the 5h
+    budget watch was reporting a share, so both instruments were green through
+    all six.
+
+    This is deliberately a LAGGING check. It cannot prevent the episode it
+    reports; `fleet_budget_watch.py`'s token thresholds are the leading
+    indicator, and they were calibrated off exactly these events. The value here
+    is that "we ran out and nobody said so" stops being possible.
+    """
+    name = spec["name"]
+    hours = spec.get("window_hours", 24)
+    since_ms = int((time.time() - hours * 3600) * 1000)
+    root = os.path.expanduser(spec.get("root", "~/.claude/projects"))
+
+    if not bun_works():
+        return False, f"{name}: cannot scan transcripts -- {BUN_UNAVAILABLE}"
+    try:
+        r = subprocess.run([bun_path(), "-e", _RATE_LIMIT_JS, "--",
+                            root, str(since_ms)],
+                           capture_output=True, text=True, cwd="/",
+                           timeout=max(BUN_TIMEOUT, 60))
+    except (OSError, subprocess.SubprocessError) as exc:
+        return False, f"{name}: scan failed ({type(exc).__name__})"
+    if r.returncode != 0:
+        return False, f"{name}: scan exited {r.returncode}"
+    try:
+        hits = json.loads(r.stdout or "[]")
+    except ValueError:
+        return False, f"{name}: unreadable scan output"
+
+    if not hits:
+        return True, f"{name}: no session-limit rejections in {hours}h"
+
+    # Group into episodes: rejections retry in bursts, so raw counts overstate.
+    ts = sorted(h["t"] for h in hits)
+    episodes = [ts[0]]
+    for t in ts[1:]:
+        if t - episodes[-1] > 30 * 60 * 1000:
+            episodes.append(t)
+    last = datetime.fromtimestamp(ts[-1] / 1000)
+    projects = sorted({(h.get("project") or "?").split("-dev-")[-1]
+                       for h in hits})
+    return False, (f"{name}: {len(episodes)} session-limit episode(s) in {hours}h, "
+                   f"latest {last:%m-%d %H:%M} -- the fleet was BLOCKED. "
+                   f"Hit in: {', '.join(projects[:4])}")
+
+
 def check_trend_log(spec):
     """The quota meter must have been READ recently, not merely scheduled.
 
@@ -1393,6 +1485,7 @@ CHECKS = {
     "state_fresh": check_state_fresh,
     "monitor_loops": check_monitor_loops,
     "trend_log": check_trend_log,
+    "rate_limit_hits": check_rate_limit_hits,
     "file_present": check_file_present,
     "token_resolvable": check_token_resolvable,
     "plugin_version": check_plugin_version,

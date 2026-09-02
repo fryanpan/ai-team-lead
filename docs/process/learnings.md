@@ -1493,3 +1493,30 @@ The tell was one number: the standing decision had been recorded at 453M and the
 same "BREACH" arrived at 189M. **Whenever an alert re-fires, read the absolute
 it is derived from before judging it** — a re-fire on a worsening ratio and a
 re-fire on a worsening situation look identical in the message.
+
+## A Threshold Does Not Survive The Thing It Was Calibrated Against (2026-09-02)
+
+A budget monitor fired BREACH at 91% of its ceiling and demanded a Tier 2 pause decision. The live
+meter for the identical window read **3%**. Nothing was wrong with the burn; the ceiling was wrong.
+
+**The ceiling was a raw-token number derived from watching an older, different account run out.**
+After an account switch it was still being compared against raw tokens from the new one. Those are
+not the same quantity: the vendor meter is weighted, and cache reads — around 90% of input — are
+nearly free on it while counting in full on the raw figure. Two numbers that had matched for months
+stopped meaning the same thing the moment the pool changed, and nothing in the script could notice.
+
+- **A threshold carries a hidden dependency on whatever it was measured against.** When that thing is
+  replaced — an account, an environment, a pricing model, a schema — the threshold does not become
+  wrong loudly. It keeps producing confident verdicts against a world that no longer exists.
+- **Prefer the instrument the vendor keeps calibrated.** A derived proxy is worth having when the real
+  meter is expensive or awkward to read, but the proxy must be re-anchored to the real one on a
+  schedule, and it must record which pool it was anchored to.
+- **The direction of the error is the tell.** This proxy was conservative — it over-alerted, costing a
+  false alarm. An optimistic one would have been silent through a real exhaustion, which is the same
+  failure class as a monitor that skips what it should flag.
+- **Three thresholds outlived their calibration on the same day** — a trend-log staleness window, a
+  broker-silence window, and this ceiling. That clustering is the finding: the thresholds were all set
+  during one period of stable conditions, so they all expired together when conditions moved.
+
+**The rule: a threshold gets recorded with the measurement it came from, and re-derived — not
+re-used — when that measurement is superseded.**

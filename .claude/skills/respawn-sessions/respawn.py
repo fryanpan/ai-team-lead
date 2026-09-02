@@ -319,12 +319,26 @@ def wants_fresh(path: str) -> bool:
     return os.path.realpath(path) in fresh_start_paths()
 
 
-def collect_targets() -> List[Tuple[str, str]]:
-    """Return list of (session_name, expanded_path) for projects with respawn: true."""
+def collect_targets(named: bool = False) -> List[Tuple[str, str]]:
+    """Return list of (session_name, expanded_path) for registry projects.
+
+    `respawn: true` gates BULK behaviour -- "act on the fleet" must not sweep up
+    a project nobody asked about. It was never meant to gate a project the
+    caller named. With `named=True` (i.e. `--only` was passed) every registry
+    entry is a candidate, because the caller has already done the selecting.
+
+    Without this, the ephemeral-agent lifecycle had no route at all: a
+    task-driven peer is exactly the kind that sits `respawn: false`, so
+    `--mode missing --only <it>` aborted with "matched none of the targets"
+    while `--mode running` saw nothing to restart. The gap pushed the caller
+    toward a hand-rolled `tmux new-session`, which silently drops the board
+    identity, the per-peer DISCORD_STATE_DIR, the dialog dismissal and the
+    orphan-MCP sweep -- and comes up looking healthy until its first write.
+    """
     projects = parse_registry(REGISTRY_PATH)
     targets: List[Tuple[str, str]] = []
     for name, fields in projects.items():
-        if fields.get("respawn", "").lower() != "true":
+        if not named and fields.get("respawn", "").lower() != "true":
             continue
         raw_path = fields.get("path", "")
         if not raw_path:
@@ -1035,8 +1049,12 @@ Flags:
   --only <substr>  (repeatable) Restrict the mode to matching targets. Matches
                    the display name and the path, case-insensitively. Use it to
                    respawn ONE session — the peer the user is about to work in,
-                   or a session that needs a solo retry after losing its
-                   channels to the MCP handshake race.
+                   a session that needs a solo retry after losing its channels
+                   to the MCP handshake race, or a task-driven peer being
+                   brought up for one job. Naming a target also lifts the
+                   `respawn: true` requirement: that flag gates bulk sweeps, not
+                   a project you asked for by name, so `--mode missing --only
+                   <name>` reaches a `respawn: false` entry.
   --exclude <substr> (repeatable) Leave a matching session alone even though the
                    mode would restart it. For peers that are mid-flight.
   --execute        Actually perform kills/spawns. Without this it's dry-run.
@@ -1138,7 +1156,7 @@ def main() -> int:
             print("No running peer sessions found.", file=sys.stderr)
             return 1
     else:
-        targets = collect_targets()
+        targets = collect_targets(named=bool(onlys))
         if not targets:
             print("No projects with respawn: true found in registry.yaml", file=sys.stderr)
             return 1

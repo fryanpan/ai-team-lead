@@ -8,8 +8,10 @@ last assistant message and classifies:
                pending-work language -> it's waiting on him, NOT done -> skip.
   * done     -> last message reads as a clean completion -> a real compact candidate.
   * unsure   -> can't tell -> surface for a human/judgment review.
-Only idle (empty prompt), no-draft, non-self, big sessions that classify done/unsure
-are flagged. Draft-in-box / busy / self are skipped.
+Only sessions that are QUIET (no transcript activity for --quiet-after minutes),
+non-self and big, and that classify done/unsure, are flagged. Whether a session is
+working is read from its transcript, never from `tmux capture-pane` -- see
+activity_state() for what that cost when it was read from the pane.
 
 Flags:
   --review-at N  size at/above which an idle session is considered (default 450000)
@@ -17,8 +19,9 @@ Flags:
   --notify       macOS notification for NEW candidates (respects sleep window + dedup)
   --awake A-B    waking hours 24h (default 8-24); notifications only fire inside it
   --state PATH   dedup state file (default /tmp/fleet-monitor-flagged.json)
+  --quiet-after N  minutes of transcript silence before a session is reviewable (default 15)
 """
-import json, os, re, subprocess, sys, glob, datetime
+import json, os, re, subprocess, sys, glob, time, datetime
 
 def argval(flag, default, cast=int):
     return cast(sys.argv[sys.argv.index(flag) + 1]) if flag in sys.argv else default
@@ -28,6 +31,9 @@ THRESH = argval("--threshold", 300_000)
 NOTIFY = "--notify" in sys.argv
 AWAKE = argval("--awake", "8-24", str)
 STATE = argval("--state", "/tmp/fleet-monitor-flagged.json", str)
+# Minutes of transcript silence before a session counts as not-working.
+# The loop runs every 2h, so this only has to outlast a single long turn.
+QUIET_AFTER_S = argval("--quiet-after", 15) * 60
 SELF_MARKER = "ai-team-lead"
 TAIL_BYTES = 1_048_576
 
@@ -93,13 +99,39 @@ def context_tokens(path):
               ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"))
     return ctx, model_label(last_model)
 
-def pane_state(session):
-    pane = sh(["tmux", "capture-pane", "-t", session, "-p"])
-    if not pane.strip(): return "unknown"
-    if "esc to interrupt" in pane: return "busy"
-    inputs = [l for l in pane.splitlines() if l.lstrip().startswith("❯")]
-    if not inputs: return "unknown"
-    return "draft" if inputs[-1].split("❯", 1)[1].strip() else "idle"
+def activity_state(transcript_path):
+    """"active" | "quiet", decided from the TRANSCRIPT -- never from the pane.
+
+    THIS FUNCTION REPLACED A pane_state() THAT READ `tmux capture-pane`, AND THAT
+    IS THE WHOLE POINT. The old one made three inferences the pane cannot support:
+
+      * `"esc to interrupt" in pane -> busy`. That footer is a render like every
+        other pixel on the pane. It is the exact reading that got an idle peer
+        skipped as mid-task three times in one hour.
+      * a non-empty `❯` line -> `draft`, i.e. Bryan has unsent text. It is
+        usually a GHOST over an empty editor. Proven on 2026-09-01: health-tool's
+        pane rendered `❯ Order the Gicisky tag`, and a single typed character
+        REPLACED it, so the editor had been empty the whole time. Six non-existent
+        "unsent messages" had already been reported to Bryan as his own words.
+      * an empty `❯` line -> `idle`, the same guess with the sign flipped.
+
+    The failure was silent and it inverted the tool. `busy` and `draft` both mean
+    "skip", so every misread pane SUPPRESSED a notification -- this monitor exists
+    to flag idle giants, and pane inference is what stopped it flagging them.
+
+    A transcript is state: a session that is taking turns appends to one. Subagent
+    transcripts live at `<session-id>/subagents/agent-*.jsonl`, so a parent stuck in
+    a long fan-out turn still shows as active through its children -- glob
+    recursively or a working session reads quiet.
+
+    A false "quiet" here costs one line in a review notification. A false "busy"
+    cost the entire signal.
+    """
+    newest = os.path.getmtime(transcript_path)
+    sess_dir = os.path.splitext(transcript_path)[0]
+    for sub in glob.glob(os.path.join(sess_dir, "**", "*.jsonl"), recursive=True):
+        newest = max(newest, os.path.getmtime(sub))
+    return "active" if (time.time() - newest) < QUIET_AFTER_S else "quiet"
 
 def last_assistant_text(path):
     size = os.path.getsize(path)
@@ -142,80 +174,84 @@ def classify_last_message(path):
         return "done"
     return "unsure"
 
-# --- measure ---
-tmux_map = tmux_by_cwd()
-rows = []
-for pid, cwd in running_claude_cwds().items():
-    files = glob.glob(os.path.join(PROJ, encode(cwd), "*.jsonl"))
-    if not files: continue
-    tp = max(files, key=os.path.getmtime)
-    ctx, model = context_tokens(tp)
-    if ctx is None: continue
-    rows.append({"ctx": ctx, "model": model, "name": os.path.basename(cwd), "cwd": cwd,
-                 "tmux": tmux_map.get(cwd), "tp": tp})
-rows.sort(key=lambda r: -r["ctx"])
+def main():
+    # Everything below runs only under __main__ so the module can be imported
+    # by tests. activity_state() is the reason that matters: the pane-reading
+    # function it replaced was never covered by a test, and an untestable
+    # inference is how it survived long enough to invert the tool.
+    # --- measure ---
+    tmux_map = tmux_by_cwd()
+    rows = []
+    for pid, cwd in running_claude_cwds().items():
+        files = glob.glob(os.path.join(PROJ, encode(cwd), "*.jsonl"))
+        if not files: continue
+        tp = max(files, key=os.path.getmtime)
+        ctx, model = context_tokens(tp)
+        if ctx is None: continue
+        rows.append({"ctx": ctx, "model": model, "name": os.path.basename(cwd), "cwd": cwd,
+                     "tmux": tmux_map.get(cwd), "tp": tp})
+    rows.sort(key=lambda r: -r["ctx"])
 
-# --- classify: flag only idle+no-draft giants that look done/unsure ---
-candidates = []
-for r in rows:
-    r["decision"] = ""
-    if r["ctx"] < REVIEW_AT:
-        continue
-    if SELF_MARKER in r["cwd"]:
-        r["decision"] = "skip (self)"; continue
-    st = pane_state(r["tmux"]) if r["tmux"] else "no-tmux"
-    if st == "idle":
+    # --- classify: flag only idle+no-draft giants that look done/unsure ---
+    candidates = []
+    for r in rows:
+        r["decision"] = ""
+        if r["ctx"] < REVIEW_AT:
+            continue
+        if SELF_MARKER in r["cwd"]:
+            r["decision"] = "skip (self)"; continue
+        if activity_state(r["tp"]) == "active":
+            r["decision"] = f"skip (took a turn in the last {QUIET_AFTER_S // 60}m)"
+            continue
         verdict = classify_last_message(r["tp"])
         if verdict == "waiting":
-            r["decision"] = "skip (idle but last msg is waiting on you)"
+            r["decision"] = "skip (quiet, but last msg is waiting on you)"
         else:
-            r["decision"] = f"REVIEW — idle, looks {verdict}"
+            r["decision"] = f"REVIEW — quiet, looks {verdict}"
             candidates.append(r["name"])
-    elif st == "draft":
-        r["decision"] = "skip (mid-interaction — draft in box)"
-    elif st == "busy":
-        r["decision"] = "skip (busy)"
-    else:
-        r["decision"] = "skip (%s)" % st
 
-# --- report ---
-print(f"{'CONTEXT':>9}  {'MODEL':<10}  {'SESSION':<26}  DECISION")
-print("-" * 90)
-for r in rows:
-    flag = "⚠️ " if r["ctx"] >= THRESH else "  "
-    print(f"{r['ctx']:>9,}  {r['model']:<10}  {flag}{r['name']:<24}  {r['decision']}")
-print("-" * 90)
-over = [r for r in rows if r["ctx"] >= THRESH]
-print(f"{sum(r['ctx'] for r in rows):>9,}  TOTAL / {len(rows)} sessions · "
-      f"{len(over)} over {THRESH//1000}k · {len(candidates)} to review")
+    # --- report ---
+    print(f"{'CONTEXT':>9}  {'MODEL':<10}  {'SESSION':<26}  DECISION")
+    print("-" * 90)
+    for r in rows:
+        flag = "⚠️ " if r["ctx"] >= THRESH else "  "
+        print(f"{r['ctx']:>9,}  {r['model']:<10}  {flag}{r['name']:<24}  {r['decision']}")
+    print("-" * 90)
+    over = [r for r in rows if r["ctx"] >= THRESH]
+    print(f"{sum(r['ctx'] for r in rows):>9,}  TOTAL / {len(rows)} sessions · "
+          f"{len(over)} over {THRESH//1000}k · {len(candidates)} to review")
 
-# --- by model: a session's context belongs to whichever model is CURRENTLY active
-# (its most recent turn) — this is what's actually pressing on that model's weekly cap.
-by_model = {}
-for r in rows:
-    by_model.setdefault(r["model"], []).append(r)
-model_order = sorted(by_model, key=lambda m: -sum(r["ctx"] for r in by_model[m]))
-print(f"\nBy currently-active model (ranked by summed context):\n")
-print(f"{'CONTEXT':>9}  {'SESSIONS':>8}  MODEL — session list")
-print("-" * 90)
-for model in model_order:
-    sess = by_model[model]
-    names = ", ".join(r["name"] for r in sorted(sess, key=lambda r: -r["ctx"]))
-    print(f"{sum(r['ctx'] for r in sess):>9,}  {len(sess):>8}  {model} — {names}")
-print("-" * 90)
+    # --- by model: a session's context belongs to whichever model is CURRENTLY active
+    # (its most recent turn) — this is what's actually pressing on that model's weekly cap.
+    by_model = {}
+    for r in rows:
+        by_model.setdefault(r["model"], []).append(r)
+    model_order = sorted(by_model, key=lambda m: -sum(r["ctx"] for r in by_model[m]))
+    print(f"\nBy currently-active model (ranked by summed context):\n")
+    print(f"{'CONTEXT':>9}  {'SESSIONS':>8}  MODEL — session list")
+    print("-" * 90)
+    for model in model_order:
+        sess = by_model[model]
+        names = ", ".join(r["name"] for r in sorted(sess, key=lambda r: -r["ctx"]))
+        print(f"{sum(r['ctx'] for r in sess):>9,}  {len(sess):>8}  {model} — {names}")
+    print("-" * 90)
 
-# --- dedup + sleep-gated notify ---
-try:
-    flagged = set(json.load(open(STATE)))
-except Exception:
-    flagged = set()
-new = [c for c in candidates if c not in flagged]
-json.dump(sorted(set(candidates)), open(STATE, "w"))   # persists only current set
+    # --- dedup + sleep-gated notify ---
+    try:
+        flagged = set(json.load(open(STATE)))
+    except Exception:
+        flagged = set()
+    new = [c for c in candidates if c not in flagged]
+    json.dump(sorted(set(candidates)), open(STATE, "w"))   # persists only current set
 
-if NOTIFY and new:
-    if not awake_now():
-        print(f"[asleep {AWAKE}] holding {len(new)} new candidate(s): {', '.join(new)}")
-    else:
-        body = ("Review (idle, may be done): " + ", ".join(new[:5])).replace('"', "'")
-        subprocess.run(["osascript", "-e",
-            f'display notification "{body}" with title "Fleet context — review" sound name "Ping"'])
+    if NOTIFY and new:
+        if not awake_now():
+            print(f"[asleep {AWAKE}] holding {len(new)} new candidate(s): {', '.join(new)}")
+        else:
+            body = ("Review (idle, may be done): " + ", ".join(new[:5])).replace('"', "'")
+            subprocess.run(["osascript", "-e",
+                f'display notification "{body}" with title "Fleet context — review" sound name "Ping"'])
+
+
+if __name__ == "__main__":
+    main()

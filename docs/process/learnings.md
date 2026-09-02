@@ -2,6 +2,30 @@
 
 Technical discoveries that should persist across sessions.
 
+## Fixing A Copy-Pasted Bug In One Script Leaves It Live In Every Other Copy (2026-09-02)
+
+`fleet_budget_watch.py` was fixed on 09-01 to walk transcripts recursively — subagent
+transcripts live at `<dir>/<session-id>/subagents/agent-*.jsonl`, so a plain `<dir>/*.jsonl`
+glob counts main-agent turns only. `fleet_burn_report.py` had the identical line and was
+not touched, because nothing connected the two: the fix was reasoned about as a bug in a
+check, not as a bug in a shared idiom that had been pasted around.
+
+The cost was a wrong number presented as fact. The burn report said the busiest session had
+spent **47.9M today**; the window watch, walking recursively, put the same session at
+**271M over the trailing five hours**. A 5.7x undercount, landing precisely on the
+subagent-heavy sessions the report exists to find — and its figures had already been written
+into the quota trend log.
+
+- **When you fix a bug, grep the repo for the expression you just changed, not for the
+  symptom.** `grep -rn 'glob.glob' scripts/` takes one call and would have found this on
+  09-01. The symptom ("the number looks low") is invisible until something else contradicts it.
+- **Two instruments that measure the same thing are a free consistency check — use it.**
+  This was only caught because an alert and a report disagreed by 5.7x. Cross-read them
+  deliberately rather than waiting for a contradiction big enough to notice.
+- **A monitor's output that feeds a durable log inherits the log's half-life.** The bad
+  figures were already in the trend log before the bug was found; correcting the script is
+  half the fix, correcting what it wrote is the other half.
+
 ## A Hold That Lives Only In A Conversation Dies At The Next Respawn (2026-08-19)
 
 Bryan had told Peer A to pause until he'd reviewed the benchmark usage. An hour later I killed that session and respawned it fresh — a deliberate, agreed context reset — and it immediately started two downstream tasks: a device rehearsal and an announcement draft. It wasn't defying anything. **The pause had never existed anywhere except in the conversation I destroyed.**

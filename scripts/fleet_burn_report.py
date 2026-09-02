@@ -112,7 +112,17 @@ seen = set()
 fleet_models = {}  # model label -> blank_bucket(), summed across the whole fleet
 for pid, cwd in running_claude_cwds().items():
     d = os.path.join(PROJ, encode(cwd))
-    files = glob.glob(os.path.join(d, "*.jsonl"))
+    # RECURSIVE, and it has to be. Subagent transcripts live one and two levels
+    # down -- `<dir>/<session-id>/subagents/agent-*.jsonl` -- so the plain
+    # `<dir>/*.jsonl` glob this replaced counted ONLY main-agent turns.
+    #
+    # Measured 2026-09-02: this report said the Workspaces session had burned
+    # 47.9M today while the 5h window watch, which walks recursively, put the
+    # same session at 271M over the trailing five hours. A 5.7x undercount, and
+    # it lands exactly on the subagent-heavy sessions the report exists to find.
+    # The identical bug was fixed in fleet_budget_watch.py the day before; this
+    # copy was missed, and its numbers went into the quota trend log as fact.
+    files = glob.glob(os.path.join(d, "**", "*.jsonl"), recursive=True)
     if not files: continue
     # a session may have several transcripts in its dir; sum burn across all of them
     agg = {"input": 0, "output": 0, "cache_creation": 0, "cache_read": 0, "total": 0, "turns": 0}

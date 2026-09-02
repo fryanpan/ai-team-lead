@@ -249,6 +249,62 @@ def window_burn(path, cutoff):
                       + u.get("cache_read_input_tokens", 0))
     return total, turns
 
+def verdict_for(fleet_tokens, unprotected_share, headroom, reserve,
+                top_burner, rows):
+    """(verdict, detail) for one window reading.
+
+    THE LEVEL DECIDES THE SEVERITY; THE SPLIT ONLY ESCALATES IT.
+
+    Concentration is scale-free -- the identical 61%/39% line prints at 189M
+    and at 600M -- so it can never establish that anything is wrong on its own.
+    It says WHO is spending, never HOW MUCH IS LEFT. Below the watch line the
+    split is reported as context and the verdict stays OK.
+
+    Shipped wrong on 2026-09-01 and caught the same evening: the absolute
+    thresholds were added and checked first, but the two share rules were left
+    as `elif` fallbacks -- which meant they only ever ran BELOW the watch line,
+    exactly where a share is least informative. The watch then cried BREACH at
+    189M, 45% of the watch line and 43% of the ceiling, while the window had
+    fallen 265M in ninety minutes. That is the original green-through-six-
+    exhaustions bug wearing its own fix as a disguise: a share deciding a
+    verdict. A BREACH nobody needs to act on is how the next real one gets
+    scrolled past.
+    """
+    concentrated = unprotected_share >= FLOOR_ENGAGE and headroom < reserve
+    offender = next((k for k, b in rows if k not in PROTECTED), None)
+    split = (f"unprotected work holds {unprotected_share:.0%}, leaving "
+             f"{headroom:.0%} against a {reserve:.0%} reserve; "
+             f"top unprotected: {offender}.")
+
+    if fleet_tokens >= WINDOW_CEILING_TOKENS:
+        return "BREACH", (
+            f"{WINDOW_H:g}h window at {fleet_tokens/1e6:.0f}M, past the "
+            f"{WINDOW_CEILING_TOKENS/1e6:.0f}M ceiling -- the lowest window we "
+            f"have actually been rate-limited at is 442M. "
+            f"Top burner: {top_burner}. {split}")
+
+    if fleet_tokens >= WINDOW_WATCH_TOKENS:
+        base = (f"{WINDOW_H:g}h window at {fleet_tokens/1e6:.0f}M, past the "
+                f"{WINDOW_WATCH_TOKENS/1e6:.0f}M watch line "
+                f"({fleet_tokens/WINDOW_CEILING_TOKENS:.0%} of ceiling). "
+                f"Top burner: {top_burner}")
+        # Concentration escalates a level that already matters, and only there.
+        if concentrated:
+            return "BREACH", (f"{base}. One project is also running away with "
+                              f"it: {split}")
+        return "WATCH", f"{base}. {split}"
+
+    detail = (f"{WINDOW_H:g}h window at {fleet_tokens/1e6:.0f}M, "
+              f"{fleet_tokens/WINDOW_WATCH_TOKENS:.0%} of the "
+              f"{WINDOW_WATCH_TOKENS/1e6:.0f}M watch line. {split}")
+    if concentrated:
+        # Worth saying, not worth waking anyone: a concentrated small window is
+        # what a single active project looks like, not a threat to the quota.
+        detail += (" Concentrated, but the window is small enough that this is "
+                   "who is working, not a risk.")
+    return "OK", detail
+
+
 def main():
     now = datetime.datetime.now(datetime.timezone.utc)
     cutoff = now - datetime.timedelta(hours=WINDOW_H)
@@ -294,32 +350,8 @@ def main():
     headroom = 1.0 - unprotected_share          # what protected work could still take
 
     top = rows[0] if rows else None
-    verdict, detail = "OK", ""
-    # The absolute reading is checked FIRST and wins. When the window itself is
-    # emptying, which project holds which share is a second-order question --
-    # and reporting the split alone is what let two accounts die green.
-    if fleet_tokens >= WINDOW_CEILING_TOKENS:
-        verdict = "BREACH"
-        detail = (f"5h window at {fleet_tokens/1e6:.0f}M, past the "
-                  f"{WINDOW_CEILING_TOKENS/1e6:.0f}M ceiling -- the lowest "
-                  f"window we have actually been rate-limited at is 442M. "
-                  f"Top burner: {top_burner}")
-    elif fleet_tokens >= WINDOW_WATCH_TOKENS:
-        verdict = "WATCH"
-        detail = (f"5h window at {fleet_tokens/1e6:.0f}M, past the "
-                  f"{WINDOW_WATCH_TOKENS/1e6:.0f}M watch line "
-                  f"({fleet_tokens/WINDOW_CEILING_TOKENS:.0%} of ceiling). "
-                  f"Top burner: {top_burner}")
-    elif unprotected_share >= FLOOR_ENGAGE and headroom < reserve:
-        verdict = "BREACH"
-        offender = next((k for k, b in rows if k not in PROTECTED), None)
-        detail = (f"unprotected work holds {unprotected_share:.0%} of the "
-                  f"{WINDOW_H:g}h window, leaving {headroom:.0%} against a "
-                  f"{reserve:.0%} reserve; top unprotected: {offender}")
-    elif unprotected_share >= FLOOR_ENGAGE:
-        verdict = "WATCH"
-        detail = (f"unprotected work at {unprotected_share:.0%}; reserve still "
-                  f"met ({headroom:.0%} free vs {reserve:.0%} needed)")
+    verdict, detail = verdict_for(fleet_tokens, unprotected_share, headroom,
+                                  reserve, top_burner, rows)
 
     out = {
         "checked_at": now.astimezone().isoformat(timespec="seconds"),

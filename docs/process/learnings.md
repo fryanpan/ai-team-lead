@@ -1436,3 +1436,36 @@ and the session has to be idle inside it.
 The sentinel test worked exactly as `CLAUDE.md` describes it, again: the
 `health-tool` pane rendered `❯ Order the Gicisky tag` and a single typed `X`
 **replaced** it. The editor was empty; the line was a ghost.
+
+## A fix that leaves the old rule as a fallback still ships the old bug (2026-09-01)
+
+`fleet_budget_watch.py` went green through six session-limit exhaustions because
+its verdict was a **share** — scale-free, identical at 4% and 96% of the pool.
+The fix, that same afternoon, added absolute thresholds and checked them
+**first**. Ninety minutes later the watch fired `BREACH` at **189M**, 45% of its
+own 300M watch line, while the window had **fallen 265M** since the previous
+reading.
+
+The absolute checks were an `if/elif` chain and the two share rules were left on
+the end of it. So the share rules could only ever run **below** the watch line —
+exactly the region where a share is least informative — and there the most
+severe word in the vocabulary was the only thing they could say.
+
+- **Adding a better rule above a worse one does not retire the worse one.** It
+  hands it the cases the better rule declines, which are usually the cases it is
+  least fit to judge. Deciding what the old rule may still decide is part of the
+  fix, not a follow-up.
+- **The level decides severity; the split only escalates it.** Concentration now
+  turns WATCH into BREACH past the watch line and does nothing below it. A share
+  says who is spending, never how much is left.
+- **Downgrading a verdict must not delete its information.** The split still
+  prints at every level; only the word changed. A quieter alert and a less
+  informative one are different things.
+- **A BREACH nobody needs to act on is how the next real one gets scrolled
+  past.** The cost of a false alarm in a monitor is not the wasted turn, it is
+  the credibility of every later alarm.
+
+The tell was one number: the standing decision had been recorded at 453M and the
+same "BREACH" arrived at 189M. **Whenever an alert re-fires, read the absolute
+it is derived from before judging it** — a re-fire on a worsening ratio and a
+re-fire on a worsening situation look identical in the message.

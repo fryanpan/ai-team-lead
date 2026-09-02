@@ -104,3 +104,60 @@ def test_the_ceiling_is_below_the_lowest_observed_exhaustion(tmp_path):
 def test_the_watch_line_leaves_room_to_act():
     """A watch line that is nearly the ceiling is a ceiling with extra steps."""
     assert fbw.WINDOW_WATCH_TOKENS <= 0.85 * fbw.WINDOW_CEILING_TOKENS
+
+
+# --- verdict severity comes from the level, never from the split -------------
+#
+# Regression tests for 2026-09-01 (evening). The absolute thresholds were added
+# that afternoon and checked first, but the two share rules stayed as `elif`
+# fallbacks, so they could only run BELOW the watch line. The watch then fired
+# BREACH at 189M while the window was FALLING -- 265M lower than when the
+# standing decision was recorded ninety minutes earlier.
+
+_ROWS = [("noisy-project", {"tokens": 110}), ("ai-team-lead", {"tokens": 20})]
+
+
+def _verdict(fleet_tokens, share=0.61):
+    """Concentrated by construction: share over the floor, headroom under it."""
+    return fbw.verdict_for(fleet_tokens, share, 1.0 - share, 0.40,
+                           "noisy-project", _ROWS)
+
+
+def test_a_small_window_is_ok_however_concentrated_it_is():
+    """The actual shape that misfired: 189M, 61% unprotected, 39% headroom."""
+    verdict, detail = _verdict(189_000_000)
+    assert verdict == "OK", detail
+    assert "BREACH" not in detail
+
+
+def test_a_concentrated_small_window_still_reports_who_is_spending():
+    """Downgrading the verdict must not delete the information."""
+    _, detail = _verdict(189_000_000)
+    assert "61%" in detail
+    assert "noisy-project" in detail
+
+
+def test_the_split_cannot_manufacture_a_breach_at_any_level_below_the_watch_line():
+    """A share is scale-free, so it must not decide severity anywhere here."""
+    for tokens in (1_000_000, 100_000_000, fbw.WINDOW_WATCH_TOKENS - 1):
+        assert _verdict(tokens)[0] == "OK", tokens
+
+
+def test_concentration_escalates_a_level_that_already_matters():
+    """Past the watch line the split is load-bearing again: WATCH -> BREACH."""
+    assert _verdict(fbw.WINDOW_WATCH_TOKENS)[0] == "BREACH"
+    assert _verdict(fbw.WINDOW_WATCH_TOKENS, share=0.20)[0] == "WATCH"
+
+
+def test_the_ceiling_breaches_regardless_of_how_evenly_it_is_split():
+    """An evenly-shared window past the ceiling is still past the ceiling."""
+    verdict, detail = _verdict(fbw.WINDOW_CEILING_TOKENS, share=0.05)
+    assert verdict == "BREACH"
+    assert "442M" in detail, "must carry the measured exhaustion point"
+
+
+def test_every_verdict_states_the_absolute_level():
+    """The level is the part a reader cannot reconstruct from the split."""
+    for tokens in (50_000_000, fbw.WINDOW_WATCH_TOKENS,
+                   fbw.WINDOW_CEILING_TOKENS):
+        assert "M" in _verdict(tokens)[1]

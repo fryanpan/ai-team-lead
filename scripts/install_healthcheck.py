@@ -185,7 +185,13 @@ BASE_CHECKS = [
      "path": "~/Library/Logs/github-channel-broker.log",
      "pattern": r"WARNING|error", "window_minutes": 1440,
      "ignore": r"Failed to start server\. Is port \d+ in use\?",
-     "max_silence_minutes": 360, "max_error_streak": 6},
+     # 900m (15h), not 360m. THIS LOG IS EVENT-DRIVEN: the broker writes on
+     # session register/expire and on watches, and nothing else. Overnight it
+     # legitimately says nothing, so a 6h bound reported "SILENT -- wedged, not
+     # quiet" every morning while /health returned ok with a live session.
+     # Note the timestamps are UTC while the check compares against local
+     # mtime; that mismatch is what made the log look current when it was not.
+     "max_silence_minutes": 900, "max_error_streak": 6},
 
     # --- running but inert: the broker answers {"ok":true} on /health with no
     #     token and simply never polls, so /health is not evidence of anything.
@@ -236,7 +242,11 @@ BASE_CHECKS = [
     {"type": "trend_log", "name": "quota trend log",
      "why": "a dead token-watch reads exactly like a fleet that is fine",
      "path": os.path.join(REPO, "docs/process/token-control.md"),
-     "max_age_hours": 8},
+     # 16h, not 8h. The token-watch fires at 8:07, 13:07 and 18:07, so the
+     # OVERNIGHT gap is structurally ~14h. An 8h bound therefore went RED every
+     # single morning no matter how healthy the meter was -- furniture, and the
+     # kind that trains a reader to skip the whole section.
+     "max_age_hours": 16},
 
     # --- the monitor auditing itself. Editing the repo copy changes nothing;
     #     launchd execs the deployed copy. Without this, a forgotten redeploy

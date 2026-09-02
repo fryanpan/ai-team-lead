@@ -46,7 +46,22 @@ def test_a_two_day_gap_is_red(tmp_path):
     ok, msg = fhc.check_trend_log(spec)
     assert not ok
     assert "STALE" in msg
-    assert "unarmed" in msg, "must name the likely cause, not just the symptom"
+
+
+def test_the_stale_verdict_does_not_assert_an_unverifiable_cause(tmp_path):
+    """It reads a file. It cannot see the scheduler, so it must not name it.
+
+    This check asserted "token-watch cron is probably unarmed" until
+    2026-09-01, when the cron was verified ARMED and simply had not fired for
+    seven days -- a session-scoped job only fires while the REPL is idle. The
+    wrong cause sent a diagnostic pass to re-arm a live job.
+    """
+    spec = _log(tmp_path, (_stamp(48), "- old reading"))
+    ok, msg = fhc.check_trend_log(spec)
+    assert not ok
+    assert "unarmed" not in msg
+    assert "armed" in msg and "fired" in msg, (
+        "must send the reader to check BOTH failures, not assert one")
 
 
 def test_the_newest_entry_wins_regardless_of_file_order(tmp_path):

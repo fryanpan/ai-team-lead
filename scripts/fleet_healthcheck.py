@@ -1261,9 +1261,19 @@ def check_trend_log(spec):
         return False, f"{spec['name']}: no dated entry -- the meter has never been read"
     age_h = (datetime.now() - latest).total_seconds() / 3600
     if age_h > limit_h:
+        # Do NOT name a cause here. This check reads a file; it has no way to
+        # see the scheduler, and the cause it used to assert -- "token-watch
+        # cron is probably unarmed" -- was measurably WRONG on 2026-09-01: the
+        # job was armed (CronList confirmed it) and had simply not fired in
+        # seven days, because a session-scoped cron only fires while the REPL
+        # is idle and this session almost never is. A confident wrong cause is
+        # worse than no cause: it sends the reader to re-arm a live job and
+        # then to report the RED as fixed.
         return False, (f"{spec['name']}: STALE, last reading "
                        f"{latest:%Y-%m-%d %H:%M} ({age_h:.0f}h ago, limit "
-                       f"{limit_h}h) -- token-watch cron is probably unarmed")
+                       f"{limit_h}h) -- no reading has been recorded. Check "
+                       f"whether the token-watch job is armed AND whether it "
+                       f"has actually fired; those are different failures.")
     return True, f"{spec['name']}: read {age_h:.1f}h ago"
 
 

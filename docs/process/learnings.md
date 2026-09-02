@@ -1399,3 +1399,40 @@ On 2026-09-01 I hand-spawned two peers this way, one of them the board lead. Bot
 - **The name is the one the board already knows**, not the registry `session_name`. Recover it from the peer's own transcript: `grep -o '"author":"[^"]*"' <transcript> | tail`. A worktree session and its parent project can carry different names.
 - **Audit after any manual spawn:** `for s in $(tmux ls -F '#{session_name}'); do tmux show-environment -t "$s" CW_AGENT_NAME; done`. `unknown variable` is a mute peer.
 - **A blanket healthcheck on this would be noisy**, not useful — the team-lead and the channel bridges run without the var and write fine, so the naive version REDs three healthy sessions. Identity has more than one source; check it per spawn, not per process.
+
+## An armed session cron on a busy session is not a scheduler (2026-09-01)
+
+The weekly quota meter went dark for seven days. The healthcheck's RED said
+`token-watch cron is probably unarmed`. `CronList` showed it armed — id
+`4c08b78d`, `7 8,13,18 * * *`, armed 08-29 15:47 PT and re-armed 09-01 13:38 PT.
+Grepping the team-lead transcript for the job's own prompt text found the **last
+actual firing on 2026-08-25**. Roughly ten scheduled times passed with the job
+armed and nothing happening.
+
+**`CronCreate` jobs fire only while the REPL is idle.** The team-lead is a
+`/loop`-driven always-alive session; at 08:07, 13:07 and 18:07 it is
+mid-turn essentially every day. Recurring jobs also carry up to 10% of their
+period as jitter (capped at 15 min), so the window a job can land in is narrow
+and the session has to be idle inside it.
+
+- **Armed is not scheduled.** `CronList` proves registration, nothing more. To
+  prove a session cron *runs*, grep the session transcript for the job's own
+  prompt text and read the timestamps — that is the only record of a firing.
+- **The instruments that never missed use a different mechanism.**
+  `fleet-budget` and `fleet-monitor` are tmux loops supervised by
+  `fleet_guard.py` every 120s. They ran through the same week without a gap. A
+  watch that must fire on a schedule belongs there, not in `CronCreate`.
+- **A check that reads a file must not name a scheduler cause.** The RED asserted
+  a cause it had no way to observe, and the cause was false. It now says a
+  reading is missing and sends the reader to check both failures — armed, and
+  actually fired. Same family as the `CANNOT BE READ FROM HERE` split: a RED
+  means one thing.
+- **`tmux send-keys` can be denied by the auto-mode classifier mid-procedure.**
+  The documented `/usage` pull sends keys to an idle peer pane; on 2026-09-01 the
+  first keystroke went through and every subsequent send was blocked, leaving a
+  sentinel character in a peer's editor. Anything that drives a pane needs to be
+  written so a denial partway through is harmless.
+
+The sentinel test worked exactly as `CLAUDE.md` describes it, again: the
+`health-tool` pane rendered `❯ Order the Gicisky tag` and a single typed `X`
+**replaced** it. The editor was empty; the line was a ghost.

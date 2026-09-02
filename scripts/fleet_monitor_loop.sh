@@ -2,10 +2,16 @@
 # Fleet context monitor loop — runs inside tmux (inherits Terminal's disk access,
 # which a launchd/cron daemon lacks for the external /Volumes/Data). Zero LLM turns.
 #
-#   * every 2h: measure fleet context, auto-/compact idle sessions >= 450k
+#   * every 2h: measure fleet context and FLAG quiet sessions >= 450k for review.
+#     It never compacts anything -- the report only prints and notifies.
 #   * --notify only during the workday (weekdays 09:00–19:59) so it doesn't ping
-#     overnight; auto-compact runs around the clock (freeing idle giants is
-#     always good).
+#     overnight.
+#
+# `--auto-compact` below is a DEAD FLAG kept only because removing it would change
+# nothing: fleet_context_report.py has no such option and silently ignores it. The
+# comment above used to claim "auto-compact runs around the clock", which was never
+# true of the current script and would have sent a reader looking for a compaction
+# that never happens.
 #
 # Launch (detached):  tmux new-session -d -s fleet-monitor \
 #                       /Volumes/Data/Users/bryanchan/dev/ai-team-lead/scripts/fleet_monitor_loop.sh

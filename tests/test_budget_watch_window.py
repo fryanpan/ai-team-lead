@@ -76,7 +76,7 @@ def test_window_burn_dedupes_on_request_id(tmp_path):
                 "requestId": "same-request",
                 "message": {"usage": {"input_tokens": 100}},
             }) + "\n")
-    tok, turns = fbw.window_burn(str(p), now - datetime.timedelta(hours=5))
+    tok, turns, _by_model = fbw.window_burn(str(p), now - datetime.timedelta(hours=5))
     assert (tok, turns) == (100, 1)
 
 
@@ -85,7 +85,7 @@ def test_window_burn_excludes_turns_before_the_cutoff(tmp_path):
     p = tmp_path / "t.jsonl"
     _write(str(p), [(now - datetime.timedelta(hours=9), 500),
                     (now - datetime.timedelta(hours=1), 7)])
-    tok, turns = fbw.window_burn(str(p), now - datetime.timedelta(hours=5))
+    tok, turns, _by_model = fbw.window_burn(str(p), now - datetime.timedelta(hours=5))
     assert (tok, turns) == (7, 1)
 
 

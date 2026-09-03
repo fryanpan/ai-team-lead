@@ -143,15 +143,56 @@ def worsened_since(decision, unprotected_share, fleet_tokens):
     what this file already has too many of; the WORSEN_PP move is the
     magnitude test and the level is only a direction check.
 
+    The split test saturates, though: once unprotected share is 99% it cannot
+    move another WORSEN_PP, and a fleet that then doubles its burn would wake
+    nobody. So a material rise in the LEVEL is sufficient on its own. The step
+    reuses WORSEN_PP against the ceiling rather than introducing a third
+    uncalibrated constant -- this file already has more of those than it can
+    revalidate.
+
     A decision recorded before this field existed carries no `tokens`, so it
     falls back to the share-only test rather than going permanently silent.
     """
+    at = decision.get("tokens")
+    if at and fleet_tokens - at >= WORSEN_PP * WINDOW_CEILING_TOKENS:
+        return True                      # burn itself ran away; split is moot
     if unprotected_share - decision.get("share", 0) < WORSEN_PP:
         return False
-    at = decision.get("tokens")
     if not at:
         return True
     return fleet_tokens > at
+
+
+def aged_into_a_question(decision, age_min, fleet_tokens, now_iso):
+    """Has a standing decision aged out into something worth waking for?
+
+    The TTL exists so a decision cannot govern an episode forever. It is not a
+    reason to re-ask about an episode that is RECEDING. At 03:57 on 2026-09-03
+    it woke a human for a fleet burning 304M against a decision recorded at
+    410M -- the fourth consecutive wake reporting an escalation while burn fell
+    151M, and the same shape as the split-vs-level bug in worsened_since: an
+    alert firing on something that got better.
+
+    Below the level the call was made at, the call is still comfortably right.
+    Restart its clock instead, ratcheting the stored level down to the current
+    one so a genuine rebound still fires through worsened_since.
+
+    This cannot make a decision immortal. Once the breach itself clears, the
+    verdict stops being BREACH and carry_decision discards the decision after
+    EPISODE_OVER_MIN. Re-stamping only defers the question while the answer is
+    visibly still yes.
+
+    Mutates `decision` in place when it defers, so the caller writes the
+    refreshed clock back to the state file.
+    """
+    if not (age_min is None or age_min >= DECISION_TTL_MIN):
+        return False
+    at = decision.get("tokens")
+    if at and fleet_tokens < at:
+        decision["at"] = now_iso
+        decision["tokens"] = fleet_tokens
+        return False
+    return True
 
 
 def carry_decision(decision, verdict, now):
@@ -435,7 +476,10 @@ def main():
             # answered is what trains a human to ignore the channel.
             age = _mins_since(decision.get("at", ""))
             worsened = worsened_since(decision, unprotected_share, fleet_tokens)
-            should_wake = worsened or (age is None or age >= DECISION_TTL_MIN)
+            aged_out = aged_into_a_question(
+                decision, age, fleet_tokens,
+                now.astimezone().isoformat(timespec="seconds"))
+            should_wake = worsened or aged_out
         elif prev.get("verdict") != "BREACH":
             should_wake = True                      # newly breached
         else:

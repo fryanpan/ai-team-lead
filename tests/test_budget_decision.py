@@ -93,11 +93,18 @@ def test_more_burn_and_a_wider_split_is_a_real_worsening():
     assert fbw.worsened_since(d, 0.82, 470_000_000)
 
 
-def test_more_burn_alone_is_not_enough():
-    """The split still has to move -- this guards the level test from
-    replacing the share test rather than joining it."""
+def test_a_trivial_rise_without_a_wider_split_is_not_a_worsening():
     d = _decision(share=0.73, tokens=459_000_000)
-    assert not fbw.worsened_since(d, 0.74, 999_000_000)
+    assert not fbw.worsened_since(d, 0.74, 460_000_000)
+
+
+def test_a_material_rise_alone_is_a_worsening_even_at_a_flat_split():
+    """The split test saturates near 100% and would otherwise go deaf to a
+    fleet doubling its burn. The step is WORSEN_PP of the ceiling."""
+    d = _decision(share=0.99, tokens=304_000_000)
+    step = fbw.WORSEN_PP * fbw.WINDOW_CEILING_TOKENS
+    assert not fbw.worsened_since(d, 0.99, 304_000_000 + step - 1)
+    assert fbw.worsened_since(d, 0.99, 304_000_000 + step)
 
 
 def test_a_decision_recorded_before_the_level_was_stored_still_wakes():
@@ -105,3 +112,41 @@ def test_a_decision_recorded_before_the_level_was_stored_still_wakes():
     d = _decision(share=0.73)
     assert "tokens" not in d
     assert fbw.worsened_since(d, 0.82, 454_000_000)
+
+
+# --- the TTL must not re-ask about a receding episode -------------------------
+#
+# 2026-09-03 03:57: the 4h TTL woke a human for a fleet burning 304M against a
+# decision recorded at 410M -- the fourth consecutive wake reporting an
+# escalation while burn fell 151M.
+
+def test_a_fresh_decision_does_not_age_out():
+    d = _decision(tokens=410_000_000)
+    assert not fbw.aged_into_a_question(d, 10, 500_000_000, "now")
+
+
+def test_an_aged_decision_over_a_receding_fleet_restarts_its_clock():
+    """The exact 2026-09-03 case."""
+    d = _decision(tokens=410_000_000)
+    assert not fbw.aged_into_a_question(d, 999, 304_000_000, "restamped")
+    assert d["at"] == "restamped", "clock must restart"
+    assert d["tokens"] == 304_000_000, "baseline must ratchet down"
+
+
+def test_an_aged_decision_over_a_holding_fleet_still_asks():
+    d = _decision(tokens=410_000_000)
+    assert fbw.aged_into_a_question(d, 999, 410_000_000, "now")
+
+
+def test_a_ratcheted_baseline_still_catches_a_rebound():
+    """Deferring must not go deaf -- the restamped level is the new bar."""
+    d = _decision(share=0.99, tokens=410_000_000)
+    fbw.aged_into_a_question(d, 999, 304_000_000, "restamped")
+    step = fbw.WORSEN_PP * fbw.WINDOW_CEILING_TOKENS
+    assert fbw.worsened_since(d, 0.99, 304_000_000 + step)
+
+
+def test_a_decision_with_no_stored_level_keeps_the_plain_age_test():
+    d = _decision()
+    assert "tokens" not in d
+    assert fbw.aged_into_a_question(d, 999, 1, "now")

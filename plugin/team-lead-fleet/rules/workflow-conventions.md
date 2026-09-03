@@ -29,6 +29,17 @@ Turn count is what the weekly meter weights most heavily. Beyond the harness's o
 - **Chain bash with `&&`** when sequential — one call, not three.
 - **Name a cheap model when you dispatch mechanical work.** Sizing passes, QA walkers, sweeps and file scans do not need the model you are running. Measured 2026-08-28: of 3,163 subagent requests across the fleet, **0 ran on Haiku and 45 on Sonnet** — everything else was Opus or Fable, including the mechanical passes. The Agent tool takes a `model` argument; use it. This shifts load off the expensive meter, which is not the same as cutting tokens — a cheaper model that needs twice the turns is a loss.
 
+## The 5-hour session limit is a shared resource, and it is not hypothetical
+
+**The fleet was rejected twice on 2026-09-03**, blocking four projects at once — including the ones that had not been burning. The limit is per-account and machine-wide, so one project's fan-out stops everybody's work, and you cannot tell from inside your own session that you are the cause.
+
+The arithmetic is simple and unforgiving: burn is **turns × context size**, and a mature session costs roughly **160–200k tokens per turn** no matter how small the turn is. Twelve sessions taking 720 turns in an hour spent 119M — enough on its own to project past the ceiling.
+
+- **Cap your own parallel fan-out at three subagents.** Beyond three you are usually buying wall-clock you will spend waiting anyway.
+- **A 35-agent review workflow is a decision, not a default.** It was the single biggest line in the fleet on 2026-09-03. Fan out that wide only when someone asked for it, and never twice on the same artifact — re-verification is one focused agent.
+- **`budget-watch` may send you a `HOLD SUBAGENT FAN-OUT` message. Comply immediately and keep working.** It is not a stop: run your own loop, serialize what you would have parallelized. It lifts itself and tells you when it does. Ignoring it is choosing to block every session on the machine, including your own.
+- **Context size is the other half, and it only ever grows.** `/clear` at a real task boundary, `/compact` mid-task. A session left running for a day pays its whole context on every turn it takes, including the ones that do nothing.
+
 ## Planning
 
 Plans go to `docs/product/plans/<prefix>-plan.md`, `<prefix>` being the ticket or sprint number — ask if unclear. A plan in `.claude/plans/` gets persisted with `/persist-plan`. It carries measurable outcomes, the alternatives you rejected and why, the design, and the execution and testing strategy. Diagrams are mermaid.

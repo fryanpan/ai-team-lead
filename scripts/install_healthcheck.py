@@ -172,7 +172,13 @@ BASE_CHECKS = [
      "path": "~/Library/Logs/notion-channel-receiver.log",
      "pattern": r'"level":\s*"error"', "window_minutes": 90,
      "max_error_streak": 6},
-    {"type": "http", "name": "notion receiver", "url": "http://127.0.0.1:8791/health"},
+    # An `expect` marker, for the same reason the tunnel check above has one.
+    # 2026-09-03: a peer's dev workspaces server bound *:8791 while the receiver
+    # was down, answered this URL, and the check went GREEN -- a port that
+    # replies is not the daemon that is supposed to reply. Notion comments were
+    # dropped for an unknown stretch behind a green check.
+    {"type": "http", "name": "notion receiver", "expect": '"status":"ok"',
+     "url": "http://127.0.0.1:8791/health"},
     # `ignore` covers the broker start race, and nothing else. Every session's
     # MCP server tries to start a broker if one is not already up; when one is,
     # the attempt fails and logs at error level. It is the expected outcome of

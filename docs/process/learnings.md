@@ -1580,3 +1580,13 @@ number and each number was a ratio, not a level.
   thresholds cannot revalidate a fifth.
 
 Fixed in `02fb9eb` (split path) and `784e084` (TTL path).
+
+## A Port That Answers Is Not The Daemon That Should Answer (2026-09-03)
+
+Notion comments stopped reaching the fleet, behind a green check.
+
+- **What happened:** a peer's dev workspaces server bound `*:8791` — the port the notion receiver reserves on `127.0.0.1`. Both bound successfully (different address families), then the receiver exited and only the squatter remained. `cloudflared` forwards `notion-bridge.fryanpan.com` to `localhost:8791`, `localhost` resolved to the IPv6 wildcard first, and the dev server answered every webhook with `{"error":"unknown_host"}`.
+- **The check said ok the whole time.** `{"type": "http", "name": "notion receiver"}` had no `expect` marker, so any response body passed. The sibling tunnel check already carried one, with a comment explaining exactly this — the lesson was written down and the check next to it still shipped without it.
+- **An `expect` marker is identity, not liveness.** Every http check needs a string only the right daemon emits. "Something answered" is the same evidence as "nothing is wrong", and they are not the same fact.
+- **Never point a tunnel origin at `localhost`.** Use `127.0.0.1`. `localhost` resolves to two addresses and hands the traffic to whichever process bound the other family — a silent, invisible reroute.
+- **Same family as the pane, the process table, and the MCP server list.** An external surface answering is not the state you wanted to know.

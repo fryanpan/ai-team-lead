@@ -1552,3 +1552,31 @@ unambiguous `KEY=VALUE` line, showed every name intact.
 The real underlying bug was narrower and did exist: one session's name came from
 `humanize(basename(cwd))` rather than the registry. Reporting five extra
 failures alongside it would have sent someone chasing four that were never real.
+
+## An Alert That Fires On A Ratio Goes Off When The Fleet Gets Better (2026-09-03)
+
+`fleet_budget_watch.py` woke a human four times in a row reporting an escalation while
+fleet burn was **falling**: 459M → 455M → 410M → 304M. Each alert was honest about its own
+number and each number was a ratio, not a level.
+
+- **The unprotected *share* rises when a PROTECTED peer goes quiet.** Burn fell 49M across
+  two wakes while the split climbed 73% → 82% → 90%, purely because `project-alpha`
+  wound down. The escalation was an artifact of the denominator.
+- **The staleness TTL then did the same thing on a clock.** At 03:57 it re-asked about a
+  fleet burning 304M against a decision recorded at 410M. A TTL keeps a decision from
+  governing forever; it is not a reason to re-ask while the episode recedes.
+- **The tell is the direction.** Both alerts fired on an improvement. Whenever an alert's
+  own trend and the thing it is protecting move in opposite directions, the alert is
+  reading a derived quantity and the fix is to gate it on the level.
+- **This was already decided once.** `d7c2073` ruled that the level decides severity, not
+  the split — but it only touched the verdict path. The wake path kept the old test and
+  the same bug shipped twice more. **When you rule on a principle, grep for every place
+  that computes the thing you just ruled against**; fixing the instance you were shown
+  leaves the others to re-teach it later.
+- **Suppressing a ratio can go deaf.** Once unprotected share hits 99% it cannot move
+  another 6pp, so the split test could no longer fire at all — a fleet doubling its burn
+  would have alerted nobody. A suppression fix needs a level-based arm to replace what it
+  silences. Reuse an existing constant for the step; a watcher with four uncalibrated
+  thresholds cannot revalidate a fifth.
+
+Fixed in `02fb9eb` (split path) and `784e084` (TTL path).

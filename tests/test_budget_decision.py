@@ -150,3 +150,36 @@ def test_a_decision_with_no_stored_level_keeps_the_plain_age_test():
     d = _decision()
     assert "tokens" not in d
     assert fbw.aged_into_a_question(d, 999, 1, "now")
+
+
+# --- a correct signal still needs a floor on how often it fires ---------------
+#
+# 2026-09-03 11:30: burn rose 341M -> 381M, a real 40M worsening, 12 minutes
+# after the escalation went to Bryan. The wake was right and useless -- there
+# was no second decision to make until he answered. The decision branch had no
+# REWAKE_MINUTES floor at all, so a steadily-climbing fleet can wake every run.
+
+def test_a_real_worsening_still_waits_out_the_rewake_floor():
+    assert not fbw.wake_now(worsened=True, aged_out=False,
+                            mins_since_last_wake=12)
+
+
+def test_a_real_worsening_fires_once_the_floor_has_passed():
+    assert fbw.wake_now(worsened=True, aged_out=False,
+                        mins_since_last_wake=fbw.REWAKE_MINUTES)
+
+
+def test_the_floor_does_not_invent_a_wake():
+    assert not fbw.wake_now(worsened=False, aged_out=False,
+                            mins_since_last_wake=999)
+
+
+def test_a_first_wake_has_no_previous_one_to_wait_on():
+    assert fbw.wake_now(worsened=True, aged_out=False,
+                        mins_since_last_wake=None)
+
+
+def test_ageing_out_is_floored_too():
+    """4h TTL already clears 60min, but the floor must not depend on that."""
+    assert not fbw.wake_now(worsened=False, aged_out=True,
+                            mins_since_last_wake=5)

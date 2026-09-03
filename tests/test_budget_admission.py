@@ -184,3 +184,35 @@ def test_a_project_that_has_stopped_is_still_a_target_while_its_window_is_big():
 def test_the_biggest_recent_burner_is_the_one_asked_in_the_soft_band():
     rows = _rows2(("historic", 0.60, 0.05), ("current", 0.10, 0.70))
     assert fbw.hold_targets(rows, "hold-top", {}) == ["current"]
+
+
+# --- a peer that has nothing left to give -------------------------------------
+
+def test_a_peer_that_acked_is_not_asked_again():
+    """ClientOrg on 2026-09-03: 66% of recent burn, all of it Bryan's own live
+    review. No fan-out left to cut, so a re-ask is an alert fired at somebody
+    who cannot act on it -- the exact failure this file exists to remove."""
+    prev = {"a": {"at": "2026-09-03T15:00:00-07:00",
+                  "acked_at": "2026-09-03T16:25:00-07:00"}}
+    ask, _ = fbw.holds_to_send(["a"], prev, "2026-09-03T17:00:00-07:00")
+    assert ask == []
+
+
+def test_an_ack_expires():
+    """'Nothing to cut' is a statement about right now, not forever."""
+    prev = {"a": {"at": "2026-09-03T15:00:00-07:00",
+                  "acked_at": "2026-09-03T10:00:00-07:00"}}
+    ask, _ = fbw.holds_to_send(["a"], prev, "2026-09-03T17:00:00-07:00")
+    assert ask == ["a"]
+
+
+def test_an_acked_peer_is_still_released_when_it_stops_being_a_target():
+    prev = {"a": {"at": "2026-09-03T15:00:00-07:00",
+                  "acked_at": "2026-09-03T16:55:00-07:00"}}
+    _, release = fbw.holds_to_send([], prev, "2026-09-03T17:00:00-07:00")
+    assert release == ["a"]
+
+
+def test_a_missing_hold_record_is_not_an_ack():
+    assert not fbw.acked_recently(None, "2026-09-03T17:00:00-07:00")
+    assert not fbw.acked_recently({}, "2026-09-03T17:00:00-07:00")

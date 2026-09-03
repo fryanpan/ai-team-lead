@@ -1590,3 +1590,13 @@ Notion comments stopped reaching the fleet, behind a green check.
 - **An `expect` marker is identity, not liveness.** Every http check needs a string only the right daemon emits. "Something answered" is the same evidence as "nothing is wrong", and they are not the same fact.
 - **Never point a tunnel origin at `localhost`.** Use `127.0.0.1`. `localhost` resolves to two addresses and hands the traffic to whichever process bound the other family — a silent, invisible reroute.
 - **Same family as the pane, the process table, and the MCP server list.** An external surface answering is not the state you wanted to know.
+
+## A Level That Never Comes Back Down Is Not A Signal (2026-09-03)
+
+The swap check went RED above a flat 8.0GB in use, every run, for weeks.
+
+- **The ceiling sat on the median.** 1,887 fleet-guard samples across three days: median swap in use was 1.3GB at 5 sessions, 5.8GB at 10, **8.0GB at 11 and 10.5GB at 12** — and 11–12 is the fleet's normal size. A threshold at the median of normal operation is furniture on arrival.
+- **macOS never gives the allocation back.** Once a page is written out the number stays counted long after the pressure ends, so the metric ratchets and cannot report recovery. Any alarm on it is one-way.
+- **Measured what actually hurts instead:** swapout rate over a short sample. At the moment the level check was screaming at 8.7GB, real activity was 0.0MB/s out and 0.5MB/s in — the machine was reading pages back, not drowning.
+- **The old message asserted a cause the check could not observe** — "the machine is paging, which is what 'feels slow' is". Same error as 87a0295, in a different check.
+- **Test the direction of the fix, not just the threshold.** The tests assert that a full swap file with no activity is green and that sustained swapout is red *from an empty swap file* — which is the pair that proves the metric changed, not the number.

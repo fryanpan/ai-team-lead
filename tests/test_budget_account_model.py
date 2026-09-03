@@ -104,3 +104,27 @@ def test_pools_are_ordered_by_which_resets_next():
 def test_a_pool_with_no_reset_time_sorts_last_rather_than_crashing():
     ledger = {"known": {"resets": "2026-09-04T03:59:00-07:00"}, "unknown": {}}
     assert fbw.pools_by_next_reset(ledger) == ["known", "unknown"]
+
+
+# --- a malformed flag must not kill the watcher -------------------------------
+#
+# 2026-09-03: `--resets` typed with no value after it raised IndexError from an
+# import-time constant, so the run produced no output at all. A watcher that
+# dies silently is worse than one that reports the wrong thing.
+
+def test_a_flag_with_no_value_exits_with_a_message(monkeypatch):
+    monkeypatch.setattr(fbw.sys, "argv", ["fleet_budget_watch.py", "--resets"])
+    with pytest.raises(SystemExit) as e:
+        fbw.argval("--resets", "", str)
+    assert "--resets" in str(e.value)
+
+
+def test_a_flag_with_a_value_still_reads_it(monkeypatch):
+    monkeypatch.setattr(fbw.sys, "argv",
+                        ["fleet_budget_watch.py", "--window-hours", "3.5"])
+    assert fbw.argval("--window-hours", 5.0, float) == 3.5
+
+
+def test_an_absent_flag_is_the_default(monkeypatch):
+    monkeypatch.setattr(fbw.sys, "argv", ["fleet_budget_watch.py"])
+    assert fbw.argval("--window-hours", 5.0, float) == 5.0

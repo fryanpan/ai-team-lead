@@ -163,6 +163,32 @@ def worsened_since(decision, unprotected_share, fleet_tokens):
     return fleet_tokens > at
 
 
+def wake_now(worsened, aged_out, mins_since_last_wake):
+    """Gate a justified wake behind a floor on how often it can fire.
+
+    A signal can be correct and still useless. On 2026-09-03 11:30 burn rose
+    341M -> 381M -- a real 40M worsening that the level test rightly caught --
+    twelve minutes after an escalation had gone to Bryan and was awaiting his
+    answer. There was no second decision to make in those twelve minutes, and
+    the decision branch had no REWAKE_MINUTES floor at all, so a fleet climbing
+    steadily can wake on every run.
+
+    The floor applies to ageing out as well. DECISION_TTL_MIN already clears it
+    by a wide margin, but a floor that holds only because another constant
+    happens to be larger is not a floor.
+
+    This trades latency for signal: something that gets dramatically worse
+    inside the window waits up to REWAKE_MINUTES to be reported. That is the
+    right trade for a human who cannot act twice in an hour anyway, and the
+    standing decision already names when the next reading is taken.
+    """
+    if not (worsened or aged_out):
+        return False
+    if mins_since_last_wake is None:
+        return True
+    return mins_since_last_wake >= REWAKE_MINUTES
+
+
 def aged_into_a_question(decision, age_min, fleet_tokens, now_iso):
     """Has a standing decision aged out into something worth waking for?
 
@@ -479,7 +505,8 @@ def main():
             aged_out = aged_into_a_question(
                 decision, age, fleet_tokens,
                 now.astimezone().isoformat(timespec="seconds"))
-            should_wake = worsened or aged_out
+            should_wake = wake_now(worsened, aged_out,
+                                   _mins_since(prev.get("woke_at", "")))
         elif prev.get("verdict") != "BREACH":
             should_wake = True                      # newly breached
         else:

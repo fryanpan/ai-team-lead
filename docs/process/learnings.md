@@ -1520,3 +1520,35 @@ stopped meaning the same thing the moment the pool changed, and nothing in the s
 
 **The rule: a threshold gets recorded with the measurement it came from, and re-derived — not
 re-used — when that measurement is superseded.**
+
+## A Control That Proves Presence Does Not Validate A Reading Of Value (2026-09-02)
+
+While diagnosing one session's missing board identity, I checked every session's
+`CW_AGENT_NAME` and reported that **five of eight peers had truncated names** —
+`Health` for "Health Tool", `Job` for "Peer Alpha", `Team` for "Team Lead". It
+looked like a serious fleet-wide bug and it was entirely my measurement:
+`ps -wwwE -p $pid | tr ' ' '\n' | grep '^CW_AGENT_NAME='` splits on spaces, so
+any value containing one is cut at the first word before grep ever sees it.
+
+**The part worth remembering is that I DID run a control, and it passed.** The
+control counted whether the variable was *present* across sessions — six 1s and
+one 0 — which correctly identified the one broken session and told me nothing
+about whether I could read a value. Presence and value are different claims and
+need different controls. Switching to `tmux show-environment`, which returns one
+unambiguous `KEY=VALUE` line, showed every name intact.
+
+- **A pipeline that reshapes data can destroy the property you are measuring.**
+  `tr`, `awk` field-splitting, `cut -d' '`, `xargs` — all silently mangle values
+  containing the delimiter, and the output still looks like a clean answer.
+- **Match the control to the claim.** "Is it set?" and "what is it set to?" are
+  separate questions; passing the first buys nothing for the second.
+- **Prefer a source that returns structure.** `tmux show-environment`, `--json`,
+  `-0`/null-delimited output — anything that does not require you to re-parse a
+  space-separated blob you did not format.
+- **The tell was in the data.** Every single-word name survived and every
+  multi-word one was cut at the first space. A defect that correlates perfectly
+  with a property of your *parser* rather than of the system is the parser's.
+
+The real underlying bug was narrower and did exist: one session's name came from
+`humanize(basename(cwd))` rather than the registry. Reporting five extra
+failures alongside it would have sent someone chasing four that were never real.

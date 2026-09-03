@@ -84,11 +84,19 @@ def test_hold_all_asks_everyone_material():
     assert fbw.hold_targets(rows, "hold-all", {}) == ["big", "mid"]
 
 
-def test_protected_work_is_never_throttled():
-    """Protected burn is the reserve this script exists to defend. Throttling
-    it to protect it is the same error as an alert that fires on improvement."""
-    rows = _rows(("big", 0.65), ("guarded", 0.30))
-    assert fbw.hold_targets(rows, "hold-all", {"guarded": 0.4}) == ["big"]
+def test_protection_decides_who_is_trimmed_first_in_the_soft_band():
+    """There is a choice here about whose fan-out to cut, and protected work
+    should not be the one cut."""
+    rows = _rows(("guarded", 0.55), ("big", 0.40))
+    assert fbw.hold_targets(rows, "hold-top", {"guarded": 0.4}) == ["big"]
+
+
+def test_protection_stops_applying_in_the_rejection_band():
+    """The limit is per-account and machine-wide. A protected project that
+    keeps fanning out there is spending the window that blocks itself, so
+    exempting it protects the label and loses the work."""
+    rows = _rows(("big", 0.60), ("guarded", 0.30))
+    assert fbw.hold_targets(rows, "hold-all", {"guarded": 0.4}) == ["big", "guarded"]
 
 
 def test_a_top_burner_below_the_bar_is_not_worth_asking_alone():

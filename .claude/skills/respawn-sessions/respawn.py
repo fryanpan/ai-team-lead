@@ -518,6 +518,53 @@ def registry_home_for(path: str) -> Optional[str]:
     return None
 
 
+_REGISTRY_NAMES_CACHE: Optional[List[Tuple[str, str]]] = None
+
+
+def registry_session_name_for(path: str) -> Optional[str]:
+    """The board identity the registry assigns to the project owning `path`.
+
+    `session_name` IS the board identity -- every other mode passes it straight
+    through as CW_AGENT_NAME. `--mode running` instead derived a name from the
+    live process, down a chain ending at humanize(basename(cwd)), which agrees
+    with the registry only when the directory happens to be named after the
+    agent. Where they disagree the registry is right by definition:
+    `claude-live-feedback-plugin` is the repo, `Workspaces` is the agent.
+
+    Three things must line up to hit this, which is why it stayed hidden: a
+    session spawned OUTSIDE this script (so no `-n`, no identity var, and no
+    resolvable tmux ancestor -- the whole chain falls through) AND a directory
+    name that differs from the agent name. Measured 2026-09-02: such a session
+    came back as "Claude Live Feedback Plugin" and every board write it made
+    was rejected as a shared identity.
+
+    Ranked ABOVE argv's `-n` deliberately. `-n` is just the display name some
+    earlier spawn used, so a wrong name propagates through every subsequent
+    respawn -- the registry is the only source that can break that loop.
+
+    Returns None for a path no registry project owns (a worktree under an
+    unregistered repo, a project the registry never got), leaving the old
+    chain to run for those.
+    """
+    global _REGISTRY_NAMES_CACHE
+    if _REGISTRY_NAMES_CACHE is None:
+        pairs: List[Tuple[str, str]] = []
+        for name, fields in parse_registry(REGISTRY_PATH).items():
+            raw = fields.get("path", "")
+            if not raw:
+                continue
+            p = os.path.realpath(os.path.expanduser(raw))
+            if os.path.isdir(p):
+                pairs.append((p, fields.get("session_name", "") or humanize(name)))
+        # Longest first so a nested project wins over its parent.
+        _REGISTRY_NAMES_CACHE = sorted(pairs, key=lambda t: len(t[0]), reverse=True)
+    real = os.path.realpath(path)
+    for project, session_name in _REGISTRY_NAMES_CACHE:
+        if real == project or real.startswith(project + os.sep):
+            return session_name
+    return None
+
+
 AGENT_NAME_VARS = ("CW_AGENT_NAME", "FEEDBACK_AGENT_NAME")
 
 
@@ -593,8 +640,10 @@ def collect_running_targets(running: Dict[int, Dict[str, str]],
         # which is why it survived: the dry run prints the name, and every
         # session that had ever been checked had -n last.
         m = re.search(r"\s-n\s+(.+?)(?=\s+--|$)", info["argv"])
-        display = m.group(1).strip() if m else (
-            agent_name_from_env(pid)
+        display = (
+            registry_session_name_for(cwd)
+            or (m.group(1).strip() if m else None)
+            or agent_name_from_env(pid)
             or _ancestor_tmux_session(pid, pane_owner)
             or humanize(os.path.basename(cwd)))
         home = resolve_home_path(cwd)

@@ -85,3 +85,62 @@ def test_ps_failing_is_none_not_an_exception(monkeypatch):
         raise OSError("no ps")
     monkeypatch.setattr(respawn.subprocess, "run", boom)
     assert respawn.agent_name_from_env(1) is None
+
+
+# --- the registry is the authority for the board name -------------------------
+#
+# 2026-09-02: a session spawned outside respawn.py had no `-n`, no identity var
+# and no resolvable tmux ancestor, so the whole chain fell through to
+# humanize(basename(cwd)) and it came back as "Claude Live Feedback Plugin".
+# Its board writes were rejected. The registry knew it as "Workspaces" the
+# entire time and nothing asked.
+
+def _fake_registry(monkeypatch, projects):
+    monkeypatch.setattr(respawn, "_REGISTRY_NAMES_CACHE", None)
+    monkeypatch.setattr(respawn, "parse_registry", lambda _p: projects)
+    monkeypatch.setattr(respawn.os.path, "isdir", lambda _p: True)
+    monkeypatch.setattr(respawn.os.path, "realpath", lambda p: p)
+
+
+def test_the_registry_name_beats_the_directory_name(monkeypatch):
+    _fake_registry(monkeypatch, {
+        "claude-live-feedback-plugin": {
+            "path": "/dev/claude-live-feedback-plugin",
+            "session_name": "Workspaces"},
+    })
+    assert (respawn.registry_session_name_for("/dev/claude-live-feedback-plugin")
+            == "Workspaces")
+
+
+def test_a_worktree_inherits_its_project_name(monkeypatch):
+    """A peer in a worktree is still that peer on the board."""
+    _fake_registry(monkeypatch, {
+        "project-alpha": {"path": "/dev/project-alpha",
+                                  "session_name": "ClientOrg Project Beta"},
+    })
+    assert (respawn.registry_session_name_for(
+        "/dev/project-alpha/worktrees/feature-worktree/x")
+        == "ClientOrg Project Beta")
+
+
+def test_a_nested_project_wins_over_its_parent(monkeypatch):
+    _fake_registry(monkeypatch, {
+        "outer": {"path": "/dev/outer", "session_name": "Outer"},
+        "inner": {"path": "/dev/outer/inner", "session_name": "Inner"},
+    })
+    assert respawn.registry_session_name_for("/dev/outer/inner") == "Inner"
+
+
+def test_an_unregistered_path_falls_through_to_the_old_chain(monkeypatch):
+    """None, not a guess -- the rest of the chain still has to run."""
+    _fake_registry(monkeypatch, {
+        "known": {"path": "/dev/known", "session_name": "Known"},
+    })
+    assert respawn.registry_session_name_for("/dev/somewhere-else") is None
+
+
+def test_an_entry_without_session_name_humanizes_its_key(monkeypatch):
+    _fake_registry(monkeypatch, {
+        "peer-bravo": {"path": "/dev/peer-bravo"},
+    })
+    assert respawn.registry_session_name_for("/dev/peer-bravo") == "Peer Bravo"

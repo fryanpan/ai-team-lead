@@ -1610,3 +1610,34 @@ The fleet was rate-limited twice in one day while `fleet_budget_watch.py` worked
 - **The lever is concurrency, never a stop.** A peer told to stop is work Bryan does not get; a peer told to stop fanning out subagents keeps its own loop and gives back most of the burn. Floor is never zero.
 - **A hold with no release is a permanent throttle nobody remembers setting.** Pair every ask with the condition that lifts it, and store both.
 - **Sample faster inside the band you are managing.** A 15-minute loop is short against a five-hour window and far too long against a fleet that went 131M → 684M projected between two runs.
+
+## Burn Is Turns × Context, And Nobody Ever Looks At The Second Half (2026-09-03)
+
+Every throttle discussion this project has had was about turns: cap the fan-out,
+serialize the batch, stop dispatching subagents. Measuring the 5h window
+per-project made the other half visible and it is the larger one.
+
+Across 4,473 fleet turns in five hours, **every project sat at ~175k tokens per
+turn** — 174k, 175k, 196k, within noise of each other. That is a fully-loaded
+context. It means a one-line "on it, fixing now" costs the same as a
+twelve-file refactor, and the number of turns *is* the bill.
+
+Two consequences that are invisible if you only count turns:
+
+- **The responsiveness rules are expensive.** "Ack on the thread first, fix
+  after", one reply per thread, shorter turns while comments are flowing — all
+  correct for the reader, and each extra turn is another 175k. Three threads
+  answered in one turn cost 175k; the same words in three turns cost 525k.
+- **`/clear` is a bigger lever than any throttle.** A session that clears at a
+  task boundary and re-reads the one doc it needs comes back at a fraction of
+  the cost, for hundreds of turns. Nothing in the fleet was doing this, because
+  the cost of *not* doing it never appears anywhere a session can see.
+
+The uniformity is the finding. If per-turn cost varied by project you would
+look for a bad actor; at 175k everywhere it is structural, and it means the
+cheapest available saving is not asking anyone to do less work.
+
+**Where a burn number comes from matters as much as its size.** ClientOrg was 30% of
+the 5h window and 44% of the last hour, and all of it was Bryan's own live
+review — twelve threads in forty minutes. A hold aimed there throttles Bryan,
+not the fleet. Ask what is generating the turns before asking anyone to stop.

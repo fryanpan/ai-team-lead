@@ -769,8 +769,15 @@ def main():
         "verdict": verdict,
         "detail": detail,
         "projects": [
+            # `recent` belongs in the state file, not only in the hold maths.
+            # The 5h window and the last hour disagree exactly when a hold is
+            # being decided, and a reader who can only see the window cannot
+            # tell whether a hold is working -- which is the one question the
+            # state file exists to answer.
             {"project": k, "tokens": b["tokens"], "turns": b["turns"],
              "share": round(b["share"], 4),
+             "recent": b.get("recent", 0),
+             "recent_share": round(b.get("recent_share", 0), 4),
              "protected": k in PROTECTED}
             for k, b in rows
         ],

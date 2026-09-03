@@ -72,3 +72,36 @@ def test_corrupt_timestamp_expires_rather_than_pins_forever():
 
 def test_no_decision_stays_none():
     assert fbw.carry_decision(None, "BREACH", NOW) is None
+
+
+# --- a rising split is not a worsening fleet ---------------------------------
+#
+# 2026-09-02 23:00: the fleet total fell 459M -> 454M while unprotected share
+# rose 73% -> 82%, because a PROTECTED peer (project-alpha, 25% -> 16%)
+# went quiet. `worsened` read only the share, so falling burn woke a human to
+# re-decide a breach that was receding. Same lesson as d7c2073 -- the level
+# decides severity, not the split -- reaching the wake path it did not touch.
+
+def test_a_quiet_protected_peer_does_not_manufacture_a_worsening():
+    """The exact 2026-09-02 case: share up 9pp, fleet total down."""
+    d = _decision(share=0.73, tokens=459_000_000)
+    assert not fbw.worsened_since(d, 0.82, 454_000_000)
+
+
+def test_more_burn_and_a_wider_split_is_a_real_worsening():
+    d = _decision(share=0.73, tokens=459_000_000)
+    assert fbw.worsened_since(d, 0.82, 470_000_000)
+
+
+def test_more_burn_alone_is_not_enough():
+    """The split still has to move -- this guards the level test from
+    replacing the share test rather than joining it."""
+    d = _decision(share=0.73, tokens=459_000_000)
+    assert not fbw.worsened_since(d, 0.74, 999_000_000)
+
+
+def test_a_decision_recorded_before_the_level_was_stored_still_wakes():
+    """No `tokens` key -> fall back to the share-only test, not silence."""
+    d = _decision(share=0.73)
+    assert "tokens" not in d
+    assert fbw.worsened_since(d, 0.82, 454_000_000)

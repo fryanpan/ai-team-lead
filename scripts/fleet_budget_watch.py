@@ -123,6 +123,37 @@ FLOOR_ENGAGE = 0.55
 WINDOW_WATCH_TOKENS = argval("--watch-tokens", 300_000_000, int)
 WINDOW_CEILING_TOKENS = argval("--ceiling-tokens", 420_000_000, int)
 
+def worsened_since(decision, unprotected_share, fleet_tokens):
+    """Has the picture actually moved against a standing decision?
+
+    The split alone cannot answer this. Unprotected share rises whenever a
+    PROTECTED peer goes quiet, so a fleet whose total burn is FALLING can
+    manufacture a rising share and wake a human to re-decide a breach that is
+    receding. On 2026-09-02 23:00 that is exactly what happened: fleet total
+    459M -> 454M, unprotected share 73% -> 82%, because project-alpha
+    (protected) dropped 25% -> 16%. Nothing got worse; the alert said it had,
+    and the wake cost a turn at 11pm.
+
+    Same lesson as d7c2073 -- let the level decide severity, not the split --
+    reaching the wake path, which that commit did not touch. A wake now needs
+    BOTH: the split moved against the decision by WORSEN_PP, AND the fleet is
+    burning more than when the decision was recorded.
+
+    No margin on the level test on purpose. A second uncalibrated number is
+    what this file already has too many of; the WORSEN_PP move is the
+    magnitude test and the level is only a direction check.
+
+    A decision recorded before this field existed carries no `tokens`, so it
+    falls back to the share-only test rather than going permanently silent.
+    """
+    if unprotected_share - decision.get("share", 0) < WORSEN_PP:
+        return False
+    at = decision.get("tokens")
+    if not at:
+        return True
+    return fleet_tokens > at
+
+
 def carry_decision(decision, verdict, now):
     """Should a standing decision survive this wake?
 
@@ -383,7 +414,8 @@ def main():
     if DECIDE:
         decision = {"text": DECIDE,
                     "at": now.astimezone().isoformat(timespec="seconds"),
-                    "share": round(unprotected_share, 4)}
+                    "share": round(unprotected_share, 4),
+                    "tokens": fleet_tokens}
     else:
         decision = carry_decision(prev.get("decision") or None, verdict, now)
     out["decision"] = decision
@@ -402,7 +434,7 @@ def main():
             # changes. Silence is the POINT -- re-asking a question already
             # answered is what trains a human to ignore the channel.
             age = _mins_since(decision.get("at", ""))
-            worsened = unprotected_share - decision.get("share", 0) >= WORSEN_PP
+            worsened = worsened_since(decision, unprotected_share, fleet_tokens)
             should_wake = worsened or (age is None or age >= DECISION_TTL_MIN)
         elif prev.get("verdict") != "BREACH":
             should_wake = True                      # newly breached

@@ -60,6 +60,10 @@ WINDOW_H = argval("--window-hours", 5.0, float)
 AS_JSON = "--json" in sys.argv
 NOTIFY = "--notify" in sys.argv
 WAKE = "--wake" in sys.argv
+# Acting on the finding, not just reporting it. Off by default so a
+# by-hand run stays a read; the monitor loop passes it.
+ENFORCE = "--enforce" in sys.argv
+RECENT_H = argval("--recent-hours", 1.0, float)
 HIVE = "http://127.0.0.1:7900/send-message"
 TEAM_LEAD_STABLE_ID = "6e87a52503d5"
 # While a breach persists, re-wake on this cadence. A breach that is still true
@@ -404,8 +408,15 @@ def pools_by_next_reset(ledger):
     return [k for k, _ in sorted(ledger.items(), key=key)]
 
 
-def window_burn(path, cutoff):
+def window_burn(path, cutoff, recent_cutoff=None):
     """Sum per-turn usage for turns at or after `cutoff` (an aware datetime).
+
+    `recent_cutoff` (later than `cutoff`) additionally reports the tail of the
+    same window in the SAME pass. The tail is what makes prevention possible:
+    the 5h window is trailing, so it only crosses the ceiling after the
+    rejections have already happened, while the last hour says where it is
+    going. Parsing these files twice to learn that would cost more than the
+    burn it saves.
 
     Dedupes on requestId: a transcript writes one record per content block and
     every one repeats the SAME usage object, so summing records counts each
@@ -415,12 +426,13 @@ def window_burn(path, cutoff):
     """
     total = 0
     turns = 0
+    recent = 0
     by_model = {}
     seen = set()
     try:
         f = open(path)
     except OSError:
-        return 0, 0, {}
+        return (0, 0, {}, 0) if recent_cutoff else (0, 0, {})
     with f:
         for line in f:
             try: o = json.loads(line)
@@ -446,8 +458,12 @@ def window_burn(path, cutoff):
                  + u.get("cache_creation_input_tokens", 0)
                  + u.get("cache_read_input_tokens", 0))
             total += n
+            if recent_cutoff is not None and dt >= recent_cutoff:
+                recent += n
             label = model_label(msg.get("model"))
             by_model[label] = by_model.get(label, 0) + n
+    if recent_cutoff is not None:
+        return total, turns, by_model, recent
     return total, turns, by_model
 
 def verdict_for(fleet_tokens, unprotected_share, headroom, reserve,
@@ -506,6 +522,145 @@ def verdict_for(fleet_tokens, unprotected_share, headroom, reserve,
     return "OK", detail
 
 
+# ---------------------------------------------------------- admission control
+#
+# 2026-09-03: the fleet was rate-limited twice in one day while this script was
+# working perfectly. It measured, it woke a human, and the human read it after
+# the rejections. Bryan's instruction was "your responsibility is to do what's
+# necessary to avoid it", which makes acting part of the job rather than a
+# Tier-2 request.
+#
+# The trailing window CANNOT be the trigger. It reaches the ceiling only after
+# five hours of burn that already happened; steering on it is steering by the
+# rear-view mirror. The last hour, run forward, is the earliest honest estimate
+# of where the window lands.
+#
+# The lever is CONCURRENCY, never a stop. A peer told to stop is a peer whose
+# work Bryan does not get; a peer told to stop fanning out subagents keeps its
+# own loop and gives back most of the burn. Floor is never zero.
+
+SOFT_CEILING_FRACTION = 0.70     # of WINDOW_CEILING_TOKENS, on the PROJECTION
+RATE_LIMITED_FLOOR = 442_000_000  # lowest window we have actually been rejected at
+HOLD_TOP_SHARE = 0.25            # a project big enough to be worth asking alone
+HOLD_ALL_SHARE = 0.10            # everyone material, once we are in the danger band
+HOLD_COOLDOWN_MIN = 30           # do not re-ask a peer that has just been asked
+
+
+def projected_window(recent_tokens, recent_hours, window_hours):
+    """Where the trailing window lands if the last `recent_hours` continue.
+
+    Deliberately naive. A smarter projection would need a burn model nobody
+    has, and the failure this exists to prevent is not subtlety -- it is being
+    told about the wall after hitting it.
+    """
+    if recent_hours <= 0:
+        return 0
+    return int(recent_tokens / recent_hours * window_hours)
+
+
+def admission_level(window_tokens, projected, ceiling=None, floor=None):
+    """clear | hold-top | hold-all.
+
+    Two independent ways in, because they catch different shapes. `projected`
+    catches a fleet that is accelerating and has not arrived yet -- the case
+    that is still preventable. `window_tokens` catches one that is already in
+    the band where we have been rejected before, however it got there.
+    """
+    ceiling = WINDOW_CEILING_TOKENS if ceiling is None else ceiling
+    floor = RATE_LIMITED_FLOOR if floor is None else floor
+    if window_tokens >= floor or projected >= ceiling:
+        return "hold-all"
+    if projected >= SOFT_CEILING_FRACTION * ceiling:
+        return "hold-top"
+    return "clear"
+
+
+def hold_targets(rows, level, protected=None):
+    """Who gets asked, in descending share. Never a protected project.
+
+    Protected work is the reserve the whole script exists to defend; throttling
+    it to protect it would be the same error as an alert that fires when the
+    fleet improves.
+    """
+    protected = PROTECTED if protected is None else protected
+    if level == "clear":
+        return []
+    floor = HOLD_TOP_SHARE if level == "hold-top" else HOLD_ALL_SHARE
+    out = [k for k, b in rows
+           if k not in protected and b.get("share", 0) >= floor]
+    return out[:1] if level == "hold-top" else out
+
+
+def holds_to_send(targets, prev_holds, now_iso, cooldown_min=None):
+    """(to_ask, to_release), given who is already holding.
+
+    Releasing matters as much as asking. A hold with no release is a permanent
+    throttle that nobody remembers setting -- the fleet quietly gets slower and
+    the reason is three weeks in a state file.
+    """
+    cooldown_min = HOLD_COOLDOWN_MIN if cooldown_min is None else cooldown_min
+    prev_holds = prev_holds or {}
+    ask = []
+    for k in targets:
+        age = _mins_between(prev_holds.get(k, {}).get("at", ""), now_iso)
+        if age is None or age >= cooldown_min:
+            ask.append(k)
+    release = [k for k in prev_holds if k not in targets]
+    return ask, release
+
+
+def _mins_between(then_iso, now_iso):
+    if not then_iso:
+        return None
+    try:
+        a = datetime.datetime.fromisoformat(then_iso)
+        b = datetime.datetime.fromisoformat(now_iso)
+    except Exception:
+        return None
+    return (b - a).total_seconds() / 60.0
+
+
+def peer_stable_ids():
+    """project key -> stable_id, from the hive's own registry.
+
+    Matched on the cwd, and a worktree maps to its project: a peer working in
+    project-alpha/worktrees/... is still that project's burn.
+    """
+    try:
+        raw = subprocess.run(
+            ["curl", "-s", "-m", "5", "-X", "POST",
+             "http://127.0.0.1:7900/list-peers",
+             "-H", "content-type: application/json",
+             "-d", json.dumps({"scope": "machine"})],
+            capture_output=True, text=True, timeout=10).stdout
+        peers = json.loads(raw)
+    except Exception:
+        return {}
+    out = {}
+    for p in peers:
+        cwd = p.get("cwd") or ""
+        sid = p.get("stable_id")
+        if not cwd or not sid:
+            continue
+        parts = [x for x in cwd.split("/dev/", 1)[-1].split("/") if x]
+        if parts:
+            out.setdefault(parts[0], sid)
+    return out
+
+
+def send_hold(stable_id, text):
+    try:
+        subprocess.run(
+            ["curl", "-s", "-m", "5", "-X", "POST", HIVE,
+             "-H", "content-type: application/json",
+             "-d", json.dumps({"from_id": "budget-watch",
+                               "to_stable_id": stable_id, "text": text})],
+            capture_output=True, timeout=10)
+        return True
+    except Exception:
+        return False
+
+
 def main():
     now = datetime.datetime.now(datetime.timezone.utc)
     cutoff = now - datetime.timedelta(hours=WINDOW_H)
@@ -516,6 +671,7 @@ def main():
     # heaviest consumer stays invisible.
     per_project = {}
     fleet_by_model = {}
+    recent_cutoff = now - datetime.timedelta(hours=RECENT_H)
     for d in glob.glob(os.path.join(PROJ, "*")):
         if not os.path.isdir(d):
             continue
@@ -528,13 +684,15 @@ def main():
                     continue
             except OSError:
                 continue
-            tok, turns, by_model = window_burn(tp, cutoff)
+            tok, turns, by_model, recent = window_burn(tp, cutoff, recent_cutoff)
             if not tok:
                 continue
-            b = per_project.setdefault(key, {"tokens": 0, "turns": 0, "files": 0})
+            b = per_project.setdefault(key, {"tokens": 0, "turns": 0, "files": 0,
+                                             "recent": 0})
             b["tokens"] += tok
             b["turns"] += turns
             b["files"] += 1
+            b["recent"] += recent
             for label, n in by_model.items():
                 fleet_by_model[label] = fleet_by_model.get(label, 0) + n
 
@@ -615,6 +773,58 @@ def main():
         ledger[RECORD_METER] = e
     out["meters"] = ledger
 
+    # ---- admission control --------------------------------------------
+    # Detection was never the gap. This is the part that keeps the fleet out
+    # of the 5h limit instead of narrating the arrival.
+    recent_tokens = sum(b.get("recent", 0) for b in per_project.values())
+    projected = projected_window(recent_tokens, RECENT_H, WINDOW_H)
+    level = admission_level(fleet_tokens, projected)
+    targets = hold_targets(rows, level)
+    now_iso = now.astimezone().isoformat(timespec="seconds")
+    prev_holds = dict(prev.get("holds") or {})
+    ask, release = holds_to_send(targets, prev_holds, now_iso)
+
+    out["recent_tokens"] = recent_tokens
+    out["recent_hours"] = RECENT_H
+    out["projected_window"] = projected
+    out["admission_level"] = level
+
+    holds = dict(prev_holds)
+    if ENFORCE and (ask or release):
+        ids = peer_stable_ids()
+        for k in ask:
+            sid = ids.get(k)
+            if not sid:
+                continue
+            share = next((b["share"] for kk, b in rows if kk == k), 0)
+            text = (
+                f"[budget-watch] HOLD SUBAGENT FAN-OUT. The trailing "
+                f"{WINDOW_H:g}h window is at {fleet_tokens/1e6:.0f}M and the "
+                f"last {RECENT_H:g}h projects it to {projected/1e6:.0f}M "
+                f"against a {WINDOW_CEILING_TOKENS/1e6:.0f}M ceiling; we have "
+                f"been rate-limited at {RATE_LIMITED_FLOOR/1e6:.0f}M. You are "
+                f"{share:.0%} of fleet burn.\n\n"
+                f"Keep working — this is not a stop. Run your own loop and "
+                f"stop dispatching parallel subagents until you hear "
+                f"otherwise; serialize what you would have fanned out, and "
+                f"put anything mechanical on a cheaper model. Hitting the "
+                f"limit blocks every session on the machine including yours, "
+                f"which costs more than running serially does."
+            )
+            if send_hold(sid, text):
+                holds[k] = {"at": now_iso, "level": level,
+                            "share": round(share, 4)}
+        for k in release:
+            sid = ids.get(k)
+            if sid:
+                send_hold(sid, (
+                    f"[budget-watch] HOLD LIFTED. The trailing "
+                    f"{WINDOW_H:g}h window is at {fleet_tokens/1e6:.0f}M, "
+                    f"projecting {projected/1e6:.0f}M. Fan out again as you "
+                    f"normally would."))
+            holds.pop(k, None)
+    out["holds"] = holds
+
     def _mins_since(iso):
         try:
             t = datetime.datetime.fromisoformat(iso)
@@ -679,6 +889,13 @@ def main():
                 print(f"  {k:<28} all {e.get('all_models','?')}% · "
                       f"Fable {e.get('fable','?')}% · resets "
                       f"{e.get('resets','?')} · {age_s}")
+        print(f"last {RECENT_H:g}h: {recent_tokens/1e6:.0f}M — projects the "
+              f"{WINDOW_H:g}h window to {projected/1e6:.0f}M "
+              f"({projected/WINDOW_CEILING_TOKENS:.0%} of ceiling) · "
+              f"admission: {level}")
+        if holds:
+            print("holding: " + ", ".join(
+                f"{k} (since {v.get('at','?')[11:16]})" for k, v in holds.items()))
         print()
         print(f"verdict: {verdict}" + (f" — {detail}" if detail else ""))
         if decision:

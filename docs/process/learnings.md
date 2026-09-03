@@ -1600,3 +1600,13 @@ The swap check went RED above a flat 8.0GB in use, every run, for weeks.
 - **Measured what actually hurts instead:** swapout rate over a short sample. At the moment the level check was screaming at 8.7GB, real activity was 0.0MB/s out and 0.5MB/s in — the machine was reading pages back, not drowning.
 - **The old message asserted a cause the check could not observe** — "the machine is paging, which is what 'feels slow' is". Same error as 87a0295, in a different check.
 - **Test the direction of the fix, not just the threshold.** The tests assert that a full swap file with no activity is green and that sustained swapout is red *from an empty swap file* — which is the pair that proves the metric changed, not the number.
+
+## A Watcher That Only Reports Cannot Prevent Anything (2026-09-03)
+
+The fleet was rate-limited twice in one day while `fleet_budget_watch.py` worked perfectly.
+
+- **It measured, it woke a human, and the human read it after the rejections.** Every part of the instrument did its job. The design was the defect: detection with no action is a narration of the accident.
+- **A trailing window cannot be the trigger.** The 5h window reaches its ceiling only after five hours of burn that already happened. Steering on it is steering by the rear-view mirror. The last hour, run forward, is the earliest honest estimate of where the window lands — on 2026-09-03 the window read 200M while the projection read 600M.
+- **The lever is concurrency, never a stop.** A peer told to stop is work Bryan does not get; a peer told to stop fanning out subagents keeps its own loop and gives back most of the burn. Floor is never zero.
+- **A hold with no release is a permanent throttle nobody remembers setting.** Pair every ask with the condition that lifts it, and store both.
+- **Sample faster inside the band you are managing.** A 15-minute loop is short against a five-hour window and far too long against a fleet that went 131M → 684M projected between two runs.

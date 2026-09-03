@@ -44,6 +44,8 @@ Two copies of the same content means two copies to keep true, and the chat copy 
 
 **Re-derive a finding's most alarming number by a second route before reporting it.** Hand a peer the query, not your rendering of it.
 
+**Never describe the user's own situation ahead of the facts.** A label he has not earned yet reads as a claim he made, to people who will hold him to it. He set the bar himself on the word "fractional": not until he is actually running two or three fractional engagements, and has been for more than a month or two. The same restraint applies to every title, role, client relationship and status you write on his behalf — say what is true today, and let him upgrade it.
+
 ## Style
 
 Write like an expert technical writer, in plain words you would say out loud.

@@ -1446,25 +1446,67 @@ def check_free_memory(spec):
     return True, f"{spec['name']}: {free}% free"
 
 
-def check_swap(spec):
-    """Absolute swap in use, not a percentage of the swap file.
+def _vm_counters():
+    """Cumulative swapin/swapout page counts from vm_stat, or None."""
+    try:
+        raw = subprocess.run(["vm_stat"], capture_output=True, text=True,
+                             timeout=10).stdout
+    except Exception:
+        return None
+    out = {}
+    for key in ("Swapins", "Swapouts"):
+        m = re.search(key + r":\s*(\d+)", raw)
+        if not m:
+            return None
+        out[key] = int(m.group(1))
+    m = re.search(r"page size of (\d+) bytes", raw)
+    out["page"] = int(m.group(1)) if m else 4096
+    return out
 
-    macOS grows the swap file on demand, so "percent of swap used" is
-    self-correcting and says nothing -- it sits near full right up until the
-    kernel allocates more. The meaningful quantity is how many GB the machine
-    has pushed out of RAM, measured against physical memory.
+
+def check_swap(spec):
+    """Swap ACTIVITY, not the level. The level is not a signal.
+
+    The old check went RED above a flat 8GB of swap in use. Two things are
+    wrong with that. macOS does not give swap back -- once a page is written
+    out the allocation stays counted long after the pressure is gone, so the
+    number ratchets and never returns. And the level is mostly a function of
+    how many sessions are up, which the lean-fleet policy already governs:
+    measured over 1,887 samples across 2026-09-01..03, median swap in use was
+    1.3GB at 5 sessions, 5.8GB at 10, 8.0GB at 11 and 10.5GB at 12. At the
+    fleet's normal size the median SAT ON the ceiling, so this check was on
+    its way to being furniture like the four reds before it.
+
+    What actually hurts is pages being pushed out under pressure, right now.
+    Sample the swapout counter over a short interval and alert on the rate.
+    The level still gets printed, as context rather than as a verdict, and the
+    old message asserted a cause ("what 'feels slow' is") that the check never
+    observed -- same error as 87a0295.
     """
     raw = _sysctl("vm.swapusage")
     m = re.search(r"used\s*=\s*([\d.]+)M", raw)
     if not m:
         return False, f"{spec['name']}: PROBE-FAILED (vm.swapusage -> {raw[:80]!r})"
     used_gb = float(m.group(1)) / 1024.0
-    ceiling = spec.get("max_used_gb", 8.0)
-    if used_gb > ceiling:
-        return False, (f"{spec['name']}: {used_gb:.1f}GB swapped out "
-                       f"(ceiling {ceiling}GB) -- the machine is paging, "
-                       f"which is what 'feels slow' is")
-    return True, f"{spec['name']}: {used_gb:.1f}GB swapped out"
+
+    window = spec.get("sample_seconds", 15)
+    a = _vm_counters()
+    if a is None:
+        return False, f"{spec['name']}: PROBE-FAILED (vm_stat unreadable)"
+    time.sleep(window)
+    b = _vm_counters()
+    if b is None:
+        return False, f"{spec['name']}: PROBE-FAILED (vm_stat unreadable on resample)"
+
+    out_mb_s = (b["Swapouts"] - a["Swapouts"]) * b["page"] / window / 1e6
+    in_mb_s = (b["Swapins"] - a["Swapins"]) * b["page"] / window / 1e6
+    ceiling = spec.get("max_swapout_mb_s", 5.0)
+    detail = (f"{out_mb_s:.1f}MB/s out, {in_mb_s:.1f}MB/s in, "
+              f"{used_gb:.1f}GB in use")
+    if out_mb_s > ceiling:
+        return False, (f"{spec['name']}: writing {out_mb_s:.1f}MB/s to swap "
+                       f"(ceiling {ceiling}MB/s) -- {detail}")
+    return True, f"{spec['name']}: {detail}"
 
 
 def check_load(spec):

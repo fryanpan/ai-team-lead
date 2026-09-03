@@ -149,7 +149,13 @@ BASE_CHECKS = [
     #     said so. Every one of these reads kernel state and names no process,
     #     so it goes red when the machine is short rather than when some
     #     particular program is large. ---
-    {"type": "swap", "name": "swap", "max_used_gb": 8.0},
+    # Swap ACTIVITY, not level. The old 8.0GB level ceiling sat on the median
+    # at the fleet's normal size (1,887 fleet-guard samples, 2026-09-01..03:
+    # 8.0GB median at 11 sessions, 10.5GB at 12), and macOS never gives the
+    # allocation back, so it ratcheted. Rate of swapout is the thing that
+    # actually costs a working day.
+    {"type": "swap", "name": "swap", "max_swapout_mb_s": 5.0,
+     "sample_seconds": 15},
     {"type": "free_memory", "name": "free memory", "min_free_pct": 15},
     {"type": "load", "name": "load", "max_per_core": 1.5},
 

@@ -41,7 +41,18 @@ evening on 2026-08-31. Detection on a timer, action by a person or by Team Lead.
 import json, os, re, subprocess, sys, glob, datetime
 
 def argval(flag, default, cast=str):
-    return cast(sys.argv[sys.argv.index(flag) + 1]) if flag in sys.argv else default
+    """A flag with no value after it is a typo, not a crash.
+
+    `--resets` as the last word on the line raised IndexError from inside an
+    import-time constant, so the script died before printing anything -- the
+    one thing a watcher must never do. Say which flag is missing its value.
+    """
+    if flag not in sys.argv:
+        return default
+    i = sys.argv.index(flag) + 1
+    if i >= len(sys.argv):
+        sys.exit("%s needs a value after it" % flag)
+    return cast(sys.argv[i])
 
 HOME = os.path.expanduser("~")
 PROJ = os.path.join(HOME, ".claude", "projects")

@@ -57,6 +57,14 @@ TEAM_LEAD_STABLE_ID = "6e87a52503d5"
 # script exists to fix.
 REWAKE_MINUTES = 60
 DECIDE = argval("--decide", "", str)
+# The script CANNOT read a /usage meter -- they live behind a slash command in a
+# session pane, and driving a pane to scrape one is forbidden (see CLAUDE.md).
+# So meter readings are entered by hand and carried in the state file, where the
+# thing that makes them trustworthy is that their AGE is printed next to them.
+RECORD_METER = argval("--record-meter", "", str)
+METER_ALL = argval("--all-models", None, float)
+METER_FABLE = argval("--fable", None, float)
+METER_RESETS = argval("--resets", "", str)
 # A standing decision holds until the situation moves against it by this many
 # percentage points of unprotected share, or until it simply ages out. Both are
 # needed: "let it run" can be right at 72% and wrong at 85%, and it can also be
@@ -305,6 +313,86 @@ def transcripts_under(project_dir):
     return glob.glob(os.path.join(project_dir, "**", "*.jsonl"), recursive=True)
 
 
+# Claude Code meters each model family separately, so a fleet can exhaust one
+# sub-meter with the others barely touched. On 2026-09-03 `fryanpan@gmail.com`
+# reached 100% on Fable while its all-models bar read 58%, and nothing here saw
+# it: every figure this script produced summed the models together. Anything not
+# in the map prints verbatim rather than being folded into "other" -- a model we
+# do not recognise is exactly the one worth seeing by name.
+MODEL_LABELS = {
+    "claude-opus-4-8": "Opus 4.8",
+    "claude-opus-5": "Opus 5",
+    "claude-sonnet-5": "Sonnet",
+    "claude-haiku-4-5-20251001": "Haiku",
+    "claude-fable-5": "Fable",
+    "claude-fable-5-1": "Fable 5.1",
+}
+
+def model_label(model_id):
+    return MODEL_LABELS.get(model_id, model_id) if model_id else "unknown"
+
+
+def active_account():
+    """The account this machine is currently billing to, or None.
+
+    Read from the real binary, never the shell function, and never from the
+    auth-method line -- "Claude Max account" is true of two different pools.
+    """
+    try:
+        r = subprocess.run([os.path.join(HOME, ".local", "bin", "claude"),
+                            "auth", "status", "--json"],
+                           capture_output=True, text=True, timeout=20)
+        return (json.loads(r.stdout) or {}).get("email") or None
+    except Exception:
+        return None
+
+
+def account_changed(prev, cur):
+    """True only when two KNOWN and different accounts bracket a run.
+
+    A switch breaks the series: burn before and after belongs to different
+    pools and must not be compared or extrapolated across. Missing data is not
+    a switch -- `auth status` failing would otherwise announce a pool change on
+    every flaky run, which is worse than saying nothing.
+    """
+    return bool(prev and cur and prev != cur)
+
+
+def meter_age_hours(entry, now):
+    """How old a hand-entered /usage reading is, in hours, or None.
+
+    The script cannot read a meter: they live behind `/usage` in a session pane
+    and driving one to scrape it is forbidden. So a reading is entered by hand
+    and its VALUE is worth exactly what its AGE says it is. An unlabelled stale
+    number is what produced "roughly 24%" for a pool that was actually at 58%.
+    """
+    try:
+        t = datetime.datetime.fromisoformat(entry["read_at"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if t.tzinfo is None:
+        t = t.astimezone()
+    return (now - t).total_seconds() / 3600.0
+
+
+def pools_by_next_reset(ledger):
+    """Account keys ordered by which pool resets soonest.
+
+    This is the rotation trigger: the nearer OTHER-account reset is when the
+    fleet switches. A pool with no recorded reset sorts last rather than
+    raising -- an unknown reset should not be able to win the ordering and
+    silently become the trigger.
+    """
+    far = datetime.datetime.max.replace(tzinfo=datetime.timezone.utc)
+    def key(item):
+        try:
+            t = datetime.datetime.fromisoformat(item[1].get("resets") or "")
+        except (TypeError, ValueError):
+            return far
+        return t.astimezone(datetime.timezone.utc) if t.tzinfo else t.astimezone()
+    return [k for k, _ in sorted(ledger.items(), key=key)]
+
+
 def window_burn(path, cutoff):
     """Sum per-turn usage for turns at or after `cutoff` (an aware datetime).
 
@@ -316,11 +404,12 @@ def window_burn(path, cutoff):
     """
     total = 0
     turns = 0
+    by_model = {}
     seen = set()
     try:
         f = open(path)
     except OSError:
-        return 0, 0
+        return 0, 0, {}
     with f:
         for line in f:
             try: o = json.loads(line)
@@ -342,10 +431,13 @@ def window_burn(path, cutoff):
                     continue
                 seen.add(rid)
             turns += 1
-            total += (u.get("input_tokens", 0) + u.get("output_tokens", 0)
-                      + u.get("cache_creation_input_tokens", 0)
-                      + u.get("cache_read_input_tokens", 0))
-    return total, turns
+            n = (u.get("input_tokens", 0) + u.get("output_tokens", 0)
+                 + u.get("cache_creation_input_tokens", 0)
+                 + u.get("cache_read_input_tokens", 0))
+            total += n
+            label = model_label(msg.get("model"))
+            by_model[label] = by_model.get(label, 0) + n
+    return total, turns, by_model
 
 def verdict_for(fleet_tokens, unprotected_share, headroom, reserve,
                 top_burner, rows):
@@ -412,6 +504,7 @@ def main():
     # outlives the turn that launched it — counting only live cwds is how the
     # heaviest consumer stays invisible.
     per_project = {}
+    fleet_by_model = {}
     for d in glob.glob(os.path.join(PROJ, "*")):
         if not os.path.isdir(d):
             continue
@@ -424,13 +517,15 @@ def main():
                     continue
             except OSError:
                 continue
-            tok, turns = window_burn(tp, cutoff)
+            tok, turns, by_model = window_burn(tp, cutoff)
             if not tok:
                 continue
             b = per_project.setdefault(key, {"tokens": 0, "turns": 0, "files": 0})
             b["tokens"] += tok
             b["turns"] += turns
             b["files"] += 1
+            for label, n in by_model.items():
+                fleet_by_model[label] = fleet_by_model.get(label, 0) + n
 
     fleet = sum(b["tokens"] for b in per_project.values()) or 1
     fleet_tokens = sum(b["tokens"] for b in per_project.values())
@@ -487,6 +582,28 @@ def main():
         decision = carry_decision(prev.get("decision") or None, verdict, now)
     out["decision"] = decision
 
+    # WHICH POOL did this measure? Raw tokens are meaningless without it: a
+    # reading either side of a /login belongs to two different pools and must
+    # never be read as one series.
+    acct = active_account()
+    out["account"] = acct
+    switched = account_changed(prev.get("account"), acct)
+    out["account_switched"] = switched
+
+    # WHICH MODEL spent it? Each family is metered separately, so a fleet can
+    # exhaust one sub-meter with the others idle.
+    out["by_model"] = dict(sorted(fleet_by_model.items(), key=lambda kv: -kv[1]))
+
+    ledger = dict(prev.get("meters") or {})
+    if RECORD_METER:
+        e = dict(ledger.get(RECORD_METER) or {})
+        e["read_at"] = now.astimezone().isoformat(timespec="seconds")
+        if METER_ALL is not None: e["all_models"] = METER_ALL
+        if METER_FABLE is not None: e["fable"] = METER_FABLE
+        if METER_RESETS: e["resets"] = METER_RESETS
+        ledger[RECORD_METER] = e
+    out["meters"] = ledger
+
     def _mins_since(iso):
         try:
             t = datetime.datetime.fromisoformat(iso)
@@ -535,6 +652,23 @@ def main():
         print("-" * 66)
         print(f"{fleet:>14,}  {sum(b['turns'] for _, b in rows):>6,}         "
               f"fleet total  (* = protected)\n")
+        if out["by_model"]:
+            split = " · ".join(f"{m} {n/1e6:.0f}M ({n/fleet:.0%})"
+                               for m, n in list(out["by_model"].items())[:5])
+            print(f"by model: {split}\n")
+        print(f"account: {acct or 'UNREADABLE'}"
+              + ("  ** SWITCHED since the last run — the series is broken, do "
+                 "not compare across it **" if switched else ""))
+        if ledger:
+            print("\nmeters (hand-entered; a reading is worth what its age says):")
+            for k in pools_by_next_reset(ledger):
+                e = ledger[k]
+                age = meter_age_hours(e, now)
+                age_s = f"{age:.1f}h old" if age is not None else "never read"
+                print(f"  {k:<28} all {e.get('all_models','?')}% · "
+                      f"Fable {e.get('fable','?')}% · resets "
+                      f"{e.get('resets','?')} · {age_s}")
+        print()
         print(f"verdict: {verdict}" + (f" — {detail}" if detail else ""))
         if decision:
             print(f"standing decision ({decision['at']}, at "

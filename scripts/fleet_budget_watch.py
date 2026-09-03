@@ -121,11 +121,15 @@ FLOOR_ENGAGE = 0.55
 # moment each episode began is on disk. Reconstructing the rolling 5h burn at
 # the first rejection of each episode (2026-08-29 to 2026-09-01):
 #
-#   08-29 12:38   507M      08-31 22:18   503M
-#   08-31 15:27   472M      09-01 01:33   442M   <- lowest
-#   08-31 17:04   695M      09-01 13:31   658M
+#   08-29 12:38   507M      09-01 01:33   442M   <- lowest
+#   08-31 15:27   472M      09-01 13:31   658M
+#   08-31 17:04   695M      09-03 14:20   864M   <- highest
+#   08-31 22:18   503M      09-03 14:56   814M
 #
-# Six episodes, lowest 442M, median 507M. So the window can empty anywhere from
+# Eight episodes, lowest 442M, median 505M. The two on 09-03 were reconstructed
+# the same way after the fact and did NOT move the floor -- they widened the
+# top of the range, which is the direction that argues for acting earlier, not
+# for raising the ceiling. So the window can empty anywhere from
 # ~440M up. CEILING sits below the lowest observed failure, not near the median:
 # a threshold set at the median is green through half of the events it exists
 # to predict. WATCH at 300M is the last point where reducing fan-out still
@@ -576,19 +580,24 @@ def admission_level(window_tokens, projected, ceiling=None, floor=None):
 
 
 def hold_targets(rows, level, protected=None):
-    """Who gets asked, in descending share. Never a protected project.
+    """Who gets asked, in descending share.
 
-    Protected work is the reserve the whole script exists to defend; throttling
-    it to protect it would be the same error as an alert that fires when the
-    fleet improves.
+    Protection arbitrates the SPLIT, and it stops applying once the ABSOLUTE
+    ceiling is the binding constraint. In the soft band there is a choice about
+    whose fan-out to trim, and protected work should not be the one trimmed. In
+    the rejection band there is no such choice: the limit is per-account and
+    machine-wide, so a protected project that keeps fanning out is not
+    defending its own goal -- it is spending the window that blocks itself.
+    Exempting it there would protect the label and lose the work.
     """
     protected = PROTECTED if protected is None else protected
     if level == "clear":
         return []
-    floor = HOLD_TOP_SHARE if level == "hold-top" else HOLD_ALL_SHARE
-    out = [k for k, b in rows
-           if k not in protected and b.get("share", 0) >= floor]
-    return out[:1] if level == "hold-top" else out
+    if level == "hold-top":
+        out = [k for k, b in rows
+               if k not in protected and b.get("share", 0) >= HOLD_TOP_SHARE]
+        return out[:1]
+    return [k for k, b in rows if b.get("share", 0) >= HOLD_ALL_SHARE]
 
 
 def holds_to_send(targets, prev_holds, now_iso, cooldown_min=None):

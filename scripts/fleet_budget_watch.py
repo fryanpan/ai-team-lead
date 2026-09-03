@@ -593,11 +593,22 @@ def hold_targets(rows, level, protected=None):
     protected = PROTECTED if protected is None else protected
     if level == "clear":
         return []
+
+    # Target on the RECENT share, not the window share. The hold is about burn
+    # that has not happened yet, and the two disagree exactly when it matters:
+    # on 2026-09-03 peer-alpha was 3% of the 5h window and 11% of the last
+    # hour, because it had only just started. A project that begins fanning out
+    # now carries a small window share for hours -- which is the whole period
+    # in which asking it would have helped.
+    def weight(b):
+        return max(b.get("recent_share", 0), b.get("share", 0))
+
+    ordered = sorted(rows, key=lambda kv: -weight(kv[1]))
     if level == "hold-top":
-        out = [k for k, b in rows
-               if k not in protected and b.get("share", 0) >= HOLD_TOP_SHARE]
+        out = [k for k, b in ordered
+               if k not in protected and weight(b) >= HOLD_TOP_SHARE]
         return out[:1]
-    return [k for k, b in rows if b.get("share", 0) >= HOLD_ALL_SHARE]
+    return [k for k, b in ordered if weight(b) >= HOLD_ALL_SHARE]
 
 
 def holds_to_send(targets, prev_holds, now_iso, cooldown_min=None):
@@ -709,8 +720,10 @@ def main():
     fleet_tokens = sum(b["tokens"] for b in per_project.values())
     rows = sorted(per_project.items(), key=lambda kv: -kv[1]["tokens"])
     top_burner = rows[0][0] if rows else "nobody"
+    recent_fleet = sum(b.get("recent", 0) for b in per_project.values()) or 1
     for _, b in rows:
         b["share"] = b["tokens"] / fleet
+        b["recent_share"] = b.get("recent", 0) / recent_fleet
 
     # ---- verdict -------------------------------------------------------
     # Contention exists only when the protected reserve cannot be met out of

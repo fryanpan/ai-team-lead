@@ -158,3 +158,29 @@ def test_an_unreachable_hive_is_an_empty_map_not_an_exception(monkeypatch):
         raise OSError("no broker")
     monkeypatch.setattr(fbw.subprocess, "run", boom)
     assert fbw.peer_stable_ids() == {}
+
+
+# --- recent share vs window share ---------------------------------------------
+
+def _rows2(*triples):
+    return [(k, {"share": sh, "recent_share": rs}) for k, sh, rs in triples]
+
+
+def test_a_project_that_just_started_burning_is_still_a_target():
+    """The 2026-09-03 case: 3% of the 5h window, 11% of the last hour, because
+    it had only just started. The window share stays small for hours -- which
+    is the whole period in which asking it would have helped."""
+    rows = _rows2(("big", 0.65, 0.55), ("newcomer", 0.03, 0.11))
+    assert "newcomer" in fbw.hold_targets(rows, "hold-all", {})
+
+
+def test_a_project_that_has_stopped_is_still_a_target_while_its_window_is_big():
+    """Symmetric: its tokens are still in the window and still count against
+    the ceiling, so it does not get released by going quiet for ten minutes."""
+    rows = _rows2(("faded", 0.40, 0.01),)
+    assert fbw.hold_targets(rows, "hold-all", {}) == ["faded"]
+
+
+def test_the_biggest_recent_burner_is_the_one_asked_in_the_soft_band():
+    rows = _rows2(("historic", 0.60, 0.05), ("current", 0.10, 0.70))
+    assert fbw.hold_targets(rows, "hold-top", {}) == ["current"]

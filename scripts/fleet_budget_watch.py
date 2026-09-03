@@ -64,6 +64,14 @@ WAKE = "--wake" in sys.argv
 # by-hand run stays a read; the monitor loop passes it.
 ENFORCE = "--enforce" in sys.argv
 RECENT_H = argval("--recent-hours", 1.0, float)
+# A peer that has already given everything it can give. Re-asking it is the
+# failure this whole day was spent removing: an alert firing at a target that
+# cannot act on it. ClientOrg on 2026-09-03 was 66% of recent burn and ALL of it
+# was Bryan's own live review -- no fan-out left to cut, and a throttle there
+# would have been a throttle on Bryan.
+ACK_HOLD = argval("--ack-hold", "", str)
+ACK_REASON = argval("--ack-reason", "", str)
+ACK_QUIET_MIN = 240
 HIVE = "http://127.0.0.1:7900/send-message"
 TEAM_LEAD_STABLE_ID = "6e87a52503d5"
 # While a breach persists, re-wake on this cadence. A breach that is still true
@@ -611,6 +619,18 @@ def hold_targets(rows, level, protected=None):
     return [k for k, b in ordered if weight(b) >= HOLD_ALL_SHARE]
 
 
+def acked_recently(hold, now_iso, quiet_min=None):
+    """Has this peer already said it has nothing further to give?
+
+    An ack is not compliance theatre -- it is a peer reporting that the lever
+    does not exist on its side. Re-asking anyway is how a channel gets ignored.
+    It expires, because "nothing to cut" is a statement about right now.
+    """
+    quiet_min = ACK_QUIET_MIN if quiet_min is None else quiet_min
+    age = _mins_between((hold or {}).get("acked_at", ""), now_iso)
+    return age is not None and age < quiet_min
+
+
 def holds_to_send(targets, prev_holds, now_iso, cooldown_min=None):
     """(to_ask, to_release), given who is already holding.
 
@@ -622,6 +642,8 @@ def holds_to_send(targets, prev_holds, now_iso, cooldown_min=None):
     prev_holds = prev_holds or {}
     ask = []
     for k in targets:
+        if acked_recently(prev_holds.get(k), now_iso):
+            continue
         age = _mins_between(prev_holds.get(k, {}).get("at", ""), now_iso)
         if age is None or age >= cooldown_min:
             ask.append(k)
@@ -812,6 +834,14 @@ def main():
     out["admission_level"] = level
 
     holds = dict(prev_holds)
+    if ACK_HOLD:
+        e = dict(holds.get(ACK_HOLD) or {})
+        e["acked_at"] = now_iso
+        if ACK_REASON:
+            e["ack_reason"] = ACK_REASON
+        holds[ACK_HOLD] = e
+        ask = [k for k in ask if k != ACK_HOLD]
+        release = [k for k in release if k != ACK_HOLD]
     if ENFORCE and (ask or release):
         ids = peer_stable_ids()
         for k in ask:
@@ -917,7 +947,10 @@ def main():
               f"admission: {level}")
         if holds:
             print("holding: " + ", ".join(
-                f"{k} (since {v.get('at','?')[11:16]})" for k, v in holds.items()))
+                f"{k} (since {v.get('at','?')[11:16]}"
+                + (f", acked: {v.get('ack_reason') or 'nothing left to cut'}"
+                   if v.get("acked_at") else "") + ")"
+                for k, v in holds.items()))
         print()
         print(f"verdict: {verdict}" + (f" — {detail}" if detail else ""))
         if decision:

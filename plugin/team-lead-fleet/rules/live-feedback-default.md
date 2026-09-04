@@ -24,6 +24,16 @@ When you want the user to review a markdown doc, a dev server or an interactive 
 - **Shorter turns while comments are flowing.** Channel events arrive at turn boundaries, so ten edits batched into one turn means he sees nothing until it ends.
 - **A comment you are NOT acting on still gets a reply** saying why. Same rule as PR review feedback.
 
+## One thread, one answerer — and the deliverable goes in the doc
+
+Every peer watching a doc receives the same `thread.created` event, and each one reads it as an ask addressed to it. Nobody sees the others' replies before writing. Measured 2026-09-04: a request for "2-3 alternative versions of a few sentences" drew **six drafts from two agents, then four more rounds of the two agents adjudicating each other**, none of it in the doc. Bryan's reply was *"Where are my options… you're continuing this huge thread that we've already discussed ad nauseum."*
+
+- **The doc's lead answers. Everyone else stays out**, however good their take is. If there is no lead, the peer that owns the underlying repo answers.
+- **Before replying to a thread, read the thread.** If a peer has already answered, you are done — an addition is only warranted when you hold a fact they got wrong, and then it is one paragraph, not a second draft set.
+- **Never reply to correct another agent's reasoning.** That conversation is between the two of you and it is running in the user's review surface. Take it to `send_message`.
+- **A request for options is a request for options.** They go in the doc body where he can edit them; the thread gets one line saying where they are. Analysis of which option is better is not what was asked for.
+- **Answer the count he named.** Three requested means three delivered — not three each.
+
 ## A workspace URL is not a durable address
 
 **The review URL embeds a workspace id that changes when the workspace is recreated.** Every link written against the old one dies silently — no error, no redirect, dead for you as well as the reader.

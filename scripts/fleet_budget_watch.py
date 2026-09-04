@@ -340,6 +340,59 @@ def transcripts_under(project_dir):
     return glob.glob(os.path.join(project_dir, "**", "*.jsonl"), recursive=True)
 
 
+def main_transcripts(project_dir):
+    """Top-level session transcripts only -- no subagents.
+
+    The sibling above deliberately sweeps subagents in, because they SPEND.
+    This one deliberately leaves them out, because context size is only
+    actionable where somebody can act on it: a subagent's context dies with
+    the subagent and there is nothing for anyone to clear.
+    """
+    return glob.glob(os.path.join(project_dir, "*.jsonl"))
+
+
+def session_context(path, recent_cutoff):
+    """(context_tokens, recent_turns) for one session.
+
+    Context is read off the LAST billed turn rather than summed. A single
+    assistant message's input + cache_read + cache_creation IS the context
+    that turn paid for; summing would measure burn, which the trailing window
+    already covers. Output is excluded -- it is the answer, not the context
+    carried into the next turn.
+    """
+    ctx = 0
+    turns = 0
+    seen = set()
+    try:
+        f = open(path)
+    except OSError:
+        return 0, 0
+    with f:
+        for line in f:
+            try: o = json.loads(line)
+            except Exception: continue
+            msg = o.get("message") or {}
+            u = msg.get("usage")
+            if not u:
+                continue
+            rid = o.get("requestId") or msg.get("id")
+            if rid is not None:
+                if rid in seen:
+                    continue
+                seen.add(rid)
+            ctx = (u.get("input_tokens", 0)
+                   + u.get("cache_creation_input_tokens", 0)
+                   + u.get("cache_read_input_tokens", 0))
+            try:
+                dt = datetime.datetime.fromisoformat(
+                    (o.get("timestamp") or "").replace("Z", "+00:00"))
+            except Exception:
+                continue
+            if dt >= recent_cutoff:
+                turns += 1
+    return ctx, turns
+
+
 # Claude Code meters each model family separately, so a fleet can exhaust one
 # sub-meter with the others barely touched. On 2026-09-03 `fryanpan@gmail.com`
 # reached 100% on Fable while its all-models bar read 58%, and nothing here saw
@@ -557,6 +610,36 @@ HOLD_TOP_SHARE = 0.25            # a project big enough to be worth asking alone
 HOLD_ALL_SHARE = 0.10            # everyone material, once we are in the danger band
 HOLD_COOLDOWN_MIN = 30           # do not re-ask a peer that has just been asked
 
+# Burn is turns x context size, and until 2026-09-04 this script measured only
+# turns. That is half the equation and, on the day the fleet was rejected, the
+# wrong half: 100% of the burn came from sessions alive 8+ hours and 71% from
+# sessions over 150k context. Holding fan-out does nothing about a session that
+# pays 200k to answer "ok" -- the fan-out lever was pulled, complied with, and
+# the limit was hit anyway.
+#
+# The second lever is the peer's own context, and only the peer can pull it.
+# The gate is that it must still be TAKING turns: clearing an idle session buys
+# nothing and costs the turn that wakes it.
+CLEAR_CONTEXT_TOKENS = 150_000   # a turn at this size is expensive whatever it does
+CLEAR_MIN_RECENT_TURNS = 3       # still active -- otherwise the ask is the only cost
+CLEAR_COOLDOWN_MIN = 90          # a cleared session needs room to grow back
+
+
+def clear_targets(ctx_rows, level, threshold=None, min_turns=None):
+    """Who should clear or compact, heaviest context first.
+
+    No protection list. Context size is not a claim on the window the way
+    fan-out is -- a protected project's mature session spends the same
+    per-turn as anyone else's, and clearing it does not cost Bryan the work.
+    """
+    threshold = CLEAR_CONTEXT_TOKENS if threshold is None else threshold
+    min_turns = CLEAR_MIN_RECENT_TURNS if min_turns is None else min_turns
+    if level == "clear":
+        return []
+    ordered = sorted(ctx_rows.items(), key=lambda kv: -kv[1]["context"])
+    return [k for k, b in ordered
+            if b["context"] >= threshold and b["recent_turns"] >= min_turns]
+
 
 def projected_window(recent_tokens, recent_hours, window_hours):
     """Where the trailing window lands if the last `recent_hours` continue.
@@ -712,6 +795,7 @@ def main():
     # outlives the turn that launched it — counting only live cwds is how the
     # heaviest consumer stays invisible.
     per_project = {}
+    per_context = {}
     fleet_by_model = {}
     recent_cutoff = now - datetime.timedelta(hours=RECENT_H)
     for d in glob.glob(os.path.join(PROJ, "*")):
@@ -737,6 +821,17 @@ def main():
             b["recent"] += recent
             for label, n in by_model.items():
                 fleet_by_model[label] = fleet_by_model.get(label, 0) + n
+        # Context size, per project, from its heaviest live session. Separate
+        # pass because it wants main-agent transcripts only and the last turn
+        # rather than the window.
+        for mp in main_transcripts(d):
+            ctx, rt = session_context(mp, recent_cutoff)
+            if not ctx:
+                continue
+            e = per_context.setdefault(key, {"context": 0, "recent_turns": 0})
+            if ctx > e["context"]:
+                e["context"] = ctx
+            e["recent_turns"] += rt
 
     fleet = sum(b["tokens"] for b in per_project.values()) or 1
     fleet_tokens = sum(b["tokens"] for b in per_project.values())
@@ -884,6 +979,46 @@ def main():
             holds.pop(k, None)
     out["holds"] = holds
 
+    # ---- the other half of burn ---------------------------------------
+    ctargets = clear_targets(per_context, level)
+    prev_clears = dict(prev.get("clears") or {})
+    clears = dict(prev_clears)
+    to_clear = []
+    for k in ctargets:
+        age = _mins_between(prev_clears.get(k, {}).get("at", ""), now_iso)
+        if age is None or age >= CLEAR_COOLDOWN_MIN:
+            to_clear.append(k)
+    if ENFORCE and to_clear:
+        ids = peer_stable_ids()
+        for k in to_clear:
+            sid = ids.get(k)
+            if not sid:
+                continue
+            ctx = per_context[k]["context"]
+            text = (
+                f"[budget-watch] SHRINK YOUR CONTEXT. Your session is carrying "
+                f"~{ctx/1000:.0f}k tokens and you pay all of it on every turn, "
+                f"including the turns that do nothing. The trailing "
+                f"{WINDOW_H:g}h window is at {fleet_tokens/1e6:.0f}M against a "
+                f"{WINDOW_CEILING_TOKENS/1e6:.0f}M ceiling.\n\n"
+                f"At a real task boundary, /clear. Mid-task, /compact. Either "
+                f"is a few seconds and cuts your per-turn cost by most of "
+                f"that {ctx/1000:.0f}k. This is not a stop and it is not a "
+                f"hold on fan-out — it is the other half of the bill."
+            )
+            if send_hold(sid, text):
+                clears[k] = {"at": now_iso, "context": ctx,
+                             "recent_turns": per_context[k]["recent_turns"]}
+    for k in list(clears):
+        if k not in ctargets:
+            clears.pop(k, None)
+    out["clears"] = clears
+    out["contexts"] = [
+        {"project": k, "context": v["context"],
+         "recent_turns": v["recent_turns"]}
+        for k, v in sorted(per_context.items(), key=lambda kv: -kv[1]["context"])
+    ]
+
     def _mins_since(iso):
         try:
             t = datetime.datetime.fromisoformat(iso)
@@ -948,6 +1083,19 @@ def main():
                 print(f"  {k:<28} all {e.get('all_models','?')}% · "
                       f"Fable {e.get('fable','?')}% · resets "
                       f"{e.get('resets','?')} · {age_s}")
+        # Context sizes, always printed. Burn is turns x context and the
+        # table above only shows turns; a reader who cannot see the multiplier
+        # cannot tell an expensive fleet from a busy one.
+        big = [c for c in out["contexts"]
+               if c["context"] >= CLEAR_CONTEXT_TOKENS and "/" not in c["project"]
+               and not c["project"].startswith("-")]
+        if big:
+            print("context per turn (the other half of the bill):")
+            for c in big[:6]:
+                flag = " ← still taking turns" if c["recent_turns"] else ""
+                print(f"  {c['project']:<28} {c['context']/1000:>6.0f}k"
+                      f"  {c['recent_turns']:>3} turns/{RECENT_H:g}h{flag}")
+            print()
         print(f"last {RECENT_H:g}h: {recent_tokens/1e6:.0f}M — projects the "
               f"{WINDOW_H:g}h window to {projected/1e6:.0f}M "
               f"({projected/WINDOW_CEILING_TOKENS:.0%} of ceiling) · "

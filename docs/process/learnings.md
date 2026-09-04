@@ -1786,3 +1786,40 @@ working pass is invisible to every audit you can write against the data. This
 one surfaced only because the user asked a question that happened to touch it.
 When you filter by hand, write the filter and its reason into the artifact, or
 the next audit will clear the system and miss you.
+
+## The exhaustion metric was not the one anybody was watching (2026-09-04)
+
+A machine-wide `ENOBUFS` took down every agent, plus `adb` and the Tailscale
+network extension, 52 minutes before a reboot. Every reading available in the
+moment said the machine was fine: ~1,200 open sockets, mbuf pool 1.8% in use,
+`kern.num_files` a tenth of its limit. The failing resource was
+`net.inet.tcp.pcbcount` — TCP protocol control blocks — and it stood at
+**162,169 against 41 enumerable sockets**.
+
+**The diagnostic is the gap, not either number.** Socket count was flat and
+healthy for three days while PCBs climbed at 2,027/hour, monotonic, reset only
+by reboot: 1,233 → 162,169 over 79 hours, and an identical cycle to 107k before
+that. Counting sockets — the obvious thing, the thing `lsof` and `netstat` make
+easy — measures the live ones and is blind to the zombies, which is the entire
+population that matters. `pcbcount` minus enumerable sockets is the number.
+
+**A retry loop with no cap is a leak multiplier with a known rate.** The
+suspected source was an SSE reconnect on a fixed 1,500 ms backoff that re-fetched
+without cancelling the abandoned reader. 1/1.5s = 2,400/hour against 2,027
+observed — close enough that the arithmetic itself is evidence, and a way to
+identify the culprit loop without reading any code.
+
+**The watcher fired for eight hours and told nobody.** A `socket-watch.sh` from a
+previous instance of the same outage was running under launchd, correctly
+crossed WARN at 05:29Z, wrote 2,104 non-OK rows, and logged them to a CSV and
+`/tmp`. Nothing read either. It was the right instrument, aimed at the right
+metric, with a threshold that fired with eight hours to spare — and the machine
+still went down. Same family as the health checker that was red on every run for
+days before anyone looked: **a monitor whose output has no reader is not
+monitoring.**
+
+**A `log show --predicate` matches its own invocation.** Grepping the unified log
+for "no buffer space available" returned a hit timestamped *after* the reboot,
+which briefly looked like the problem recurring. It was `com.apple.log` recording
+the argv of the search itself. The negative-grep rule has a positive twin: a
+match is evidence about your pattern until you have read the line.

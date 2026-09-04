@@ -1676,3 +1676,31 @@ rather than as a reason to ask what a hit actually costs.
 observes rejections that actually happened and names the blocked directories.
 Detection of a real event beats projection from a proxy. `--enforce` is off;
 the loop reports and the detector triggers.
+
+## A Grep That Finds Nothing Has Not Proved The Thing Is Absent (2026-09-04)
+
+Asked to restart every session for an account switch, I checked whether a peer's
+19-hour benchmark was still running with
+`ps -axo pid,etime,command | grep -iE "gradle|benchmark|driver|arm"`, found
+nothing, and reported "no benchmark process anywhere on the machine."
+
+The driver was `bash .rerun/run-all.sh`, pid 43345, up 19h, holding two device
+claims. It matched none of my five words. The stale pid in the peer's summary
+(85721) was a previous arm, so both my sources were wrong in the same direction
+and agreed with each other.
+
+**The peer named the right check: the run writes its own claim files**
+(`/tmp/qb-device-*.claim`). An artifact the process itself creates is evidence;
+a pattern I guessed the process might match is not. Same family as the tmux
+pane and the reconstructed token ceiling — I built a surface, then read my own
+construction as the state of the world.
+
+Two rules that follow:
+
+- **A negative grep result is evidence about your pattern, not about the
+  system.** Confirm absence with something the thing itself would have left
+  behind, or ask whoever owns it.
+- **Ask before an irreversible action even when you think you know.** I asked
+  rather than deciding, purely because CLAUDE.md says the process table is not
+  state. That one habit was the whole margin between a question and killing a
+  19-hour run on two borrowed devices.

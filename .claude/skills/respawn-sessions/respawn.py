@@ -202,6 +202,7 @@ DIALOG_PATTERNS = [
     "Resume full session as-is",              # same dialog (different line)
     "I am using this for local development",  # dev-channel approval (--dangerously-load-development-channels)
     "Use this and all future MCP servers",    # MCP-server approval dialog
+    "Yes, I trust this folder",               # folder-trust dialog — DEFAULT IS "No, exit", answered Down+Enter
     "Enter to confirm",                       # generic confirm dialog footer (catches any dialog with this footer)
 ]
 
@@ -211,6 +212,23 @@ DIALOG_PATTERNS = [
 RESUME_DIALOG_PATTERNS = [
     "Resume from summary",
     "Resume full session as-is",
+]
+
+# The folder-trust dialog, shown the first time claude runs in a directory it
+# has not seen. Its DEFAULT is "No, exit" — so the bare Enter that dismisses
+# every other startup dialog SELECTS EXIT and the session dies silently. The
+# spawn reports success, tmux reports the session created, and there is no
+# session a moment later.
+#
+# Found 2026-09-04 scaffolding a new project: `--mode missing --only <new>`
+# printed "spawned tmux:<name>" three times and produced nothing, because a
+# brand-new repo is exactly the case where this dialog appears and nothing
+# else in the fleet ever hits it. Answer it Down+Enter, like the resume
+# dialog, and never widen the bare-Enter default to cover a dialog without
+# reading which option it lands on.
+TRUST_DIALOG_PATTERNS = [
+    "Is this a project you created or one you trust",
+    "Yes, I trust this folder",
 ]
 DIALOG_POLL_INTERVAL_SEC = 3.0
 DIALOG_POLL_MAX_ITER = 25  # ~75s of polling — zsh -ic boot is slower than direct binary, dialogs can take 30-50s to appear
@@ -848,13 +866,16 @@ def tmux_send_enter(session: str) -> bool:
 
 def auto_accept_dialogs_tmux(session_names: List[str],
                              no_compact: bool = False) -> Dict[str, int]:
-    """Poll each tmux session for known startup dialogs and dismiss them by
-    sending Enter (which accepts the safe default in every dialog we know about:
-    "resume from summary", "use this MCP server", "trust this folder").
+    """Poll each tmux session for known startup dialogs and dismiss them.
 
-    With no_compact=True, the resume dialog is answered with Down+Enter instead
-    — selecting "Resume full session as-is" rather than the default "Resume from
-    summary", so the peer comes back with its full context intact.
+    Enter accepts the safe default in MOST of them ("use this MCP server",
+    "I am using this for local development"). Two are answered Down+Enter
+    instead, because their default is the wrong option:
+
+    - the FOLDER-TRUST dialog, whose default is "No, exit" — a bare Enter kills
+      the session it just spawned;
+    - under no_compact, the RESUME dialog, whose default is "Resume from
+      summary" — Down selects "Resume full session as-is" and keeps context.
 
     Polls up to DIALOG_POLL_MAX_ITER * DIALOG_POLL_INTERVAL_SEC seconds total.
     Returns {session: enters_sent}."""
@@ -882,10 +903,11 @@ def auto_accept_dialogs_tmux(session_names: List[str],
             if session_is_live(content):
                 continue  # drop from pending permanently
             if any(p in dialog_region(content) for p in DIALOG_PATTERNS):
-                is_resume = any(p in dialog_region(content)
-                                for p in RESUME_DIALOG_PATTERNS)
+                region = dialog_region(content)
+                is_resume = any(p in region for p in RESUME_DIALOG_PATTERNS)
+                is_trust = any(p in region for p in TRUST_DIALOG_PATTERNS)
                 ok = (tmux_send_keys(s, "Down", "Enter")
-                      if (no_compact and is_resume)
+                      if (is_trust or (no_compact and is_resume))
                       else tmux_send_enter(s))
                 if ok:
                     sent[s] += 1

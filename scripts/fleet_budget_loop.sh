@@ -51,6 +51,17 @@ while true; do
   # The trigger that works is the healthcheck's session-limit detector, which
   # observes rejections that ACTUALLY HAPPENED and names the blocked dirs.
   # Report here, act on that.
-  python3 "$SCRIPT" --wake --notify
+  # Neither --wake nor --notify. Standing down --enforce but leaving the alarm
+  # on was half a correction: at 22:56 it woke Team Lead with a BREACH built
+  # from the same reconstructed ceiling, and quoted the superseded decision
+  # back as if enforcement were still live. An alarm on a number that does not
+  # measure the constraint is worse than no alarm -- it costs attention at
+  # 11pm and spends credibility the real detector needs.
+  #
+  # The report still prints here every cycle, and `--json` still answers when
+  # something asks. What ESCALATES is the healthcheck's session-limit detector,
+  # which fires on rejections that actually happened and names the blocked
+  # dirs. Observation escalates; projection reports.
+  python3 "$SCRIPT"
   sleep "$(current_interval)"
 done

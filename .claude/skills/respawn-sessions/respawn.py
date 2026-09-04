@@ -1106,6 +1106,13 @@ Flags:
                    <name>` reaches a `respawn: false` entry.
   --exclude <substr> (repeatable) Leave a matching session alone even though the
                    mode would restart it. For peers that are mid-flight.
+  --at <path>      (repeatable) Respawn a session at an EXPLICIT cwd, whether or
+                   not anything is running there and whether or not the registry
+                   knows the path. Use it when a WORKTREE session has died:
+                   `--mode running` can only cycle what is alive, and `--mode
+                   missing` spawns at the registry path, which resumes a
+                   different conversation and brings the peer back blank. Kills
+                   anything live at that cwd first, like `--mode running`.
   --execute        Actually perform kills/spawns. Without this it's dry-run.
   --no-auto-accept After spawning, skip the post-spawn cleanup pass:
                      - polling new tmux panes for startup dialogs and sending
@@ -1190,10 +1197,44 @@ def main() -> int:
                 sys.exit("--only requires a value (session name or path substring)")
             onlys.append(args[i + 1].lower())
 
+    # --at <path> (repeatable): respawn a session at an EXPLICIT cwd, whether or
+    # not anything is running there and whether or not the registry knows the
+    # path.
+    #
+    # The gap it fills: `--mode running` can only cycle a session that is ALIVE,
+    # and `--mode missing` spawns at the REGISTRY path. So when a worktree
+    # session dies, neither mode can bring it back where it lived --- missing
+    # mode resumes a different conversation in the parent repo and the peer
+    # comes back blank, holding none of the work it was doing. Added 2026-09-04
+    # after a reboot killed a worktree session mid-benchmark and the only way
+    # back was a hand-rolled tmux spawn, which is exactly what this script
+    # exists to prevent.
+    ats: List[str] = []
+    for i, a in enumerate(args):
+        if a == "--at":
+            if i + 1 >= len(args):
+                sys.exit("--at requires a path (the cwd to respawn the session in)")
+            ats.append(args[i + 1])
+
     running = get_running_claude_processes()
     self_pid = get_self_pid()
 
-    if mode == "running":
+    if ats:
+        # Explicit paths behave like `running` for kill purposes --- anything
+        # live at that cwd is cycled --- but the target list comes from the
+        # argument rather than from the process table, so a dead session is
+        # reachable too.
+        mode = "running"
+        targets = []
+        for raw in ats:
+            path = os.path.realpath(os.path.expanduser(raw))
+            if not os.path.isdir(path):
+                sys.exit(f"--at path does not exist on disk: {path}")
+            name = (registry_session_name_for(path)
+                    or humanize(os.path.basename(path)))
+            targets.append((name, path))
+            print(f"  [at] {name} — {path}")
+    elif mode == "running":
         if self_pid is None:
             print("\n[abort] --mode running kills every live session except the "
                   "team-lead, and get_self_pid() returned None — it cannot tell "
@@ -1212,7 +1253,7 @@ def main() -> int:
 
     print(f"Mode: {mode}")
     print(f"{len(targets)} target(s) "
-          f"{'from the live process table' if mode == 'running' else 'from registry.yaml'}.")
+          f"{'named by --at' if ats else 'from the live process table' if mode == 'running' else 'from registry.yaml'}.")
     print(f"Detected {len(running)} running Claude Code session(s); self_pid={self_pid}")
 
     # Self-protection: --mode all and --mode plugin can kill peers. If we

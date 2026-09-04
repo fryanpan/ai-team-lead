@@ -1730,3 +1730,59 @@ benchmark measures.
 `git log --oneline A..B`. When a decision rests on "how different are these two
 things", diff them. Do not accept either side's summary of the gap, including
 your own from earlier in the session.
+
+## The Number You Never Re-Derive Is Your Own Headline (2026-09-04)
+
+Two peers spent an evening auditing a scoring corpus for filters that reject on
+employee-shaped criteria — location, hiring status, funding level. Five separate
+findings were produced and all five collapsed on measurement. The fifth was the
+auditor's own established headline, and it survived four rounds of the identical
+correction because it was the premise everything else was being checked against.
+
+**A tag attached to a rejected row is not the reason it was rejected.**
+Sweeping by flag found 1,590 rows whose only negative tags were employee-shaped
+and read as a large systemic defect. Reading the `why` text showed those
+companies failed on mission and merely carried the tag alongside. Counting the
+annotation instead of the decision overstated the problem roughly twentyfold.
+Annotations accumulate on a record for description; the decision lives in one
+field that is harder to aggregate, so the queryable proxy over-counts — and it
+over-counts toward finding a defect, which is the direction an auditor is
+already primed to see.
+
+**The same wording can encode two different arguments, and which one is running
+is a fact about the system, not the text.** "No engineering roles posted" reads
+as *there's no way in* — employee-shaped, and wrong for outcome-scoped work. It
+also reads as *no engineering roles, so I can't tell whether software is this
+organisation's lever* — an evidence argument, and correct. The scorer's own
+reason text settled it: it was doing the second everywhere and the first
+nowhere. Inverting the signal would have credited companies for lacking the
+evidence that they were software organisations at all. Reasoning from the text
+of a rule to its effect got this backwards with the counts already in hand.
+
+**The audit's own founding number was never re-derived.** Geography was the
+established finding — "133 rows, the one real defect" — so it was the one
+figure nobody re-measured. When it finally was: of 153 matching rows, 79 named
+no place at all, and of the 57 that named a place, every one carried an
+independent failure. Zero rejected on location. The scorer had been honouring a
+flag-only rule the whole time. The only real instance of the pattern all day was
+a human applying the rule by hand while building a shortlist, cutting five
+companies including the strongest row in the set.
+
+**The rule: check the number that confirms the story you are already telling.**
+Proximity to the data is not protection — the same agent made this error twice
+in one evening while holding the corpus, the second time an hour after writing
+itself a note not to. What protects is that a claim about a decision gets
+checked against the decision, and a second party can run that check for you.
+Do not pre-filter the arguments to avoid being wrong in front of a peer: four of
+the five measurements happened only because someone said something checkable.
+The deflations were the value, not the cost.
+
+**The one real instance was hand-applied, and that is the part worth fearing.**
+Six clauses rejected nothing. The only thing that actually cut a good candidate
+was an agent applying the rule by hand while assembling a shortlist — and that
+application left no row, no reason text, and nothing to sweep. An automated
+rule is auditable however wrong it is; a judgement call made once inside a
+working pass is invisible to every audit you can write against the data. This
+one surfaced only because the user asked a question that happened to touch it.
+When you filter by hand, write the filter and its reason into the artifact, or
+the next audit will clear the system and miss you.

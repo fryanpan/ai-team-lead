@@ -2,6 +2,18 @@
 
 Technical discoveries that should persist across sessions.
 
+## Tag A Citation With Where It Came From, Not With How Sure You Are (2026-09-04)
+
+The mechanism is from `anthropics/claude-for-legal` (public repo, torn down by an agent on 2026-07-19; the note is in that agent's repo under `topics/`). It is one line and it is the only part of that teardown we had not adopted:
+
+- **A claim gets a source tag only if it literally appeared in that tool's result THIS session. Everything else defaults to `[model knowledge — verify]`.** The tag records provenance, not confidence — a model's confidence in a fabricated citation is worthless, so confidence is the wrong thing to encode.
+- **The failure it catches is a search summary quoted as if it were the source.** An agent working a versioned external corpus asserted that a code section required something "during reconstruction, or repaving"; that sentence is not in the codified text. It read as a quotation because a summary had rendered it as one. Under the tag rule it would have carried `[model knowledge — verify]` from the moment it was written.
+- **Two more the same day, both in work already marked done:** a row count reported as a project count (wrong by 20x), and an eleven-year mean quoted as a description of the current system. Neither was a reasoning error — both were a number that lost the sentence saying where it came from.
+- **For a versioned corpus, the section number is not a citation.** Cite the smallest subdivision that carries the sentence, name the edition you read, and check for amendments before calling a section current — a repeal lands in one section while the chapter around it still reads as valid. Generalizes past law: a spec, an API contract, a changelog.
+- **Never fill a gap with a plausible sentence. A marked placeholder is a finding**, and it is the one form of missing information a reader can act on.
+
+Why this is archived rather than made a rule: `communication.md` already carries the principle ("keep measured, inferred and assumed distinct"). What is new here is the *mechanic*, and it only earns its cost where an agent is producing citations against a corpus it does not control. An agent about to do that knows to grep for it.
+
 ## Fixing A Copy-Pasted Bug In One Script Leaves It Live In Every Other Copy (2026-09-02)
 
 `fleet_budget_watch.py` was fixed on 09-01 to walk transcripts recursively — subagent

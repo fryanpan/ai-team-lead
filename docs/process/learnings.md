@@ -1823,3 +1823,27 @@ for "no buffer space available" returned a hit timestamped *after* the reboot,
 which briefly looked like the problem recurring. It was `com.apple.log` recording
 the argv of the search itself. The negative-grep rule has a positive twin: a
 match is evidence about your pattern until you have read the line.
+
+## A Dialog's Default Is Not Always The Safe Option (2026-09-04)
+
+`respawn.py --mode missing --only <new-project> --execute` printed `spawned tmux:<name>`
+three times and produced no session. `tmux ls` showed nothing, no error appeared
+anywhere, and the dry run insisted the spawn was correct.
+
+The cause: a directory claude has never opened shows a folder-trust prompt whose
+**default option is "No, exit"**. The auto-accept loop sends a bare Enter to every
+dialog it recognises, so it selected exit. The docstring asserted the opposite in
+so many words — that Enter "accepts the safe default in every dialog we know about:
+... 'trust this folder'" — and that sentence is what the code implemented.
+
+Only a brand-new project directory reaches this, which is why a fleet of 20 sessions
+had never surfaced it and why the three retries all failed identically.
+
+**What to check when a spawn reports success and nothing exists:** run the same
+invocation into a throwaway tmux session with a `sleep` after it, and capture the
+pane. The dialog is on screen for the whole poll window; it just isn't in any log.
+
+**The general form:** a dismisser that sends one keystroke to every dialog is
+asserting that every dialog's default is safe. Two in Claude Code's startup path are
+not — folder-trust ("No, exit") and resume ("Resume from summary", which compacts).
+Before adding a pattern to a blind-Enter list, read which option the cursor lands on.

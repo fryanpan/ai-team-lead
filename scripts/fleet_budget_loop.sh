@@ -33,11 +33,24 @@ print(sys.argv[2] if lvl == "clear" else sys.argv[3])' \
 
 while true; do
   echo "=== $(date '+%Y-%m-%d %H:%M') ==="
-  # --enforce: the loop acts on what it finds rather than only reporting it.
-  # 2026-09-03, Bryan: "your responsibility is to do what's necessary to avoid
-  # it." Waking a human every 15 minutes cannot beat a fleet that exhausts the
-  # window in two hours; the loop has to ask the top burners to stop fanning
-  # out, and to release them when the projection recedes.
-  python3 "$SCRIPT" --wake --notify --enforce
+  # --enforce is OFF, deliberately. It was on for about six hours on
+  # 2026-09-03 and it throttled real work on a number that does not measure
+  # the real constraint: the window figure here is a SUM OF TRANSCRIPT TOKENS
+  # compared against a ceiling reconstructed from where that sum happened to
+  # sit at past rejections. It correlates with rejections; it does not measure
+  # what causes one. It also tallies the whole fleet while the limit is
+  # per-account, so it can read high against a pool that is nearly untouched --
+  # which is exactly what Bryan saw when he checked /usage against it.
+  #
+  # What settles it is the cost asymmetry, not the accuracy. Bryan can move the
+  # fleet to his personal token whenever a pool runs out, so a real rejection
+  # costs one switch. A false hold costs work that was asked for and not done.
+  # Preemptive throttling only pays when the failure is expensive and the
+  # recovery is slow; here the recovery is one login.
+  #
+  # The trigger that works is the healthcheck's session-limit detector, which
+  # observes rejections that ACTUALLY HAPPENED and names the blocked dirs.
+  # Report here, act on that.
+  python3 "$SCRIPT" --wake --notify
   sleep "$(current_interval)"
 done

@@ -1641,3 +1641,38 @@ cheapest available saving is not asking anyone to do less work.
 the 5h window and 44% of the last hour, and all of it was Bryan's own live
 review — twelve threads in forty minutes. A hold aimed there throttles Bryan,
 not the fleet. Ask what is generating the turns before asking anyone to stop.
+
+## A Reconstructed Proxy Is Not A Meter, And Preemption Needs An Expensive Failure (2026-09-03)
+
+Built admission control for the 5h session limit in an afternoon: projection
+from the last hour, soft ceiling, holds sent to the top burners, auto-release.
+It worked mechanically — the top burner went from 58% of the window to 39% of
+the last hour within minutes of being asked. It was still the wrong thing to
+build, for two separate reasons.
+
+**The number was a proxy dressed as a measurement.** The "5h window" was a sum
+of transcript tokens, compared against a 420M ceiling reconstructed by
+measuring what that same sum happened to be at eight past rejections. That is a
+correlation with the failure, not the quantity that causes it. Bryan checked it
+against the real `/usage` meter and found the pool mostly unused while my
+number read 418M against a 420M ceiling. Same family as the tmux pane: I built
+an external surface and then trusted it as state — the difference being that
+this time I built the surface myself, which made it much harder to doubt.
+
+**It also aggregated across the wrong boundary.** Rate limits are per-account;
+the script tallied every session fleet-wide and printed one hand-entered
+`account:` line. A fleet-wide total maps to no real window at all when burn is
+spread across pools.
+
+**And the cost asymmetry never justified preemption.** Bryan can move the fleet
+to his personal token whenever a pool runs out. A real rejection therefore
+costs one login; a false hold costs work he asked for and did not get. Preemption
+pays only when the failure is expensive and the recovery is slow. Nobody checked
+the recovery cost before building the prevention — including when he said "do
+what's necessary to avoid it", which I read as authorization to build machinery
+rather than as a reason to ask what a hit actually costs.
+
+**What was worth keeping:** the healthcheck's session-limit detector, which
+observes rejections that actually happened and names the blocked directories.
+Detection of a real event beats projection from a proxy. `--enforce` is off;
+the loop reports and the detector triggers.

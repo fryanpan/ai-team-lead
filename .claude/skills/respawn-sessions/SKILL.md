@@ -73,6 +73,47 @@ This is how it happened. An account cycle was run with a hand-written `tmux new-
 
 If you must hand-roll one anyway, copy the `-e` flags out of `spawn_session_tmux` verbatim rather than writing them from memory, then run the check above before calling the cycle done.
 
+## Misplaced session home
+
+A session's **home** is the directory whose transcript `--continue` resumes. Normally
+that is the registry `path`. When a peer is started in a git worktree, its transcript
+lives under the worktree's encoding instead, and the two disagree.
+
+`[misplaced]` in the dry-run output means exactly that: the session is alive somewhere
+other than its registry path, and the script is respawning it **where it is**, because
+that is the only cwd whose `--continue` restores the work it is holding. Respawning at
+the registry path instead would resume a different, older conversation and the peer
+would come back looking healthy while holding none of its context.
+
+- **This is correct behaviour, not an error.** Do not "fix" it by pointing the respawn
+  at the registry path.
+- **It reproduces on every respawn** until the transcript is migrated from the worktree
+  encoding to the registry-path encoding. Until then the peer's home is the worktree.
+- **A worktree is temporary; the registry path is the agent's home.** Migrate when the
+  branch work is finished, then the warning stops.
+
+`--at <path>` is the deliberate form of the same thing — see below.
+
+## Reviving a session at an explicit path: `--at`
+
+```bash
+python3 respawn.py --at ~/dev/some-project/worktrees/feature-x --execute
+```
+
+Repeatable. Takes an explicit cwd, spawns there whether or not anything is currently
+running at that path, and whether or not the registry knows the path at all. Anything
+alive there is cycled first.
+
+The gap it fills: `--mode running` can only cycle a session that is **alive**, and
+`--mode missing` spawns at the **registry** path. So when a worktree session dies —
+a reboot, a crash — neither mode brings it back where it lived, and `missing` mode
+quietly resumes the wrong conversation. Added 2026-09-04 after a reboot killed a
+worktree session mid-benchmark and the only way back looked like a hand-rolled tmux
+spawn, which is the thing this script exists to prevent.
+
+It goes through the full spawn path, so the identity env, the scoped Discord state
+dir, dialog dismissal and the orphan-MCP sweep all still apply.
+
 ## What `--execute` actually does
 
 Beyond spawning the tmux sessions, when something gets spawned the script also:

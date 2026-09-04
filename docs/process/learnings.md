@@ -1847,3 +1847,24 @@ pane. The dialog is on screen for the whole poll window; it just isn't in any lo
 asserting that every dialog's default is safe. Two in Claude Code's startup path are
 not — folder-trust ("No, exit") and resume ("Resume from summary", which compacts).
 Before adding a pattern to a blind-Enter list, read which option the cursor lands on.
+
+## A Same-Day Mirror Is Not Today's State (2026-09-04)
+
+A research session reported an item as "no action recorded" and flagged it as
+time-sensitive on that basis. The successor session checked the live source and
+found the item HAD been acted on, that same day, hours after the local mirror was
+taken. The mirror was timestamped the current date and still read the old status.
+
+The scraper was not broken — its own health check passed on the same run. It had
+simply run at 07:38 and the action happened later.
+
+**The trap is that a same-day timestamp reads as current.** A mirror dated
+yesterday invites a re-check; one dated today invites trust. Freshness in days is
+the wrong resolution for anything that changes within a day — a committee vote, a
+deploy, a queue, a status field somebody edits during business hours.
+
+**What to do:** before reporting a NEGATIVE finding from a cached source — "no
+action", "not present", "nothing scheduled" — re-read the live source. A positive
+finding from a mirror is usually still true; an absence is the reading most likely
+to be an artefact of when the snapshot was taken. Same family as the killer item:
+an external surface is not state, and a cache is a surface with a date on it.

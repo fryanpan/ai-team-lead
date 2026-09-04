@@ -1704,3 +1704,29 @@ Two rules that follow:
   rather than deciding, purely because CLAUDE.md says the process table is not
   state. That one habit was the whole margin between a question and killing a
   19-hour run on two borrowed devices.
+
+## Two Silent Failures Put A Benchmark On The Wrong Build (2026-09-04)
+
+A 19-hour benchmark ended up comparing two devices running different commits.
+Neither failure raised anything.
+
+**`install -r` refuses a downgrade and says nothing useful.** The restore of the
+benchmark APK onto the A56 failed because the check build had a higher
+versionCode. The arm then started on the wrong build. The fix is an assertion,
+not more care: after a restore, read the installed versionCode back and compare
+it to what you meant to install. A restore that cannot confirm what it restored
+is not a restore.
+
+**A branch tip read at session start is stale by the time you cite it.** The
+peer filed the decision saying the gap between the two builds was four commits
+— the sheet-height work, cosmetic. It was 115 commits, 215 files,
++14,428/-2,271, including `build the Project Beta graph off the main thread`.
+It had read the tip at session start and treated it as the parent hours later.
+That single wrong number made "let it run" look reasonable; the real diff put
+a threading change to graph construction inside the hot path of what the
+benchmark measures.
+
+**The check that settled it took one command:** `git diff --stat A B` and
+`git log --oneline A..B`. When a decision rests on "how different are these two
+things", diff them. Do not accept either side's summary of the gap, including
+your own from earlier in the session.

@@ -34,6 +34,15 @@ Every peer watching a doc receives the same `thread.created` event, and each one
 - **A request for options is a request for options.** They go in the doc body where he can edit them; the thread gets one line saying where they are. Analysis of which option is better is not what was asked for.
 - **Answer the count he named.** Three requested means three delivered — not three each.
 
+## A row that says done carries its evidence in the comments
+
+`post_status` writes to the Activity tab, which nobody browsing a board opens. A row marked done with its reasoning only there is indistinguishable from one closed without work. Bryan, 2026-09-04: *"you marked a bunch of tickets done with no evidence in the comments — please make sure that you have evidence in the comments about what your research was, either in a comment or link to a doc."*
+
+- **Comment on the row before you transition it to done** — what you did, what you found, and a link to the artifact. `post_status` is in addition to that, never instead of it.
+- **A link is enough when the artifact carries the reasoning**, but put the conclusion in the comment too so the row reads without the click.
+- **A task whose deliverable IS a doc or a comment does not close on your own judgement.** Post the deliverable, say on the row that it is ready to read, and leave the row open for him. Marking it done skips the only review a written artifact ever gets.
+- **That is not a pause.** Pick up the next task immediately — you are leaving a row open, not waiting on an answer.
+
 ## A workspace URL is not a durable address
 
 **The review URL embeds a workspace id that changes when the workspace is recreated.** Every link written against the old one dies silently — no error, no redirect, dead for you as well as the reader.

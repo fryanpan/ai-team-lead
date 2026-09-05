@@ -19,10 +19,16 @@ Dispatch both as background agents simultaneously. **Give each the return contra
 - Return BLOCKING vs ADVISORY findings, each one a `file:line` plus a sentence. No diff hunks, no restatement of the code.
 
 **Agent B — Codex review:**
-- Run: `codex review -c 'model="gpt-5.4"' --base <base-branch>`
+- Run: `codex review --base <base-branch>`. **No `-c model=` override** — `~/.codex/config.toml` pins the model and carries its own re-check command. A slug pinned here goes stale silently and breaks every ship; `gpt-5.6` is already rejected on a ChatGPT account, and `gpt-5.4` is a generation behind.
 - Return the findings in the same shape. Do not paste the codex output back.
 
-Wait for both. Merge findings. Fix BLOCKING issues. Re-run reviewers only if fixes were >10 lines.
+**Agent C — Adversarial review (unproven; review after one ship):**
+- The author lists the invariants the change claims to hold, one per line.
+- Prompt: "For each invariant, find a concrete input, timing, or environment that breaks it. Off-path first: odd paths, backgrounding, a killed peer, stale on-disk state, a second thread. Report only cases traced to a wrong outcome: `file:line`, input, outcome."
+
+Wait for all three. Merge findings. Fix BLOCKING issues. Re-run reviewers only if fixes were >10 lines.
+
+Run this step on every review-fix batch too.
 
 ### 2. Definition of Done
 

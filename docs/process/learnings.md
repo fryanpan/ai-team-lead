@@ -30,10 +30,12 @@ path, whatever the tool description implies.
 
 - **Always scope the call.** Pass `workspaceId` when you know the board, `sourcePrefix` when you are
   looking for a doc by path, `query` when you are searching. A bare call is never what you meant.
-- **The tool description is not a guard.** It warns about this and the warning did not prevent it,
-  because the cost only shows up after the call. A server-side cap is the real fix; until it lands,
-  the scoping is on the caller.
-- **Reported by a peer, verified as reproducible, filed to the owning repo.** Not fixed here.
+- **FIXED in bundle 0.1.168 (2026-09-05, same day).** The unscoped path now pages at 50 compact
+  rows. Kept as a record of the shape, not as live advice — scope your calls anyway, but a bare
+  one no longer costs you the context.
+- **The tool description was not a guard.** It warned about this and the warning did not prevent
+  it, because the cost only shows up after the call returns. The fix that worked was a
+  server-side cap; the fix that did not was documentation.
 
 ## A Gate That Isn't Installed Passes (2026-09-05)
 

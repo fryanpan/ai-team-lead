@@ -1707,6 +1707,26 @@ a pattern I guessed the process might match is not. Same family as the tmux
 pane and the reconstructed token ceiling — I built a surface, then read my own
 construction as the state of the world.
 
+**Same failure again the next evening, twice in one lookup.** A peer relayed that
+Bryan had answered "Go!" on a task thread. `get_thread(docId="t-EXAMPLE")`
+returned 404, and a search of `list_tasks` output for the answer text found
+nothing — so I told the peer the approval did not exist and warned it not to
+claim he had approved. Both checks were incapable of finding it: **task threads
+live at `docId="task:<taskId>"`, not the bare task id**, and the `list_tasks`
+payload carries review items but not thread comments. The answer was exactly
+where the peer said, timestamped 22 minutes before I looked.
+
+- **A 404 is a fact about your address, not about the world.** The bare id
+  returned "doc not found" — the shape of a lookup error, not of an empty result
+  — and I read it as absence anyway.
+- **Two failing checks are not corroboration when both use the wrong key.** They
+  agreed because they shared the defect, the same way the stale pid agreed with
+  the wrong grep above.
+- **The peer handed me the exact address and I still needed a turn to use it.**
+  When someone who can see the record tells you where it is, re-query before
+  disputing — that costs one call, and disputing costs their credibility and
+  yours.
+
 Two rules that follow:
 
 - **A negative grep result is evidence about your pattern, not about the

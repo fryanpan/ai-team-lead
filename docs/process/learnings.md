@@ -2,6 +2,55 @@
 
 Technical discoveries that should persist across sessions.
 
+## A Gate That Isn't Installed Passes (2026-09-05)
+
+The pre-push leak scanner is the fleet's only barrier between private content and a public
+repo. Its hook does this:
+
+```
+[ ! -f "$script" ] && exit 0
+```
+
+That line exists for a good reason — peer repos without the script shouldn't be blocked —
+and it means **"the scanner is not installed here" and "this push is clean" produce the
+identical result: exit 0, no output.** Measured today: **2 of 25 local project directories
+carry the scanner.** The other 23 have been pushing past a gate that was never there.
+
+- **Sort this with the surfaces that lie, not with the tooling gaps.** A missing gate that
+  errored would have been fixed in a day. A missing gate that reports success is invisible
+  until something leaks, and by then the content is public-record forever.
+- **A per-repo copy of a check cannot be verified from the repo that owns it.** Counting
+  installs is a different question from reading the script, and only the count is load-bearing.
+  Distribute a check through the plugin every session already loads, and make an unresolvable
+  check fail LOUD.
+- **Pre-push is the wrong seam for content that must never exist.** It stops the leak at the
+  door but lets it into local history, where removing it needs a rewrite — and the permission
+  classifier refuses history rewrites, so the recovery path is manual and error-prone. Scan at
+  `--staged`, before the commit that has to be rewritten later.
+- **The scanner already had the mode nobody was using.** `--staged` shipped long before anyone
+  proposed building it. Read `--help` before designing the thing that is already there; this
+  is the same failure as bypassing a respawn mode that already existed.
+- **Some findings are unscrubbable by construction, and a scanner cannot tell you which.**
+  Going to fix the 39 findings this turned up, one stopped the pass: a budget script keys its
+  protected-project reserve on the **real directory name**, because that string is what the
+  transcript path encodes. Renaming it to satisfy the scanner does not remove a leak — it
+  silently unprotects that project, which is the exact failure the code's own comment warns
+  about. **A public repo that must not carry an identifier, whose code must match on it
+  literally, has a design problem, not a text problem.** Source it from the gitignored registry
+  at runtime. Until then a commit-time gate on those files blocks every commit and the only
+  move left is the bypass, which is how a team learns to always bypass.
+- **A suppression marker is not a fix, and on a public repo it is worse than the bypass.** The
+  scanner has an inline `scrub-allow` marker; a flagged line carrying it goes clean. A peer
+  proposed it as the answer for exactly this class. It is not: the marker hides the finding
+  and the identifier still ships. The code's own comment scopes it to "intentional examples
+  documenting the gate itself." **Suppression reads as resolved, which is the one state worse
+  than reported-and-blocked.** Whether it is legitimate depends on repo visibility — a signal
+  the scanner already computes and the marker never consults.
+- **Probe a denylist by testing it, not by reading it.** Feeding one candidate string per
+  identifier through the scanner found client product and repo names passing clean, because
+  they were not registry keys and nobody had added them by hand. Reading the list would have
+  shown 14 patterns and told you nothing about coverage.
+
 ## The Guard Fired, Injected Its Directive, And I Skipped It (2026-09-04)
 
 `CronList` on the Team Lead session returned **"No scheduled jobs."** All three were gone:

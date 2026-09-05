@@ -42,6 +42,7 @@ Every peer watching a doc receives the same `thread.created` event, and each one
 - **A link is enough when the artifact carries the reasoning**, but put the conclusion in the comment too so the row reads without the click.
 - **A task whose deliverable IS a doc or a comment does not close on your own judgement.** Post the deliverable, say on the row that it is ready to read, and leave the row open for him. Marking it done skips the only review a written artifact ever gets.
 - **That is not a pause.** Pick up the next task immediately — you are leaving a row open, not waiting on an answer.
+- **A thread he resolved is not an artifact that is ready.** Resolving is the cheapest signal a person can send — one click, no content — and he often keeps editing for an hour afterwards. Read the file before you report the state. Measured 2026-09-04: this produced two wrong "ready to send" claims in one day.
 
 ## A workspace URL is not a durable address
 

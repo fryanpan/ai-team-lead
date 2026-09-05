@@ -2,6 +2,26 @@
 
 Technical discoveries that should persist across sessions.
 
+## An Empty Result Is Only Evidence If the Search Could Have Returned a Positive (2026-09-05)
+
+Third instance of one shape in a week, which is why it is written down rather than fixed in place.
+
+- **A compliance script filtered a legislative database on instrument type `Ordinance`** while asking
+  whether a Charter section had been amended. A Charter section is amended by the voters, so that arm
+  could not have returned an amendment if one existed. It would have reported "19 candidates, none an
+  amendment" — a confident wrong answer with a plausible denominator. Fixed with a per-instrument
+  filter and a positive control.
+- **A pre-push leak gate that was not installed exited 0**, making "not installed" and "clean"
+  indistinguishable. Same shape: the negative was structural, not observed.
+- **A budget watcher in BREACH messaged nobody**, which reads exactly like a quiet fleet.
+
+**The check, before trusting any empty or clean result: construct a case that SHOULD trip it and
+confirm it does.** A positive control costs one run. Without one you have not learned that the
+answer is no — only that this particular query cannot say yes.
+
+**Which instrument the answer arrives in is a property of the question, not of the search.** The
+filter that feels like scoping is often the thing that guarantees the null.
+
 ## An Unscoped `list_docs` Costs You a Chunk of Context (2026-09-05)
 
 Calling `list_docs` with no `workspaceId`, `query` or `sourcePrefix` returned **~6.9MB / ~106k lines**

@@ -2041,3 +2041,46 @@ action", "not present", "nothing scheduled" — re-read the live source. A posit
 finding from a mirror is usually still true; an absence is the reading most likely
 to be an artefact of when the snapshot was taken. Same family as the killer item:
 an external surface is not state, and a cache is a surface with a date on it.
+
+## `heartbeatFresh` Does Not Exist — the Verification I Prescribed Fleet-Wide Was Unrunnable
+
+**2026-09-05.** Across two claude-workspaces route cutovers I told peers the check that
+mattered was "a heartbeat that returns `heartbeatFresh: true`", on the reasoning that a
+heartbeat the server never observed comes back clean and looks healthy. The reasoning is
+sound. The field is not real: `heartbeat` returns `{workspaceId, agentId}` and nothing else.
+
+Three peers reported it independently within a minute of each other, one of them adding the
+part I had backwards — **a heartbeat alone leaves the roster showing the agent's OLD version
+and process id. The attach is what refreshes it.** So the call I was treating as the proof
+was the one call that could not have provided it.
+
+**Where the bad field came from is the actual lesson.** It was not a misread API doc — it
+came out of my own carried context across a compaction, in a summary line I had written
+earlier, and it survived two cutovers being quoted as though it were a reading. A summary
+records what I believed, and a belief re-read after compaction is indistinguishable from a
+measurement. It had the shape of a hard-won detail, which is exactly why nobody questioned it.
+
+**What actually proves server-observed freshness:** `list_agents` — the agent's row showing
+`state: "active"`, `lastHeartbeat` equal to `lastToolCallAt`, and `pluginVersion` at the
+expected release — plus an `attach`. Both are server-side readings. Note the shape: the
+verification is a call to a DIFFERENT endpoint than the one being verified.
+
+**Same family as the killer item.** A tmux pane is a render, not state; the process table is
+not MCP health; and here, my own prior summary is not an API contract. Every one of them is an
+external surface being read as if it were the thing itself — and the compaction case is the
+worst of the three, because the surface is my own handwriting.
+
+**The guard:** before prescribing a verification to the fleet, run it once yourself. One call
+would have caught this on the first cutover instead of the second. A check nobody has executed
+is a hypothesis, and shipping it to seven sessions multiplies the cost of its being wrong.
+
+### The corollary that cost nothing this time: the process table cannot audit an MCP handshake
+
+The same hour, one peer reported `github-claude-channel` failed with `CONNECTION_CLOSED`. I
+checked the process table to see whether the rest of the fleet had lost it too, and found a
+`github-claude-channel` server running under every peer **including the one that had just told
+me its handshake failed.** A failed handshake leaves the child process running and silent.
+
+So there is no cheap external audit for this class of failure. Each session's own report is
+the only instrument, which makes the peers' inside readings the expensive-but-necessary path
+rather than a courtesy.

@@ -103,11 +103,13 @@ digest job. Bryan would have woken to silence.
   `~/.claude` except in transcripts — so nothing outside the session can be inspected, and no
   external surface can be believed. Run `CronList` at every session boundary; never re-arm
   blind, because a duplicate 5:27 review or a doubled 3x/day token-watch is its own failure.
-- **PROBE READ 2026-09-05 18:56 — the one-shot/recurring hypothesis is dead too.** Probe
-  `6e9f9b67` (one-shot) and all three recurring jobs came through a full `self-respawn.sh`
-  cycle with their original ids intact, and the transcript shows a `compact_boundary` at
-  18:56:48 inside that cycle. So the two job types behave identically, and compaction is
-  confirmed harmless a second time — this time on the session that lost them.
+- **PROBE READ 2026-09-05 18:56 — the one-shot/recurring hypothesis is dead in BOTH
+  directions.** My probe `6e9f9b67` (one-shot) and all three recurring jobs came through a
+  full `self-respawn.sh` cycle with their original ids intact, past a `compact_boundary` at
+  18:56:48. In the same hour, a peer's one-shot `d15174af` died at its own boundary. So a
+  one-shot survived where a one-shot died, and compaction is confirmed harmless a second time
+  — this time on the very session that had lost three jobs that morning. There is no property
+  of the JOB that predicts the outcome.
 - **Three boundaries in one day, two fatal, one not, and nothing distinguishes them.** Morning
   self-respawn: all three gone. Afternoon session resume: all three gone again. Evening
   self-respawn: all four survived. Same script, same session, same job types. Every mechanism

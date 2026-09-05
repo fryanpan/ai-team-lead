@@ -101,14 +101,21 @@ digest job. Bryan would have woken to silence.
   `~/.claude` except in transcripts — so nothing outside the session can be inspected, and no
   external surface can be believed. Run `CronList` at every session boundary; never re-arm
   blind, because a duplicate 5:27 review or a doubled 3x/day token-watch is its own failure.
-- **OPEN EXPERIMENT — one-shot vs recurring.** A peer proposed the one difference between the
-  two cases: its surviving job was `recurring: false`, all three of the vanished ones were
-  `recurring: true`. If the two are stored or restored differently, both outcomes hold without
-  needing a lifecycle event to behave inconsistently. **Probe `6e9f9b67` is armed for this
-  purpose** — a one-shot dated 2026-09-30 that does nothing, sitting alongside the three
-  recurring jobs. At the next session boundary, run `CronList` and see whether they diverge.
-  Do not delete it as a stray; it is the instrument. Nobody should assert the hypothesis until
-  someone reads that result — one survival is not durability either.
+- **PROBE READ 2026-09-05 18:56 — the one-shot/recurring hypothesis is dead too.** Probe
+  `6e9f9b67` (one-shot) and all three recurring jobs came through a full `self-respawn.sh`
+  cycle with their original ids intact, and the transcript shows a `compact_boundary` at
+  18:56:48 inside that cycle. So the two job types behave identically, and compaction is
+  confirmed harmless a second time — this time on the session that lost them.
+- **Three boundaries in one day, two fatal, one not, and nothing distinguishes them.** Morning
+  self-respawn: all three gone. Afternoon session resume: all three gone again. Evening
+  self-respawn: all four survived. Same script, same session, same job types. Every mechanism
+  proposed so far — respawn, compaction, recurring-vs-one-shot — has now been falsified by a
+  case on the other side of it.
+- **So stop proposing mechanisms and keep the practice.** `CronList` at every session
+  boundary, every time. It is one call, it is the only evidence that exists, and it is
+  correct under all three outcomes. Re-arm only what it shows missing: this morning a blind
+  re-arm would have been right and tonight it would have produced a doubled 5:27 review and a
+  token-watch firing six times a day.
 - **The original observation, kept because it is still true:** the session was PID 2662, up
   15h09m continuously since 07:29:20 — same process throughout, so a restart did not explain
   it either.

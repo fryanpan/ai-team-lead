@@ -94,7 +94,12 @@ SELF="$(find "${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/plugins}" "$HOME/dev/ai-team-l
 # range would reopen on that line and run to EOF, feeding Codex these very instructions.
 RUBRIC="$(sed -n '/RUBRIC:BEGIN/,/RUBRIC:END/{/RUBRIC:BEGIN/d;/RUBRIC:END/q;p;}' "$SELF")"
 
-codex exec --cd "$(dirname "$DOC")" -s read-only --skip-git-repo-check --ephemeral "
+# --cd the REPO ROOT, not the doc's own directory. Boxing Codex into one folder blinds it
+# to sibling artifacts — superseded drafts, a built .mdx, the archive — and the single most
+# valuable finding in the first real run was "there is a strictly later file that already
+# fixes ten of these", which is unreachable from inside the doc's directory.
+ROOT="$(git -C "$(dirname "$DOC")" rev-parse --show-toplevel 2>/dev/null || dirname "$DOC")"
+codex exec --cd "$ROOT" -s read-only --skip-git-repo-check --ephemeral "
 You are reviewing the document at $DOC. Read the whole file before judging any part of it.
 Audience: $AUDIENCE
 Purpose: $PURPOSE
@@ -112,6 +117,10 @@ $RUBRIC
   A missing second opinion is a caveat, not a reason to withhold the first one. Never describe
   a pass that did not run.
 - **Read-only sandbox, always.** This agent reviews; it does not edit.
+- **Codex can reach the web and you cannot.** It will check a cited paper against the real
+  source; your reach is the local filesystem. That asymmetry is the point — expect it to own
+  external-source findings while you own internal-consistency findings, and say so in the
+  comparison rather than treating a finding only one of you could have made as a disagreement.
 
 ## 6. Compare the two reviews
 

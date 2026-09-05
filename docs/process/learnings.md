@@ -2,6 +2,32 @@
 
 Technical discoveries that should persist across sessions.
 
+## A Session-Only Cron Dies Mid-Session, And Nobody Is Watching For It (2026-09-04)
+
+`CronList` on the Team Lead session returned **"No scheduled jobs."** All three were gone:
+the token-watch, the 5:27am automated daily review with its Asana sync, and the Monday
+digest job. Bryan would have woken to silence and the first signal would have been the
+absence of his morning review.
+
+- **A restart cannot explain it.** The session was PID 2662, up 15h09m continuously since
+  07:29:20, same process throughout. A compaction is the only boundary in the window. The
+  standing guidance — the SessionStart hook's "these three die on respawn, re-arm now" — is
+  therefore not sufficient: **arming decays in-session, and a respawn is not the only thing
+  that clears it.**
+- **The corroborating artifact was already on disk.** `docs/process/token-control.md`'s trend
+  log stops at 10:58; the 13:07 and 18:07 runs never appended. Nothing read it.
+- **`CronList` costs one call and is conclusive.** It had never been run on that session, in
+  weeks of carrying three jobs. Run it after every compact, and read the job's own output
+  artifact rather than trusting that it fired.
+- **A peer reached the same suspicion from a lost cron of its own and was right to retract it**
+  — its window contained two ordinary restarts, so its evidence could not distinguish the
+  two causes. It then proposed staging the experiment. The answer already existed in a
+  session with no restart in the window; **look for the case that is already unconfounded
+  before staging one.**
+- **Third instance in 24 hours of an absence read as evidence about the system** (see the 404
+  and the negative-grep entries). The common factor is sharper than the shape: in all three
+  the conclusive check was one call away and nobody made it.
+
 ## Tag A Citation With Where It Came From, Not With How Sure You Are (2026-09-04)
 
 The mechanism is from `anthropics/claude-for-legal` (public repo, torn down by an agent on 2026-07-19; the note is in that agent's repo under `topics/`). It is one line and it is the only part of that teardown we had not adopted:

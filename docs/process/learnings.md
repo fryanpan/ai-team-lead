@@ -90,9 +90,20 @@ carry the scanner.** The other 23 have been pushing past a gate that was never t
 the token-watch, the 5:27am automated daily review with its Asana sync, and the Monday
 digest job. Bryan would have woken to silence.
 
-- **The mechanism: a session-only cron dies at a compaction, not only at a respawn.** The
-  session was PID 2662, up 15h09m continuously since 07:29:20 — same process throughout, so
-  a restart cannot explain it, and a compaction is the only boundary in the window.
+- **RETRACTED 2026-09-05 — compaction is NOT the mechanism.** A peer's transcript timed the
+  two events nine seconds apart: `compact_boundary` at 16:11:46 (manual trigger, 139120 ->
+  22864 tokens), `CronList` at 16:11:55 still returning its job armed. Compaction and a
+  `--continue` respawn both left that job alive. The original inference below was elimination
+  on a sample of one — "a compaction is the only boundary in the window" identified the only
+  candidate I could see, not the cause.
+- **What actually holds: the disappearance is unexplained, and `CronList` is the only evidence
+  in either direction.** There is no cron state on disk — the job id appears nowhere under
+  `~/.claude` except in transcripts — so nothing outside the session can be inspected, and no
+  external surface can be believed. Run `CronList` at every session boundary; never re-arm
+  blind, because a duplicate 5:27 review or a doubled 3x/day token-watch is its own failure.
+- **The original observation, kept because it is still true:** the session was PID 2662, up
+  15h09m continuously since 07:29:20 — same process throughout, so a restart did not explain
+  it either.
 - **Killer item — the guard for this already existed, fired, and was ignored. By me.**
   `.claude/settings.json` matches SessionStart on `startup|resume|clear|compact`, so
   `scripts/rearm-token-watch-hook.sh` ran at that compaction and injected "ensure ALL THREE

@@ -2,6 +2,19 @@
 
 Technical discoveries that should persist across sessions.
 
+## An Unscoped `list_docs` Costs You a Chunk of Context (2026-09-05)
+
+Calling `list_docs` with no `workspaceId`, `query` or `sourcePrefix` returned **~6.9MB / ~106k lines**
+and blew the tool-result cap, spilling to a file. There is no compact default page on the unscoped
+path, whatever the tool description implies.
+
+- **Always scope the call.** Pass `workspaceId` when you know the board, `sourcePrefix` when you are
+  looking for a doc by path, `query` when you are searching. A bare call is never what you meant.
+- **The tool description is not a guard.** It warns about this and the warning did not prevent it,
+  because the cost only shows up after the call. A server-side cap is the real fix; until it lands,
+  the scoping is on the caller.
+- **Reported by a peer, verified as reproducible, filed to the owning repo.** Not fixed here.
+
 ## A Gate That Isn't Installed Passes (2026-09-05)
 
 The pre-push leak scanner is the fleet's only barrier between private content and a public

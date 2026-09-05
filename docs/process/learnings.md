@@ -2,31 +2,34 @@
 
 Technical discoveries that should persist across sessions.
 
-## A Session-Only Cron Dies Mid-Session, And Nobody Is Watching For It (2026-09-04)
+## The Guard Fired, Injected Its Directive, And I Skipped It (2026-09-04)
 
 `CronList` on the Team Lead session returned **"No scheduled jobs."** All three were gone:
 the token-watch, the 5:27am automated daily review with its Asana sync, and the Monday
-digest job. Bryan would have woken to silence and the first signal would have been the
-absence of his morning review.
+digest job. Bryan would have woken to silence.
 
-- **A restart cannot explain it.** The session was PID 2662, up 15h09m continuously since
-  07:29:20, same process throughout. A compaction is the only boundary in the window. The
-  standing guidance — the SessionStart hook's "these three die on respawn, re-arm now" — is
-  therefore not sufficient: **arming decays in-session, and a respawn is not the only thing
-  that clears it.**
+- **The mechanism: a session-only cron dies at a compaction, not only at a respawn.** The
+  session was PID 2662, up 15h09m continuously since 07:29:20 — same process throughout, so
+  a restart cannot explain it, and a compaction is the only boundary in the window.
+- **Killer item — the guard for this already existed, fired, and was ignored. By me.**
+  `.claude/settings.json` matches SessionStart on `startup|resume|clear|compact`, so
+  `scripts/rearm-token-watch-hook.sh` ran at that compaction and injected "ensure ALL THREE
+  are armed now — call CronList first." The directive was sitting in context for the whole
+  session that followed. **A hook cannot call CronCreate; it can only ask the model to, and
+  a directive the model does not act on is indistinguishable from no directive at all.**
+- **The first honest draft of this entry blamed the guidance** — "the hook says they die on
+  respawn, so it is incomplete." That was wrong and self-serving: the hook's trigger list
+  already covered compact. Checking the matcher took one call and inverted the finding.
 - **The corroborating artifact was already on disk.** `docs/process/token-control.md`'s trend
   log stops at 10:58; the 13:07 and 18:07 runs never appended. Nothing read it.
-- **`CronList` costs one call and is conclusive.** It had never been run on that session, in
-  weeks of carrying three jobs. Run it after every compact, and read the job's own output
-  artifact rather than trusting that it fired.
-- **A peer reached the same suspicion from a lost cron of its own and was right to retract it**
-  — its window contained two ordinary restarts, so its evidence could not distinguish the
-  two causes. It then proposed staging the experiment. The answer already existed in a
-  session with no restart in the window; **look for the case that is already unconfounded
-  before staging one.**
-- **Third instance in 24 hours of an absence read as evidence about the system** (see the 404
-  and the negative-grep entries). The common factor is sharper than the shape: in all three
-  the conclusive check was one call away and nobody made it.
+- **A peer reached the same suspicion from its own lost cron and retracted it correctly** —
+  its window held two ordinary restarts, so its evidence could not separate the causes. It
+  then offered to stage an experiment. The unconfounded case already existed. **Look for the
+  case that is already clean before staging one.**
+- **Fourth instance in 24 hours of an absence read as evidence about the system** (see the 404
+  and negative-grep entries). The sharper common factor, named by that peer: in every one the
+  conclusive check was one call away and nobody made it. `CronList` had never been run on a
+  session that had carried three jobs for weeks.
 
 ## Tag A Citation With Where It Came From, Not With How Sure You Are (2026-09-04)
 

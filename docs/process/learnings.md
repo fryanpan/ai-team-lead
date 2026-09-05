@@ -2042,23 +2042,29 @@ finding from a mirror is usually still true; an absence is the reading most like
 to be an artefact of when the snapshot was taken. Same family as the killer item:
 an external surface is not state, and a cache is a surface with a date on it.
 
-## `heartbeatFresh` Does Not Exist — the Verification I Prescribed Fleet-Wide Was Unrunnable
+## `heartbeatFresh` Is Real, on a Different Tool — the Check I Shipped Fleet-Wide Was Unrunnable
 
 **2026-09-05.** Across two claude-workspaces route cutovers I told peers the check that
 mattered was "a heartbeat that returns `heartbeatFresh: true`", on the reasoning that a
 heartbeat the server never observed comes back clean and looks healthy. The reasoning is
-sound. The field is not real: `heartbeat` returns `{workspaceId, agentId}` and nothing else.
+sound and the field is real. It is just not on `heartbeat`, which returns `{workspaceId,
+agentId}` and nothing else — **`heartbeatFresh` lives on `list_watched_docs` coverage rows.**
+Verified by running it myself, after a peer pointed at the right tool.
 
-Three peers reported it independently within a minute of each other, one of them adding the
-part I had backwards — **a heartbeat alone leaves the roster showing the agent's OLD version
-and process id. The attach is what refreshes it.** So the call I was treating as the proof
-was the one call that could not have provided it.
+So I bound a genuine field to the wrong call and shipped it to seven sessions as the proof
+of a cutover. Four peers reported it missing within two minutes of each other; a fifth
+supplied the correction. One of them added the part I had backwards — **a heartbeat alone
+leaves the roster showing the agent's OLD version and process id. The attach is what
+refreshes it.** The call I was treating as the proof was the one call that could not have
+provided it.
 
-**Where the bad field came from is the actual lesson.** It was not a misread API doc — it
-came out of my own carried context across a compaction, in a summary line I had written
-earlier, and it survived two cutovers being quoted as though it were a reading. A summary
-records what I believed, and a belief re-read after compaction is indistinguishable from a
-measurement. It had the shape of a hard-won detail, which is exactly why nobody questioned it.
+**Where the bad binding came from is the actual lesson.** Not a misread doc — it came out of
+my own carried context across a compaction, in a summary line I had written earlier, and it
+survived two cutovers being quoted as though it were a reading. A summary records what I
+believed, and a belief re-read after compaction is indistinguishable from a measurement. It
+had the shape of a hard-won detail, which is exactly why nobody questioned it. A half-right
+memory is more durable than a wrong one, because every part of it that checks out buys
+credibility for the part that does not.
 
 **What actually proves server-observed freshness:** `list_agents` — the agent's row showing
 `state: "active"`, `lastHeartbeat` equal to `lastToolCallAt`, and `pluginVersion` at the
@@ -2067,8 +2073,8 @@ verification is a call to a DIFFERENT endpoint than the one being verified.
 
 **Same family as the killer item.** A tmux pane is a render, not state; the process table is
 not MCP health; and here, my own prior summary is not an API contract. Every one of them is an
-external surface being read as if it were the thing itself — and the compaction case is the
-worst of the three, because the surface is my own handwriting.
+external surface read as if it were the thing itself — and the compaction case is the worst of
+the three, because the surface is my own handwriting.
 
 **The guard:** before prescribing a verification to the fleet, run it once yourself. One call
 would have caught this on the first cutover instead of the second. A check nobody has executed

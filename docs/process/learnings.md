@@ -2090,3 +2090,37 @@ me its handshake failed.** A failed handshake leaves the child process running a
 So there is no cheap external audit for this class of failure. Each session's own report is
 the only instrument, which makes the peers' inside readings the expensive-but-necessary path
 rather than a courtesy.
+
+## A Hung `codex exec` Returns to the Caller and Keeps Running — Each Retry Leaks a Process
+
+**2026-09-05.** A peer reported `codex exec` returning nothing on a two-word prompt, six
+attempts across two sessions. Each attempt looked costless from inside the calling session:
+the tool call came back, the streams were empty, the session moved on. A process-table sweep
+found **five wedged `codex` processes**, the oldest at 7h54m of wall clock and 0:00.00 CPU.
+The call returning is not the process exiting.
+
+**The diagnosis that separated "our invocation is wrong" from "the binary is broken":**
+
+- `codex --version` hangs identically. No prompt, no model resolution, no config read, no
+  network. That single test clears the stale model slug, the `notify` hook, the peer's flags,
+  and any prompt-shaped theory in one move — **run the cheapest possible invocation before
+  investigating anything downstream of it.**
+- `sample <pid>` printed a call graph of exactly one frame: `_dyld_start (in dyld) + 0`. A
+  stack that never reaches `main` means the dynamic loader never returned — for a 220 MB
+  binary carrying `com.apple.quarantine`, that points at a Gatekeeper / code-signature
+  assessment that never completes.
+- Reproduced in a plain tmux shell outside Claude Code's Bash sandbox. Without that step the
+  obvious (wrong) conclusion is that the sandbox is doing it.
+
+**The remedy is the user's, not ours.** Clearing a quarantine xattr is a security-setting
+change; a cask reinstall and a reboot are machine-wide. All three were surfaced, none taken.
+
+**What generalizes past Codex:** an external CLI that hangs *before* `main` produces the same
+observable as one that is merely slow — empty streams and no exit code — and the calling
+session cannot tell them apart. The distinguishing evidence is outside the call: **zero CPU on
+a live pid, and a `sample` stack with no application frames.** Check those before you retry,
+because retrying a pre-`main` hang is not a cheap experiment, it is a leak.
+
+**macOS has no `timeout` binary** and `gtimeout` is not installed here, so bounding one of
+these calls means a detached background launch plus an `until [ -s file ] || [ $SECONDS -gt N ]`
+loop, not `timeout 90 …`.

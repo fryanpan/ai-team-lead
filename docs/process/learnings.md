@@ -2,6 +2,34 @@
 
 Technical discoveries that should persist across sessions.
 
+## I Named a Cause for a Red Check Without Reading What the Check Said (2026-09-07)
+
+`plugin_drift_check.py` had been EXIT=1 on every token-watch pass. I told Bryan the sole
+cause was an unmerged PR, filed a card asking him to merge it, and carried that claim
+across several reports. He merged it. The check stayed red.
+
+**When I finally read the check's output, it had been printing the answer the whole time**
+-- two causes, neither of them the PR. One plugin's cache held 1.1.0 while its repo said
+1.2.0, and `claude plugin update` had never been run. The other had **release lag**: two
+commits that same session edited plugin content without bumping the version, and the update
+command keys on the version, so those edits would have deployed nothing. Both fixed in two
+commands; the check went green immediately. The output also named those two commands.
+
+**The stake I quoted was false as well.** I had written that "the production broker runs
+unmerged code." `git diff --stat origin/main HEAD` in the broker's working tree is empty --
+it sits on the merged feature branch, byte-identical to main. The premise had been wrong
+before the card was ever filed.
+
+**What generalises: a diagnostic that fails loudly has usually already diagnosed itself.**
+The cost here was not the misdiagnosis, it was that I asked a person to do work based on it
+and then reported the result of that work as a fix. Read the failing output in full and
+quote it before naming a cause -- and when the fix lands and the check stays red, that is
+the signal to re-read, not to look for a second reason the original theory still holds.
+
+**Bump the plugin version in the same commit that changes plugin content.** Not later, not
+at ship time. An unbumped edit is invisible to the update command and shows up as drift with
+no obvious author.
+
 ## An Empty Result Is Only Evidence If the Search Could Have Returned a Positive (2026-09-05)
 
 Third instance of one shape in a week, which is why it is written down rather than fixed in place.

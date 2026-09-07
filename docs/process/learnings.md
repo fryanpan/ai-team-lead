@@ -2299,3 +2299,40 @@ board at all is a normal state, not a lookup failure.
 **Where a title is ambiguous, leave it unmapped.** An unmapped project posts no
 notes -- exactly the prior status quo. A *wrongly* mapped one posts one agent's turn
 notes onto another agent's Activity tab, which corrupts both.
+
+## The Same Bytes Ran From One Path And Hung Forever From Another (2026-09-07)
+
+`codex --version` never returned -- no output, no error, killed at every timeout.
+`sample` showed the process parked at `_dyld_start + 0` with **0.00s CPU**, so it had
+not executed one instruction of user code. Everything that normally explains that was
+healthy: signature valid and notarized, `amfid` and `syspolicyd` idle, Apple's OCSP
+reachable in 95ms, memory 53% free, the file readable end to end.
+
+**The control is what cracked it.** The sibling binary in the same cask directory ran
+instantly and printed a proper usage error. That cleared dyld, Gatekeeper, code
+signing and the whole environment in one command -- the fault had to be specific to
+this binary. Then a byte-identical `cp` of it (`shasum` confirmed) ran instantly from
+a scratch directory. Same bytes, same signature, one path hangs and the other does
+not.
+
+**Two hypotheses died on the way, and both looked strong.** `com.apple.provenance`
+was the obvious culprit, since the working copy had none -- but it is kernel-managed
+and survives `xattr -c`, and a copy placed in `~/.local/bin` carried it *and ran
+anyway*. Size was the other (210MB, 53k signed pages, plausible first-run hashing) --
+but a stall that hashes burns CPU, and this one burned none.
+
+**What actually generalises:** when a binary will not start, vary ONE thing at a time
+against a control that must work. Sibling binary isolates the environment; identical
+copy at a new path isolates the file; the same file at a third path isolates the
+location. Reasoning about Gatekeeper from first principles produced two confident
+wrong answers and the three-command matrix produced the right one in a minute.
+
+`DYLD_PRINT_LIBRARIES` is worthless here and its silence means nothing -- the hardened
+runtime (`flags=0x10000(runtime)`) strips every `DYLD_*` variable, so an empty trace
+reads as "never loaded a library" when it actually means "you were not allowed to
+ask."
+
+**Fix:** the working copy lives at `~/.local/bin/codex`, which already precedes
+Homebrew on PATH. Homebrew's cask was restored to pristine, so `brew upgrade` still
+manages the real install -- and a new version will land in the Caskroom **and stay
+shadowed**. Re-copy after any upgrade, or the fleet silently runs the old one.

@@ -2,6 +2,43 @@
 
 Technical discoveries that should persist across sessions.
 
+## `send_message` Accepts an Address That Does Not Exist and Reports Success (2026-09-07)
+
+I sent three hive messages to a **workspace id** (`w-...`) instead of a **claude-hive stable
+id** (12 hex chars). Every call returned `Message sent to peer w-...`. None was delivered,
+and none appeared in the recipient's transcript.
+
+**The two ids sit next to each other in `registry.yaml` and look nothing alike, which is
+exactly why the slip was invisible.** I had added `workspace_id:` to the registry earlier the
+same session, so it was the id under my hand when I reached for an address. `send_message`
+queues to a mailbox keyed on whatever string you pass, so an id from the wrong namespace is
+indistinguishable from a peer that is offline.
+
+**The tell is a peer that never answers and whose transcript has no new entry.** Both
+recipients replied within seconds once addressed correctly. Before concluding a peer is
+wedged, check `list_peers` and copy the `Stable ID` from there. `registry.yaml` now carries
+`hive_stable_id:` per project with a comment saying it is not the workspace id.
+
+**I spent a restart, a monitor and four diagnostic passes on this** -- reading MCP logs,
+transcripts and the tmux pane -- and every one of them correctly reported a healthy session.
+The fault was in the address, and no amount of looking at the recipient could have shown it.
+
+**When every probe says healthy, stop probing the recipient and check what you sent.**
+
+## A Board Seat Re-Registers on `attach_agent`, Not on a Read (2026-09-07)
+
+Correction from the peer that tested it, not something I confirmed myself. After a restart,
+a session's board attachment can sit stale -- old plugin version, hours-old heartbeat, lead
+seat marked stale -- while lead-addressed deliveries queue against it.
+
+I told the peer any read would clear it. It ran `get_workspace` successfully and `list_agents`
+immediately after **still showed the stale seat**. `attach_agent` is what took: seat
+`stale:false`, `lastObservedAt` current, `lead:true`.
+
+**A restarted peer also starts watching zero docs on its board**, so comments do not reach it
+until it subscribes. Both are worth checking after any fleet restart, and neither shows up as
+an error anywhere.
+
 ## I Named a Cause for a Red Check Without Reading What the Check Said (2026-09-07)
 
 `plugin_drift_check.py` had been EXIT=1 on every token-watch pass. I told Bryan the sole

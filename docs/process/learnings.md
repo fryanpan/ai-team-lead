@@ -2124,3 +2124,168 @@ because retrying a pre-`main` hang is not a cheap experiment, it is a leak.
 **macOS has no `timeout` binary** and `gtimeout` is not installed here, so bounding one of
 these calls means a detached background launch plus an `until [ -s file ] || [ $SECONDS -gt N ]`
 loop, not `timeout 90 …`.
+
+## A Version-Skew 404 Is Indistinguishable From A Deleted Resource (2026-09-06)
+
+The workspaces bundle cut over to canonical routes at 16:42:39Z. Every tool that addresses a
+resource by a bare id started returning `404: not found` to any session still on the old
+bundle. Three sessions independently read that 404 as "the workspace was recreated" or "the
+peer's server is broken" and went looking for a deleted resource. One of them filed a bug
+against a peer's row before working out its own bundle was behind. **A 404 carries no
+version information, so the first hypothesis it suggests is always the wrong one.**
+
+**Four of us independently derived the same rule, and it is wrong.** SF Works, Project Beta,
+the Workspaces lead and I all concluded: calls carrying a `workspaceId` survive, calls
+addressing a resource by bare id 404. It fits every observation anyone had made, because the
+three tools everyone reached for while probing — `heartbeat`, `get_workspace`, `next_tasks` —
+happen to sit on routes that were already canonical.
+
+**Measured from one stale 0.1.173 client, both of these carry a `workspaceId`:**
+
+```
+get_workspace(w-…)              -> 200, full board
+list_docs(workspaceId=w-…)      -> GET /api/docs?workspaceId=…  -> 404
+doc_status(<docId>)             -> GET /api/docs/<id>/status     -> 404
+```
+
+The discriminator is **which URL path the old client emits**, not what the arguments contain.
+Confirmed against the server's route table by the Workspaces lead: `matchWorkspaceRoute`
+accepts exactly one prefix, `/workspaces/`, nothing strips `/api` above it, and board-owned
+routes match on the resolved remainder — so a handler with no scope cannot answer at all.
+`/api/docs` and `/api/goals/<id>` survive only as prose in a comment.
+
+**And the popular rule is not merely unreliable, it is close to inverted.** The cutover moved
+the board id out of the query string and into the path. So a `workspaceId` **as a query
+param** is a positive signal of a DEAD route; as a **path segment** it is the surviving shape.
+`get_workspace` / `heartbeat` / `next_tasks` passed because they already sat on canonical
+paths — not because they carried an id. Anyone applying "my call takes a workspaceId, so I am
+fine" has it exactly backwards for the calls most likely to fail.
+
+The clean confirmation is a controlled repeat across the version boundary: `doc_status`
+with the *same alias and the same arguments* 404'd from a 0.1.173 client and returned 200
+from 0.1.174 minutes later. One variable changed.
+
+So **a session that probes with a heartbeat concludes it is fine.** I told two peers their
+board calls "are already failing"; my own stale session was reading the board without trouble
+at the time. That was an inference stated as a measurement, and one peer nearly took it at
+face value while holding the contradicting evidence.
+
+**Check your own bundle version before you believe any 404 about someone else's resource.**
+The running MCP server argv is the authority — not the repo, not the plugin manifest, not a
+peer's report:
+
+```bash
+ps -axww -o pid=,ppid=,command= | grep 'claude-workspaces/claude-workspaces/0.1.'
+```
+
+Map each server to its owning session by walking `ppid` → `lsof -a -p <ppid> -d cwd`. A fleet
+mid-rollout is not uniform, and the version skew is per-session.
+
+**What generalizes:** an error code that describes the resource ("not found") when the actual
+fault is in the caller ("your client speaks the old protocol") sends every reader downstream
+of the real cause. Where you control the server, say which one it is. Where you don't, make
+the version check the first step and not the last.
+
+## Two Guards That Only Fire Before A History Rewrite (2026-09-06)
+
+Both caught in prep by the Workspaces lead, before a force-push of a public repo's rewritten
+history. Neither would have produced an error — each fails by succeeding on the wrong thing.
+
+**A staleness check lies across a rewritten history.** The prepared mirror was 10 commits
+behind, and pushing it would have silently deleted five merged PRs. The naive check reads
+"zero behind" because it compares hashes, and every hash changed in the rewrite — so the
+comparison finds no common ancestor and reports nothing rather than reporting everything.
+**Re-derive staleness from something that survives the rewrite** — commit subjects, PR
+numbers, `git log --oneline` of the *source* against the mirror's tree — never from hashes
+you are in the middle of rewriting.
+
+**Check the length of every needle in a replace-rules file before running it.** One rule
+carried a stray 5-character needle that would have replaced a common English word across the
+whole repo. A repo-wide replace has no natural failure signal: it exits 0, the diff is large
+because a large diff was the point, and the damage reads as intended output. `awk 'length($1)
+< 8 { print }'` over the rules file is the whole guard.
+
+**The blast-radius framing is also worth measuring rather than relaying.** The ask that came
+with this was "108 worktrees locally, so any peer with a checkout must stop pushing." Measured:
+all 108 are linked worktrees of ONE clone sharing ONE object store (`.git` is a `gitdir:`
+pointer file, not a directory), and exactly one session had a cwd inside it — the peer doing
+the rewrite. A fleet-wide freeze was one `git worktree list` away from being scoped to a
+single session. Count the object stores, not the working directories.
+
+## Two Probes That Return Zero Without Ever Looking (2026-09-06)
+
+Both found by the Workspaces lead while verifying a history rewrite. Each returns a clean
+zero, and in both cases the zero means "I did not look", not "it is not there."
+
+**`git grep <ref>` searches that ref's TIP TREE, not its history.** It was used to prove a
+name was gone from history and returned zero — a meaningless result, because the command could
+never have looked where the name lived. **`git log -S<needle> --all` is the probe for
+history**; `git grep` answers a different question and answers it confidently.
+
+**A mirror clone of a GitHub repo carries `refs/pull/*`, and expanding those into a command
+line overflows `ARG_MAX`.** With 1,315 refs the search silently produced no output and exited
+without running. A zero from a command that never ran is indistinguishable from a clean result.
+
+**The generalizable defence is a positive control on every scrub check.** Search for a string
+you KNOW is present in the same pass; if the control comes back zero, the probe is broken and
+the real result is worthless. That control is what caught both of these. Applied to
+`ai-team-lead` the same day: a `git log --all -S` over a known-present term returned 50 commits
+while the sensitive needle returned 1, so the 1 is trustworthy — without the control it would
+have been a number with no error bars.
+
+**And residual exposure survives a rewrite.** `refs/pull/*` on GitHub is read-only and cannot
+be rewritten, so 31 commits still carried the scrubbed name after a clean 879-commit rewrite
+and a 554-branch force-push. That is *enumerable*, not merely hash-reachable — a stronger
+exposure than "unreachable history" and worth telling the decision-maker, because it is
+usually not what they were told when they approved the rewrite.
+
+## A Stale Bundle Invents Plausible Ids, Which Is Worse Than A 404 (2026-09-06)
+
+Same cutover as the version-skew entry above, one layer nastier. The Project Beta lead wrote a
+restart handover at 16:50Z whose "open decisions" table named `r-JDt5RQUBwD3N` and
+`r-uCrFNgv4rgSW`. **Neither id has ever existed.** They were produced while its client was
+behind the canonical-routes cutover, and its unpushed-work table was stale by the same
+mechanism. The single real decision was `r-5QByhNRLRvxk`.
+
+**A 404 at least announces itself.** A well-formed id that resolves to nothing is silent, gets
+committed into a handover, and survives into the next session — where a replacement burns its
+first hour hunting items that were never created, with no error to tell it the premise is
+false. The failure outlives the outage that caused it.
+
+- **Re-verify every resource id in a handover against a live call before committing it**,
+  especially one written while any tooling was mid-upgrade. Ids are exactly the content that
+  looks trustworthy because it is well-formed.
+- **A handover is a durable artifact and inherits the reliability of the session that wrote
+  it.** Anything written during a known-degraded window should be re-derived, not carried.
+- Caught only because the peer re-read its own handover after restarting rather than trusting
+  it. That re-read is the control, and it cost minutes against the hour it saved.
+
+## A Hook That Exits 0 On Every Path Is A Silent Dependency (2026-09-06)
+
+The workspaces plugin's Stop hook posts each turn's closing line to the board named
+by `CW_WORKSPACE_ID` (old spelling `FEEDBACK_WORKSPACE_ID`). `readWorkspaceId` reads
+those two env vars and **has no other fallback** -- no cwd inference, no server-side
+default. It is also written to never block a turn: no agent name, no board, no
+server, a thrown fetch -- every path exits 0 with no output.
+
+Both properties are individually correct and together they make a launch-env
+omission invisible. A session spawned without the var runs normally, takes turns,
+reads and writes the board -- and posts no turn notes at all. The symptom is an
+**Activity tab that goes quiet, which is indistinguishable from an agent that did
+nothing**, and the stall detector reads it the same way.
+
+**Same family as the hand-rolled spawn:** the session comes up looking healthy and
+only fails on the surface where it would otherwise have reported the problem. Any
+env var a hook needs belongs in the spawn script, never in a human's memory of a
+restart.
+
+**The board id is only discoverable from the running server.** The on-disk board
+files (`data/workspaces/<id>.*`) carry tasks, events and readers but **no title** --
+`home.json` is `{readers, briefs}`, and `GET /workspaces` lists attachment sets
+rather than boards. The mapping comes from `GET /workspaces/<id>` and reading the
+HTML `<title>`, so it can only be rebuilt while the server is up. That is the reason
+to persist it (registry `workspace_id:`) instead of re-deriving it at each spawn.
+
+**Where a title is ambiguous, leave it unmapped.** An unmapped project posts no
+notes -- exactly the prior status quo. A *wrongly* mapped one posts one agent's turn
+notes onto another agent's Activity tab, which corrupts both.

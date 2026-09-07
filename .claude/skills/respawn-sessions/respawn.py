@@ -537,6 +537,7 @@ def registry_home_for(path: str) -> Optional[str]:
 
 
 _REGISTRY_NAMES_CACHE: Optional[List[Tuple[str, str]]] = None
+_REGISTRY_WS_CACHE: Optional[List[Tuple[str, str]]] = None
 
 
 def registry_session_name_for(path: str) -> Optional[str]:
@@ -580,6 +581,43 @@ def registry_session_name_for(path: str) -> Optional[str]:
     for project, session_name in _REGISTRY_NAMES_CACHE:
         if real == project or real.startswith(project + os.sep):
             return session_name
+    return None
+
+
+def registry_workspace_id_for(path: str) -> Optional[str]:
+    """The board id (`w-…`) the registry assigns to the project owning `path`.
+
+    claude-workspaces 0.1.182 moved the end-of-turn note route under the board
+    and made the Stop / PermissionDenied hooks read that board from the launch
+    env. `readWorkspaceId` consults CW_WORKSPACE_ID then FEEDBACK_WORKSPACE_ID
+    and has NO other fallback -- so a session spawned without it posts no turn
+    notes at all. That failure is silent by design (every hook path exits 0),
+    and the symptom is a peer whose Activity tab simply goes quiet, which is
+    indistinguishable from a peer that did nothing.
+
+    Path matching is prefix-based and longest-first, exactly as
+    `registry_session_name_for` does it, so a session running out of a worktree
+    resolves to its parent project's board rather than to nothing.
+
+    Returns None when the registry entry carries no `workspace_id`. That is the
+    pre-0.1.182 status quo -- no notes -- not a regression, so an unmapped
+    project spawns normally instead of failing.
+    """
+    global _REGISTRY_WS_CACHE
+    if _REGISTRY_WS_CACHE is None:
+        pairs: List[Tuple[str, str]] = []
+        for fields in parse_registry(REGISTRY_PATH).values():
+            raw, wid = fields.get("path", ""), fields.get("workspace_id", "")
+            if not raw or not wid:
+                continue
+            p = os.path.realpath(os.path.expanduser(raw))
+            if os.path.isdir(p):
+                pairs.append((p, wid))
+        _REGISTRY_WS_CACHE = sorted(pairs, key=lambda t: len(t[0]), reverse=True)
+    real = os.path.realpath(path)
+    for project, wid in _REGISTRY_WS_CACHE:
+        if real == project or real.startswith(project + os.sep):
+            return wid
     return None
 
 
@@ -802,6 +840,15 @@ def spawn_session_tmux(session_name: str, path: str) -> bool:
     ensure_no_discord_state()
     discord_dir = discord_state_dir_for(path)
 
+    # The board the 0.1.182 Stop hook posts each turn's closing line to. Absent
+    # from the env, the hook exits 0 and posts nothing -- so an unmapped project
+    # spawns exactly as it did before, just without turn notes.
+    wid = registry_workspace_id_for(path)
+    workspace_env: List[str] = []
+    if wid:
+        workspace_env = ["-e", f"CW_WORKSPACE_ID={wid}",
+                         "-e", f"FEEDBACK_WORKSPACE_ID={wid}"]
+
     # `zsh -ic` sources ~/.zshrc and runs the inline command. The shell function
     # `claude` resolves to the full binary path + channel flags inside zsh.
     # `-e DISCORD_STATE_DIR=…` overrides the tmux server's inherited env for
@@ -814,6 +861,7 @@ def spawn_session_tmux(session_name: str, path: str) -> bool:
          # rename -- no flag-day ordering dependency on this file.
          "-e", f"CW_AGENT_NAME={session_name}",
          "-e", f"FEEDBACK_AGENT_NAME={session_name}",
+         *workspace_env,
          "/bin/zsh", "-ic", claude_invocation],
         capture_output=True, text=True, timeout=5.0,
     )

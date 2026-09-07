@@ -2332,14 +2332,21 @@ runtime (`flags=0x10000(runtime)`) strips every `DYLD_*` variable, so an empty t
 reads as "never loaded a library" when it actually means "you were not allowed to
 ask."
 
-**Fix:** `scripts/codex-relocate.sh` mirrors the cask payload to `~/.local/codex/<version>`
-and points `~/.local/bin` at it, which already precedes Homebrew on PATH. Homebrew's cask
-stays pristine, so `brew upgrade` still manages the real install -- and the new version
-then sits in the Caskroom **shadowed by the copy**, so re-run the script after any upgrade
-or the fleet silently keeps running the old one.
+**Fix: the vendor's own installer, not a relocation.** Bryan's call, same day. The
+Homebrew cask is uninstalled and `https://chatgpt.com/codex/install.sh` now owns the
+install -- payload under `~/.codex/packages/standalone/`, both `codex` and
+`codex-code-mode-host` symlinked into `~/.local/bin`. It self-updates, so there is no
+manual step after an upgrade. `scripts/codex-relocate.sh` is deleted.
 
-**Mirror the whole payload, not the binary.** The first fix copied only `codex` and gave a
-working `codex --version` and a broken `codex exec`: codex spawns `codex-code-mode-host`
-from beside its own executable, and reads `codex-path/` and `codex-resources/` as siblings
-of `bin/`. A relocated binary has to keep its whole tree, and the smoke test has to exercise
-a subcommand -- `--version` passes in exactly the state where real work fails.
+**The relocation script was the wrong shape of fix and its failure mode says why.**
+It worked, and it needed re-running after every `brew upgrade` or the fleet silently kept
+running the old version -- a fix that has to be remembered is a fix that will be forgotten.
+When a package manager mangles a vendor's binary, reach for the vendor's installer before
+building a mirror around the mangling.
+
+**Mirror the whole payload, not the binary** -- the lesson that outlives the script.
+The first attempt copied only `codex` and gave a working `codex --version` and a broken
+`codex exec`: codex spawns `codex-code-mode-host` from beside its own executable, and reads
+`codex-path/` and `codex-resources/` as siblings of `bin/`. A relocated binary has to keep
+its whole tree, and the smoke test has to exercise a subcommand -- `--version` passes in
+exactly the state where real work fails.

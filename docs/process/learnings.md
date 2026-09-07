@@ -2332,7 +2332,14 @@ runtime (`flags=0x10000(runtime)`) strips every `DYLD_*` variable, so an empty t
 reads as "never loaded a library" when it actually means "you were not allowed to
 ask."
 
-**Fix:** the working copy lives at `~/.local/bin/codex`, which already precedes
-Homebrew on PATH. Homebrew's cask was restored to pristine, so `brew upgrade` still
-manages the real install -- and a new version will land in the Caskroom **and stay
-shadowed**. Re-copy after any upgrade, or the fleet silently runs the old one.
+**Fix:** `scripts/codex-relocate.sh` mirrors the cask payload to `~/.local/codex/<version>`
+and points `~/.local/bin` at it, which already precedes Homebrew on PATH. Homebrew's cask
+stays pristine, so `brew upgrade` still manages the real install -- and the new version
+then sits in the Caskroom **shadowed by the copy**, so re-run the script after any upgrade
+or the fleet silently keeps running the old one.
+
+**Mirror the whole payload, not the binary.** The first fix copied only `codex` and gave a
+working `codex --version` and a broken `codex exec`: codex spawns `codex-code-mode-host`
+from beside its own executable, and reads `codex-path/` and `codex-resources/` as siblings
+of `bin/`. A relocated binary has to keep its whole tree, and the smoke test has to exercise
+a subcommand -- `--version` passes in exactly the state where real work fails.

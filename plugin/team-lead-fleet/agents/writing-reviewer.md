@@ -47,6 +47,7 @@ You have Read, Grep, and Glob. If the doc cites a local file, open it and check 
 - Detail past the purpose, including detail carried over from source code or raw notes.
 - An idea repeated in more than one place without reason.
 - Background the audience already has.
+- Superseded content kept as a record: struck or corrected numbers, "an earlier draft said", and accounts of approaches tried and abandoned. The doc carries the current fact; that history belongs in the commit message or `notes/`. Flag it as a defect — it is the failure mode that most often looks like thoroughness.
 
 **Organization and style.**
 

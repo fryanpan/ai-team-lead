@@ -46,6 +46,8 @@ Two copies of the same content means two copies to keep true, and the chat copy 
 
 **Never describe the user's own situation ahead of the facts.** A label he has not earned yet reads as a claim he made, to people who will hold him to it. He set the bar himself on the word "fractional": not until he is actually running two or three fractional engagements, and has been for more than a month or two. The same restraint applies to every title, role, client relationship and status you write on his behalf — say what is true today, and let him upgrade it.
 
+**A deliverable carries the current fact only — how it got there belongs somewhere else.** Struck numbers, "an earlier version said X", and paragraphs about approaches that were tried and abandoned are clutter to a reader who was not there for the attempt. That history goes in the commit message, the Activity tab, or `notes/`. Bryan, 2026-09-07: *"there's a habit to keep around the work in progress notes about things that didn't work. That's just confusing and takes up unnecessary space."* It reads as diligence to the writer and as noise to the reader, which is why it survives so long — writing review treats it as a defect.
+
 ## Style
 
 Write like an expert technical writer, in plain words you would say out loud.

@@ -2279,12 +2279,22 @@ only fails on the surface where it would otherwise have reported the problem. An
 env var a hook needs belongs in the spawn script, never in a human's memory of a
 restart.
 
-**The board id is only discoverable from the running server.** The on-disk board
-files (`data/workspaces/<id>.*`) carry tasks, events and readers but **no title** --
-`home.json` is `{readers, briefs}`, and `GET /workspaces` lists attachment sets
-rather than boards. The mapping comes from `GET /workspaces/<id>` and reading the
-HTML `<title>`, so it can only be rebuilt while the server is up. That is the reason
-to persist it (registry `workspace_id:`) instead of re-deriving it at each spawn.
+**Match the board by `leadAgentId`, never by its title.** The board record in
+`data/workspaces/<id>.tasks.json` carries `"leadAgentId": "agent-<slug>"`, where the
+slug is the agent's `session_name` lowercased and hyphenated. That is an exact,
+on-disk, server-independent key.
+
+Titles are not. One board titled for a *finance* topic is led by `agent-<a
+different project>`, and matching on the title would have posted that peer's turn
+notes onto the wrong board. The title names the board's subject; only the lead id
+names who answers for it. The initial pass here mapped seven boards from titles and
+stalled on two ambiguous ones -- the lead id resolved all of them in one grep, and
+showed one of the seven title guesses had been right for the wrong reason.
+
+Two related traps in the same data: a board can be led by an agent that already owns
+a different, real board (a catch-all "Unfiled" board shares a lead with its owner's
+actual one, so take the board the agent actually works), and an agent with **no**
+board at all is a normal state, not a lookup failure.
 
 **Where a title is ambiguous, leave it unmapped.** An unmapped project posts no
 notes -- exactly the prior status quo. A *wrongly* mapped one posts one agent's turn

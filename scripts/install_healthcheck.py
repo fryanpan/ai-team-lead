@@ -141,7 +141,12 @@ BASE_CHECKS = [
     # and Cloudflare's own failure pages (1033, 502) are HTML that cannot match.
     {"type": "http", "name": "live-feedback tunnel", "expect": '"error":"not_found"',
      "url": "https://recall.fryanpan.com/"},
-    {"type": "http", "name": "github broker", "expect": '"ok":true',
+    # `polling`, not `ok`. The token spec below documents why: /health answers
+    # {"ok":true} with no token and no polling at all, so matching on ok made
+    # this check pass in precisely the state it existed to catch. Dropping the
+    # log-silence bound above is only safe because this one now asserts the
+    # broker is actually working.
+    {"type": "http", "name": "github broker", "expect": '"polling":true',
      "url": "http://127.0.0.1:7902/health"},
 
     # --- the machine itself. Added 2026-08-18 after Bryan reported it feeling
@@ -197,13 +202,26 @@ BASE_CHECKS = [
      "path": "~/Library/Logs/github-channel-broker.log",
      "pattern": r"WARNING|error", "window_minutes": 1440,
      "ignore": r"Failed to start server\. Is port \d+ in use\?",
-     # 900m (15h), not 360m. THIS LOG IS EVENT-DRIVEN: the broker writes on
-     # session register/expire and on watches, and nothing else. Overnight it
-     # legitimately says nothing, so a 6h bound reported "SILENT -- wedged, not
-     # quiet" every morning while /health returned ok with a live session.
-     # Note the timestamps are UTC while the check compares against local
-     # mtime; that mismatch is what made the log look current when it was not.
-     "max_silence_minutes": 900, "max_error_streak": 6},
+     # NO max_silence_minutes. THIS LOG IS EVENT-DRIVEN: the broker writes on
+     # session register/expire and on watches, and nothing else. A quiet fleet
+     # writes nothing, so silence has never distinguished wedged from idle here.
+     #
+     # It was 360m, then raised to 900m for exactly that reason, and on
+     # 2026-09-08 it fired again at 1034m -- a Sunday-into-Monday with no
+     # session churn -- while /health returned
+     # {"ok":true,"degraded":false,"polling":true,"sessions":9}. Three strikes
+     # on a bound that was never measuring the thing it claimed to.
+     #
+     # Liveness for this daemon comes from the http check plus the token check
+     # below, NOT from silence. Note the next spec's warning: /health answers
+     # {"ok":true} even with no token and no polling, so bare ok proves nothing.
+     # The fields that do are `polling` and `tokenSource`, and on 2026-09-08
+     # they read true and "gh auth token" with 9 sessions attached while this
+     # check called the broker wedged.
+     #
+     # A recurring false RED is not free -- it is the one that teaches everyone
+     # to skim past the RED list, including the real ones.
+     "max_error_streak": 6},
 
     # --- running but inert: the broker answers {"ok":true} on /health with no
     #     token and simply never polls, so /health is not evidence of anything.

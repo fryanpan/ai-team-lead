@@ -593,6 +593,7 @@ ANCHOR_MAX_TILES = 1      # how many 5h steps we will carry an anchor forward
 WINDOW_ANCHORED = "anchored"   # the recorded reset is still ahead of us
 WINDOW_TILED = "tiled"         # one step past it, exact unless the fleet went idle
 WINDOW_TRAILING = "trailing"   # no usable anchor -- upper bound only
+WINDOW_SWITCHED = "since-switch"  # clamped to a /login -- earlier burn is another pool
 
 
 def session_window(now, anchor_end, window_h=None, max_tiles=None):
@@ -667,6 +668,27 @@ def meter_crosscheck(entry, window_start, window_end, now, token_frac):
     return pct, elapsed, projected, note
 
 
+def clamp_to_account(start, end, basis, account_since):
+    """Drop the part of the window that billed to a different pool.
+
+    The 5h limit is PER ACCOUNT, so a /login resets the constraint completely:
+    burn from before the switch cannot exhaust the window we are now in. An
+    unclamped window carries the old pool's burn against the new one and reads
+    near its ceiling on an account that has barely been touched -- the same
+    error as the wrong phase, one ledger over.
+
+    `account_since` is when this account was FIRST OBSERVED, which is at or
+    after the actual login. So the clamp is conservative in the direction that
+    keeps a real wall visible: it can still include a little pre-switch burn,
+    never exclude post-switch burn.
+    """
+    if account_since is None or account_since <= start:
+        return start, end, basis
+    if account_since >= end:
+        return end, end, WINDOW_SWITCHED
+    return account_since, end, WINDOW_SWITCHED
+
+
 def anchor_for(ledger, account):
     """The recorded session reset for the account we are actually billing to.
 
@@ -712,7 +734,9 @@ def verdict_for(fleet_tokens, unprotected_share, headroom, reserve,
     an upper bound over the line.
     """
     concentrated = unprotected_share >= FLOOR_ENGAGE and headroom < reserve
-    upper_bound = basis == WINDOW_TRAILING
+    # Both weak bases, for opposite reasons: trailing over-covers, switched
+    # under-covers. Neither is 5h of this pool's burn, so neither is a wall.
+    upper_bound = basis in (WINDOW_TRAILING, WINDOW_SWITCHED)
     basis_note = {
         WINDOW_ANCHORED: "",
         WINDOW_TILED: (" Window carried one step past the last recorded reset; "
@@ -722,6 +746,10 @@ def verdict_for(fleet_tokens, unprotected_share, headroom, reserve,
                           "BOUND -- it includes burn already forgiven by the "
                           "last reset. Record one with --record-meter "
                           "--session-resets to measure instead of bound."),
+        WINDOW_SWITCHED: (" Window clamped to the account switch -- burn before "
+                          "the /login billed to a different pool and cannot "
+                          "exhaust this one. It therefore covers less than "
+                          "5h, so compare it to the ceiling with that in mind."),
     }[basis]
     offender = next((k for k, b in rows if k not in PROTECTED), None)
     split = (f"unprotected work holds {unprotected_share:.0%}, leaving "
@@ -842,7 +870,7 @@ def admission_level(window_tokens, projected, ceiling=None, floor=None,
     """
     ceiling = WINDOW_CEILING_TOKENS if ceiling is None else ceiling
     floor = RATE_LIMITED_FLOOR if floor is None else floor
-    measured = basis != WINDOW_TRAILING
+    measured = basis not in (WINDOW_TRAILING, WINDOW_SWITCHED)
     if (measured and window_tokens >= floor) or projected >= ceiling:
         return "hold-all"
     if projected >= SOFT_CEILING_FRACTION * ceiling:
@@ -862,6 +890,7 @@ def window_phrase(basis, window_h=None):
         WINDOW_ANCHORED: f"The account's {window_h:g}h window",
         WINDOW_TILED: f"The {window_h:g}h window (carried past the last recorded reset)",
         WINDOW_TRAILING: f"The trailing {window_h:g}h window (an upper bound -- no recorded reset)",
+        WINDOW_SWITCHED: "The window since the account switch (under {:g}h)".format(window_h),
     }[basis]
 
 
@@ -1011,6 +1040,23 @@ def main():
 
     cutoff, window_end, basis = session_window(now, anchor_for(ledger, acct))
 
+    # A /login resets the 5h constraint outright, so burn from before it belongs
+    # to a pool we have left. `account_since` is the first run that saw this
+    # account -- at or after the login, so the clamp never hides post-switch
+    # burn. It is stored per account rather than as a single timestamp, so a
+    # rotation BACK does not inherit the previous stint's start.
+    since = dict(prev.get("account_since") or {})
+    if acct and acct not in since:
+        since[acct] = now.astimezone().isoformat(timespec="seconds")
+    try:
+        acct_since = datetime.datetime.fromisoformat(since.get(acct) or "")
+    except (TypeError, ValueError):
+        acct_since = None
+    if acct_since is not None and acct_since.tzinfo is None:
+        acct_since = acct_since.astimezone()
+    cutoff, window_end, basis = clamp_to_account(cutoff, window_end, basis,
+                                                 acct_since)
+
     # Walk EVERY project dir, not just running sessions. A session that has since
     # been killed still spent the window's tokens, and a subagent's transcript
     # outlives the turn that launched it — counting only live cwds is how the
@@ -1088,6 +1134,7 @@ def main():
         # readable without them -- the same 412M is a breach on one basis and
         # two hours of double-counting on the other.
         "window_basis": basis,
+        "account_since": since,
         # The account meter's own reading for this same window, when one was
         # taken inside it. Present so a disagreement between the proxy and the
         # authority is a recorded number rather than a human's recollection.
@@ -1280,7 +1327,8 @@ def main():
     else:
         basis_label = {WINDOW_ANCHORED: "account 5h window",
                        WINDOW_TILED: "5h window, carried past last recorded reset",
-                       WINDOW_TRAILING: "trailing 5h — UPPER BOUND, no recorded reset"}[basis]
+                       WINDOW_TRAILING: "trailing 5h — UPPER BOUND, no recorded reset",
+                       WINDOW_SWITCHED: "since the account switch — under 5h, other pool excluded"}[basis]
         print(f"Rolling burn — {basis_label}: "
               f"{cutoff.astimezone().strftime('%Y-%m-%d %H:%M')} → "
               f"{window_end.astimezone().strftime('%H:%M')}\n")

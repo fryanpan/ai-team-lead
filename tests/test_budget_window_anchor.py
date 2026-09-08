@@ -156,3 +156,33 @@ def test_a_missing_or_unparseable_reading_is_simply_absent():
     assert fbw.meter_crosscheck({}, W_START, W_END, READ, 1.02) is None
     assert fbw.meter_crosscheck({"session_pct": "half", "session_read_at":
                                  READ.isoformat()}, W_START, W_END, READ, 1.02) is None
+
+
+# ---------------------------------------------- a /login is a new pool entirely
+
+def test_burn_from_before_the_switch_is_not_counted_against_the_new_pool():
+    """The 5h limit is per account, so a login resets the constraint outright."""
+    switch = W_START + datetime.timedelta(hours=4)
+    start, end, basis = fbw.clamp_to_account(W_START, W_END, fbw.WINDOW_ANCHORED,
+                                             switch)
+    assert (start, end) == (switch, W_END)
+    assert basis == fbw.WINDOW_SWITCHED
+
+
+def test_a_switch_older_than_the_window_changes_nothing():
+    """Once a full window has passed on the account, the clamp is a no-op."""
+    old = W_START - datetime.timedelta(hours=2)
+    assert fbw.clamp_to_account(W_START, W_END, fbw.WINDOW_ANCHORED, old) == (
+        W_START, W_END, fbw.WINDOW_ANCHORED)
+    assert fbw.clamp_to_account(W_START, W_END, fbw.WINDOW_ANCHORED, None) == (
+        W_START, W_END, fbw.WINDOW_ANCHORED)
+
+
+def test_a_clamped_window_cannot_raise_a_breach_or_hold_the_fleet():
+    """It covers less than 5h of this pool, so it is not evidence of a wall --
+    the mirror of the trailing case, which covers more than 5h."""
+    verdict, detail = _verdict(412_000_000, fbw.WINDOW_SWITCHED)
+    assert verdict == "WATCH"
+    assert "billed to a different pool" in detail
+    assert fbw.admission_level(450_000_000, 0,
+                               basis=fbw.WINDOW_SWITCHED) == "clear"

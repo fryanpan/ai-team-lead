@@ -2,6 +2,39 @@
 
 Technical discoveries that should persist across sessions.
 
+## A 404 From an MCP Verb Can Mean the Route Was Renamed, and the Updater Will Tell You Everything Is Fine (2026-09-07)
+
+`create_diff_review` returned `POST /workspaces/<board-id>/reviews → 404: not found` on a
+board where `list_watched_docs` reported `attached: true`, `heartbeatFresh: true`, `live: true`,
+`lead: true`. Every health signal was green and the call still failed.
+
+**The route had been renamed the day before** — the plugin's PR 775 moved the attachment-set
+collection from `POST /workspaces/{id}/reviews` to `POST /workspaces/{id}/attachments`. My
+session had bound the old bundle (0.1.174) at startup; production was on 0.1.188.
+
+**The part that makes this expensive is the second reassuring signal.**
+`claude plugin update <plugin>` answered *"already at the latest version (0.1.188)"* — because
+the bundle on disk was never stale. Only the running session's binding was. So the operator
+gets a 404 that reads like a bad workspace id, and an updater that says there is nothing to
+update, and neither one points at the session.
+
+**The bound version was on a surface I could have read, and I did not.** The plugin's owner
+pointed out afterwards that every session reports its bundle version to the board on each
+heartbeat, and the presence strip was already showing mine as 0.1.174 against the 0.1.188
+cache. So this was not an unobservable fact — it was an observable one that no error message
+routed me toward.
+
+- **A 404 on an MCP verb is a version question before it is an argument question.** Check what
+  bundle the *session* bound, not what is installed. Same family as
+  `feedback_mcp_verbs_bind_at_session_start`, but the symptom is different: the verb exists and
+  is callable, so nothing is missing from the tool list — the server route underneath it is gone.
+- **`plugin update` reporting "latest" tells you about the disk, not about you.** It cannot fix
+  a running session and it does not say so. Only a restart rebinds.
+- **Ask the plugin's owner before you theorise.** One message named the PR, the old path, the new
+  path and the fix. I would not have found the rename from my side at any cost.
+- **Two attempts, then work around it.** The workaround was `attach_markdown` with the diff
+  inline, which cost one call.
+
 ## `send_message` Accepts an Address That Does Not Exist and Reports Success (2026-09-07)
 
 I sent three hive messages to a **workspace id** (`w-...`) instead of a **claude-hive stable

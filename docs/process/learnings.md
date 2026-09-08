@@ -2,6 +2,19 @@
 
 Technical discoveries that should persist across sessions.
 
+## A Self-Consistent Derivation Is Not a Correct One — the 5h Window's Phase (2026-09-08)
+
+The fleet burn watcher measured a window trailing from **run time**. The account's 5h window has a fixed phase, so that window covers strictly more past time than the real one: everything between `now - 5h` and the true start is burn the last reset already forgave. It raised a BREACH and held fleet fan-out on that basis while the account's own session meter, covering the real window, sat around half used at roughly two thirds elapsed.
+
+**The phase cannot be recovered from the transcripts, and the attempt looks like it works.** A window opens at the first turn after the previous one closes, so the phase is only visible in an idle gap — and a fleet busy enough for the watch to matter never has one. Walking 5h tiles forward from the start of a scan returns a boundary set that is internally consistent and reproducible; run it over five lookbacks and you get **two different phases hours apart**, each equally consistent. Without a gap the walk just reads back whatever phase its scan happened to begin on.
+
+- **Ask what would make the derivation wrong, then check whether that condition is observable.** Here it was "the fleet went idle", and the answer was that a busy fleet never does — which means the derivation had no anchor at all, not that it had a weak one.
+- **Vary the input range before trusting a reconstruction.** One run agreeing with a known value is luck; five runs agreeing is a method. Two of the five matched the live panel, which is exactly how a wrong derivation gets adopted.
+- **A one-sided error still needs saying out loud.** A trailing window can only ever over-report, so it is an **upper bound**, not a measurement — and the fix is not just to correct it but to make anything built on it refuse to raise an alarm or throttle anyone.
+- **Fixing the phase exposed a second error instead of hiding it.** On the corrected window the token proxy still sat near its ceiling while the real meter read about half. The proxy sums raw tokens; the meter is model-weighted. Two errors of opposite sign had been cancelling, which is why the instrument had disagreed with the meter in *both* directions on consecutive passes — the tell for uncalibrated, as against conservative.
+
+Same family as trusting a process table for MCP health, and as the undated log line above: **an external surface's phase, freshness or identity is not inferable from the surface itself.** Where the authoritative value exists only behind a human-read panel, record it with its timestamp and let everything downstream degrade honestly when it is missing.
+
 ## An Undated Log Line Cannot Tell You When It Happened (2026-09-08)
 
 Grepping the github broker's log for errors returned a run of `Notification fetch error: Unable to connect` at 13:36-13:39. I read them as live and was one sentence from reporting a current outage on a broker that was working.

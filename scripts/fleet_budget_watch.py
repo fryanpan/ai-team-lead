@@ -88,6 +88,20 @@ RECORD_METER = argval("--record-meter", "", str)
 METER_ALL = argval("--all-models", None, float)
 METER_FABLE = argval("--fable", None, float)
 METER_RESETS = argval("--resets", "", str)
+# The SESSION (5h) reset instant, as the /usage panel prints it -- "resetting
+# 3:29pm". This is the only place the 5-hour window's PHASE exists. It cannot be
+# derived from the transcripts: a window opens at the first turn after the
+# previous one closes, so the phase is only recoverable from an idle gap, and a
+# fleet that is busy enough for this watch to matter never has one. Reconstructing
+# the boundaries from disk over five different lookbacks returned two different
+# phases hours apart, each internally consistent -- the derivation reads back
+# whatever phase its scan happened to start on.
+SESSION_RESETS = argval("--session-resets", "", str)
+# The session meter's own percentage at that read, e.g. 53. The ONLY
+# authoritative instrument -- it is what actually stops work. Recorded so the
+# watcher can check its token proxy against it instead of leaving a human to
+# adjudicate the two by hand, which is what has happened.
+SESSION_PCT = argval("--session-pct", None, float)
 # A standing decision holds until the situation moves against it by this many
 # percentage points of unprotected share, or until it simply ages out. Both are
 # needed: "let it run" can be right at 72% and wrong at 85%, and it can also be
@@ -559,8 +573,141 @@ def window_burn(path, cutoff, recent_cutoff=None):
         return total, turns, by_model, recent
     return total, turns, by_model
 
+# ------------------------------------------------------------ window phase
+# A trailing window anchored to RUN TIME is not the window the limit measures.
+# The account's 5h window has a fixed phase, and a trailing one covers strictly
+# MORE past time than the real one: everything between `now - 5h` and the true
+# window start is burn the reset has already forgiven. So an unanchored reading
+# is an UPPER BOUND, never a measurement.
+#
+# Measured: a run-time-anchored window raised a BREACH and held the fleet while
+# the account's own session meter, covering the real window, sat around half used
+# at roughly two thirds elapsed -- a couple of hours of pre-reset burn, counted
+# twice. The same proxy had erred the other way earlier that day, and a proxy
+# wrong in both directions is uncalibrated, not conservative.
+#
+# The phase comes from `/usage`, recorded by hand alongside the weekly meter
+# (--record-meter ... --session-resets). Everything downstream then says which
+# basis it used, because "412M" means two different things on the two bases.
+ANCHOR_MAX_TILES = 1      # how many 5h steps we will carry an anchor forward
+WINDOW_ANCHORED = "anchored"   # the recorded reset is still ahead of us
+WINDOW_TILED = "tiled"         # one step past it, exact unless the fleet went idle
+WINDOW_TRAILING = "trailing"   # no usable anchor -- upper bound only
+WINDOW_SWITCHED = "since-switch"  # clamped to a /login -- earlier burn is another pool
+
+
+def session_window(now, anchor_end, window_h=None, max_tiles=None):
+    """(start, end, basis) for the 5h window `now` falls inside.
+
+    `anchor_end` is a recorded session-reset instant, or None. The common case
+    is that it is in the FUTURE -- the panel prints the upcoming reset -- and
+    then the window is exactly [anchor_end - 5h, anchor_end] with nothing to
+    infer. Past that we tile forward in 5h steps, which is exact while the
+    fleet keeps taking turns and errs toward over-counting if it went idle, so
+    we allow one step and no more.
+
+    Falling back to trailing is not a failure mode to hide; it is a different
+    and weaker measurement, and the third element says so.
+    """
+    window_h = WINDOW_H if window_h is None else window_h
+    max_tiles = ANCHOR_MAX_TILES if max_tiles is None else max_tiles
+    span = datetime.timedelta(hours=window_h)
+    if anchor_end is None:
+        return now - span, now, WINDOW_TRAILING
+    if anchor_end.tzinfo is None:
+        anchor_end = anchor_end.astimezone()
+    if now < anchor_end:
+        return anchor_end - span, anchor_end, WINDOW_ANCHORED
+    tiles = int((now - anchor_end) // span) + 1
+    if tiles > max_tiles:
+        return now - span, now, WINDOW_TRAILING
+    end = anchor_end + tiles * span
+    return end - span, end, WINDOW_TILED
+
+
+def meter_crosscheck(entry, window_start, window_end, now, token_frac):
+    """Where the ACCOUNT's own session meter says we are, against our proxy.
+
+    Returns (meter_pct, elapsed_frac, projected_pct, note) or None.
+
+    The token total is a proxy and always has been: it sums raw tokens, while
+    meter_calibration.py established that the meter is model-weighted. So the
+    two can disagree by a lot, and they have: the proxy sat near its ceiling on
+    a correctly anchored window while the account meter was around half used at
+    roughly two thirds elapsed. A human noticed. Nothing in the instrument did.
+
+    The reading must fall INSIDE the window being measured; a session meter from
+    a previous window describes a pool that has since been refilled.
+    """
+    try:
+        read_at = datetime.datetime.fromisoformat(entry["session_read_at"])
+        pct = float(entry["session_pct"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if read_at.tzinfo is None:
+        read_at = read_at.astimezone()
+    if not (window_start <= read_at <= window_end):
+        return None
+    span = (window_end - window_start).total_seconds()
+    if span <= 0:
+        return None
+    elapsed = (read_at - window_start).total_seconds() / span
+    if elapsed <= 0:
+        return None
+    projected = pct / elapsed
+    note = ""
+    # Only one direction is worth a line. The proxy running hot while the real
+    # meter is comfortable is a false alarm someone has to chase; the reverse is
+    # the proxy being conservative, which is the direction it is built to err.
+    if token_frac >= 1.0 and projected < 85:
+        note = (f" The account's own session meter disagrees: {pct:.0f}% used at "
+                f"{elapsed:.0%} elapsed projects {projected:.0f}% by reset. The "
+                f"meter is the instrument that stops work; the token total is a "
+                f"raw-token proxy for a model-weighted meter. Re-derive the "
+                f"ceiling before acting on this as a wall.")
+    return pct, elapsed, projected, note
+
+
+def clamp_to_account(start, end, basis, account_since):
+    """Drop the part of the window that billed to a different pool.
+
+    The 5h limit is PER ACCOUNT, so a /login resets the constraint completely:
+    burn from before the switch cannot exhaust the window we are now in. An
+    unclamped window carries the old pool's burn against the new one and reads
+    near its ceiling on an account that has barely been touched -- the same
+    error as the wrong phase, one ledger over.
+
+    `account_since` is when this account was FIRST OBSERVED, which is at or
+    after the actual login. So the clamp is conservative in the direction that
+    keeps a real wall visible: it can still include a little pre-switch burn,
+    never exclude post-switch burn.
+    """
+    if account_since is None or account_since <= start:
+        return start, end, basis
+    if account_since >= end:
+        return end, end, WINDOW_SWITCHED
+    return account_since, end, WINDOW_SWITCHED
+
+
+def anchor_for(ledger, account):
+    """The recorded session reset for the account we are actually billing to.
+
+    Per-account, because the 5h window is per-account: carrying a phase across
+    a /login would measure one pool's window against another's burn. An unknown
+    account returns None rather than borrowing somebody else's anchor.
+    """
+    if not account:
+        return None
+    entry = (ledger or {}).get(account) or {}
+    try:
+        t = datetime.datetime.fromisoformat(entry.get("session_resets") or "")
+    except (TypeError, ValueError):
+        return None
+    return t if t.tzinfo else t.astimezone()
+
+
 def verdict_for(fleet_tokens, unprotected_share, headroom, reserve,
-                top_burner, rows):
+                top_burner, rows, basis=WINDOW_ANCHORED):
     """(verdict, detail) for one window reading.
 
     THE LEVEL DECIDES THE SEVERITY; THE SPLIT ONLY ESCALATES IT.
@@ -579,19 +726,42 @@ def verdict_for(fleet_tokens, unprotected_share, headroom, reserve,
     exhaustions bug wearing its own fix as a disguise: a share deciding a
     verdict. A BREACH nobody needs to act on is how the next real one gets
     scrolled past.
+
+    A TRAILING window cannot raise a BREACH, however big the number. It counts
+    burn the account has already forgiven at its last reset, so it can only
+    over-report, and every BREACH it raises asks someone to act on a wall that
+    is not there. It still escalates to WATCH, which is the honest reading of
+    an upper bound over the line.
     """
     concentrated = unprotected_share >= FLOOR_ENGAGE and headroom < reserve
+    # Both weak bases, for opposite reasons: trailing over-covers, switched
+    # under-covers. Neither is 5h of this pool's burn, so neither is a wall.
+    upper_bound = basis in (WINDOW_TRAILING, WINDOW_SWITCHED)
+    basis_note = {
+        WINDOW_ANCHORED: "",
+        WINDOW_TILED: (" Window carried one step past the last recorded reset; "
+                       "exact unless the fleet went idle across the boundary."),
+        WINDOW_TRAILING: (" No recorded session reset for this account, so the "
+                          "window trails from now and this figure is an UPPER "
+                          "BOUND -- it includes burn already forgiven by the "
+                          "last reset. Record one with --record-meter "
+                          "--session-resets to measure instead of bound."),
+        WINDOW_SWITCHED: (" Window clamped to the account switch -- burn before "
+                          "the /login billed to a different pool and cannot "
+                          "exhaust this one. It therefore covers less than "
+                          "5h, so compare it to the ceiling with that in mind."),
+    }[basis]
     offender = next((k for k, b in rows if k not in PROTECTED), None)
     split = (f"unprotected work holds {unprotected_share:.0%}, leaving "
              f"{headroom:.0%} against a {reserve:.0%} reserve; "
              f"top unprotected: {offender}.")
 
     if fleet_tokens >= WINDOW_CEILING_TOKENS:
-        return "BREACH", (
+        return ("WATCH" if upper_bound else "BREACH"), (
             f"{WINDOW_H:g}h window at {fleet_tokens/1e6:.0f}M, past the "
             f"{WINDOW_CEILING_TOKENS/1e6:.0f}M ceiling -- the lowest window we "
             f"have actually been rate-limited at is 442M. "
-            f"Top burner: {top_burner}. {split}")
+            f"Top burner: {top_burner}. {split}{basis_note}")
 
     if fleet_tokens >= WINDOW_WATCH_TOKENS:
         base = (f"{WINDOW_H:g}h window at {fleet_tokens/1e6:.0f}M, past the "
@@ -600,9 +770,10 @@ def verdict_for(fleet_tokens, unprotected_share, headroom, reserve,
                 f"Top burner: {top_burner}")
         # Concentration escalates a level that already matters, and only there.
         if concentrated:
-            return "BREACH", (f"{base}. One project is also running away with "
-                              f"it: {split}")
-        return "WATCH", f"{base}. {split}"
+            return ("WATCH" if upper_bound else "BREACH"), (
+                f"{base}. One project is also running away with "
+                f"it: {split}{basis_note}")
+        return "WATCH", f"{base}. {split}{basis_note}"
 
     detail = (f"{WINDOW_H:g}h window at {fleet_tokens/1e6:.0f}M, "
               f"{fleet_tokens/WINDOW_WATCH_TOKENS:.0%} of the "
@@ -612,7 +783,7 @@ def verdict_for(fleet_tokens, unprotected_share, headroom, reserve,
         # what a single active project looks like, not a threat to the quota.
         detail += (" Concentrated, but the window is small enough that this is "
                    "who is working, not a risk.")
-    return "OK", detail
+    return "OK", detail + basis_note
 
 
 # ---------------------------------------------------------- admission control
@@ -681,21 +852,46 @@ def projected_window(recent_tokens, recent_hours, window_hours):
     return int(recent_tokens / recent_hours * window_hours)
 
 
-def admission_level(window_tokens, projected, ceiling=None, floor=None):
+def admission_level(window_tokens, projected, ceiling=None, floor=None,
+                    basis=WINDOW_ANCHORED):
     """clear | hold-top | hold-all.
 
     Two independent ways in, because they catch different shapes. `projected`
     catches a fleet that is accelerating and has not arrived yet -- the case
     that is still preventable. `window_tokens` catches one that is already in
     the band where we have been rejected before, however it got there.
+
+    Only the `projected` arm survives an unanchored window. The projection runs
+    the LAST HOUR forward and so does not care where the window's phase falls;
+    `window_tokens` on a trailing basis is an upper bound, and holding the whole
+    fleet on an upper bound throttles real work to avoid an imaginary wall. That
+    is what fired here -- hold-all at a reading hours wide of the account's own
+    meter.
     """
     ceiling = WINDOW_CEILING_TOKENS if ceiling is None else ceiling
     floor = RATE_LIMITED_FLOOR if floor is None else floor
-    if window_tokens >= floor or projected >= ceiling:
+    measured = basis not in (WINDOW_TRAILING, WINDOW_SWITCHED)
+    if (measured and window_tokens >= floor) or projected >= ceiling:
         return "hold-all"
     if projected >= SOFT_CEILING_FRACTION * ceiling:
         return "hold-top"
     return "clear"
+
+
+def window_phrase(basis, window_h=None):
+    """How to name the window in a message sent to a peer.
+
+    A peer asked to hold deserves to know whether the number behind the ask is
+    measured or bounded. "The trailing 5h window" was printed on every basis,
+    which made an upper bound read as a reading.
+    """
+    window_h = WINDOW_H if window_h is None else window_h
+    return {
+        WINDOW_ANCHORED: f"The account's {window_h:g}h window",
+        WINDOW_TILED: f"The {window_h:g}h window (carried past the last recorded reset)",
+        WINDOW_TRAILING: f"The trailing {window_h:g}h window (an upper bound -- no recorded reset)",
+        WINDOW_SWITCHED: "The window since the account switch (under {:g}h)".format(window_h),
+    }[basis]
 
 
 def hold_targets(rows, level, protected=None):
@@ -816,7 +1012,50 @@ def send_hold(stable_id, text):
 
 def main():
     now = datetime.datetime.now(datetime.timezone.utc)
-    cutoff = now - datetime.timedelta(hours=WINDOW_H)
+
+    # The previous state is read BEFORE the scan, not after: it carries the
+    # recorded session-reset instant, and that decides which five hours we are
+    # even measuring. Reading it afterwards is how the window came to be
+    # anchored to run time -- the only anchor available at that point.
+    prev = {}
+    try:
+        with open(STATE) as f:
+            prev = json.load(f)
+    except (OSError, ValueError):
+        pass
+
+    acct = active_account()
+    ledger = dict(prev.get("meters") or {})
+    if RECORD_METER:
+        e = dict(ledger.get(RECORD_METER) or {})
+        e["read_at"] = now.astimezone().isoformat(timespec="seconds")
+        if METER_ALL is not None: e["all_models"] = METER_ALL
+        if METER_FABLE is not None: e["fable"] = METER_FABLE
+        if METER_RESETS: e["resets"] = METER_RESETS
+        if SESSION_RESETS: e["session_resets"] = SESSION_RESETS
+        if SESSION_PCT is not None:
+            e["session_pct"] = SESSION_PCT
+            e["session_read_at"] = now.astimezone().isoformat(timespec="seconds")
+        ledger[RECORD_METER] = e
+
+    cutoff, window_end, basis = session_window(now, anchor_for(ledger, acct))
+
+    # A /login resets the 5h constraint outright, so burn from before it belongs
+    # to a pool we have left. `account_since` is the first run that saw this
+    # account -- at or after the login, so the clamp never hides post-switch
+    # burn. It is stored per account rather than as a single timestamp, so a
+    # rotation BACK does not inherit the previous stint's start.
+    since = dict(prev.get("account_since") or {})
+    if acct and acct not in since:
+        since[acct] = now.astimezone().isoformat(timespec="seconds")
+    try:
+        acct_since = datetime.datetime.fromisoformat(since.get(acct) or "")
+    except (TypeError, ValueError):
+        acct_since = None
+    if acct_since is not None and acct_since.tzinfo is None:
+        acct_since = acct_since.astimezone()
+    cutoff, window_end, basis = clamp_to_account(cutoff, window_end, basis,
+                                                 acct_since)
 
     # Walk EVERY project dir, not just running sessions. A session that has since
     # been killed still spent the window's tokens, and a subagent's transcript
@@ -880,11 +1119,30 @@ def main():
 
     top = rows[0] if rows else None
     verdict, detail = verdict_for(fleet_tokens, unprotected_share, headroom,
-                                  reserve, top_burner, rows)
+                                  reserve, top_burner, rows, basis)
+
+    # Check the proxy against the only instrument that can actually stop work.
+    cross = meter_crosscheck((ledger.get(acct) or {}), cutoff, window_end, now,
+                             fleet_tokens / WINDOW_CEILING_TOKENS)
+    if cross and cross[3]:
+        detail += cross[3]
 
     out = {
         "checked_at": now.astimezone().isoformat(timespec="seconds"),
         "window_hours": WINDOW_H,
+        # Which five hours, and on what authority. A bare token total is not
+        # readable without them -- the same 412M is a breach on one basis and
+        # two hours of double-counting on the other.
+        "window_basis": basis,
+        "account_since": since,
+        # The account meter's own reading for this same window, when one was
+        # taken inside it. Present so a disagreement between the proxy and the
+        # authority is a recorded number rather than a human's recollection.
+        "session_meter": (None if not cross else {
+            "pct": cross[0], "elapsed": round(cross[1], 4),
+            "projects_to_pct": round(cross[2], 1)}),
+        "window_start": cutoff.astimezone().isoformat(timespec="seconds"),
+        "window_end": window_end.astimezone().isoformat(timespec="seconds"),
         "fleet_tokens": fleet,
         "reserve": reserve,
         "unprotected_share": round(unprotected_share, 4),
@@ -906,15 +1164,6 @@ def main():
         ],
     }
 
-    # read the previous verdict BEFORE overwriting, so we can fire only on a
-    # transition into BREACH rather than every single run
-    prev = {}
-    try:
-        with open(STATE) as f:
-            prev = json.load(f)
-    except (OSError, ValueError):
-        pass
-
     # carry the standing decision forward, or replace it when --decide is passed
     if DECIDE:
         decision = {"text": DECIDE,
@@ -928,7 +1177,6 @@ def main():
     # WHICH POOL did this measure? Raw tokens are meaningless without it: a
     # reading either side of a /login belongs to two different pools and must
     # never be read as one series.
-    acct = active_account()
     out["account"] = acct
     switched = account_changed(prev.get("account"), acct)
     out["account_switched"] = switched
@@ -937,14 +1185,6 @@ def main():
     # exhaust one sub-meter with the others idle.
     out["by_model"] = dict(sorted(fleet_by_model.items(), key=lambda kv: -kv[1]))
 
-    ledger = dict(prev.get("meters") or {})
-    if RECORD_METER:
-        e = dict(ledger.get(RECORD_METER) or {})
-        e["read_at"] = now.astimezone().isoformat(timespec="seconds")
-        if METER_ALL is not None: e["all_models"] = METER_ALL
-        if METER_FABLE is not None: e["fable"] = METER_FABLE
-        if METER_RESETS: e["resets"] = METER_RESETS
-        ledger[RECORD_METER] = e
     out["meters"] = ledger
 
     # ---- admission control --------------------------------------------
@@ -952,7 +1192,7 @@ def main():
     # of the 5h limit instead of narrating the arrival.
     recent_tokens = sum(b.get("recent", 0) for b in per_project.values())
     projected = projected_window(recent_tokens, RECENT_H, WINDOW_H)
-    level = admission_level(fleet_tokens, projected)
+    level = admission_level(fleet_tokens, projected, basis=basis)
     targets = hold_targets(rows, level)
     now_iso = now.astimezone().isoformat(timespec="seconds")
     prev_holds = dict(prev.get("holds") or {})
@@ -980,8 +1220,8 @@ def main():
                 continue
             share = next((b["share"] for kk, b in rows if kk == k), 0)
             text = (
-                f"[budget-watch] HOLD SUBAGENT FAN-OUT. The trailing "
-                f"{WINDOW_H:g}h window is at {fleet_tokens/1e6:.0f}M and the "
+                f"[budget-watch] HOLD SUBAGENT FAN-OUT. {window_phrase(basis)} "
+                f"is at {fleet_tokens/1e6:.0f}M and the "
                 f"last {RECENT_H:g}h projects it to {projected/1e6:.0f}M "
                 f"against a {WINDOW_CEILING_TOKENS/1e6:.0f}M ceiling; we have "
                 f"been rate-limited at {RATE_LIMITED_FLOOR/1e6:.0f}M. You are "
@@ -1000,8 +1240,8 @@ def main():
             sid = ids.get(k)
             if sid:
                 send_hold(sid, (
-                    f"[budget-watch] HOLD LIFTED. The trailing "
-                    f"{WINDOW_H:g}h window is at {fleet_tokens/1e6:.0f}M, "
+                    f"[budget-watch] HOLD LIFTED. {window_phrase(basis)} "
+                    f"is at {fleet_tokens/1e6:.0f}M, "
                     f"projecting {projected/1e6:.0f}M. Fan out again as you "
                     f"normally would."))
             holds.pop(k, None)
@@ -1026,8 +1266,8 @@ def main():
             text = (
                 f"[budget-watch] SHRINK YOUR CONTEXT. Your session is carrying "
                 f"~{ctx/1000:.0f}k tokens and you pay all of it on every turn, "
-                f"including the turns that do nothing. The trailing "
-                f"{WINDOW_H:g}h window is at {fleet_tokens/1e6:.0f}M against a "
+                f"including the turns that do nothing. {window_phrase(basis)} "
+                f"is at {fleet_tokens/1e6:.0f}M against a "
                 f"{WINDOW_CEILING_TOKENS/1e6:.0f}M ceiling.\n\n"
                 f"At a real task boundary, /clear. Mid-task, /compact. Either "
                 f"is a few seconds and cuts your per-turn cost by most of "
@@ -1085,8 +1325,13 @@ def main():
     if AS_JSON:
         print(json.dumps(out, indent=2))
     else:
-        print(f"Rolling burn — trailing {WINDOW_H:g}h to "
-              f"{now.astimezone().strftime('%Y-%m-%d %H:%M')}\n")
+        basis_label = {WINDOW_ANCHORED: "account 5h window",
+                       WINDOW_TILED: "5h window, carried past last recorded reset",
+                       WINDOW_TRAILING: "trailing 5h — UPPER BOUND, no recorded reset",
+                       WINDOW_SWITCHED: "since the account switch — under 5h, other pool excluded"}[basis]
+        print(f"Rolling burn — {basis_label}: "
+              f"{cutoff.astimezone().strftime('%Y-%m-%d %H:%M')} → "
+              f"{window_end.astimezone().strftime('%H:%M')}\n")
         print(f"{'TOKENS':>14}  {'TURNS':>6}  {'SHARE':>6}  PROJECT")
         print("-" * 66)
         for k, b in rows:

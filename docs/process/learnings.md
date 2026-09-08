@@ -4,7 +4,7 @@ Technical discoveries that should persist across sessions.
 
 ## A Self-Consistent Derivation Is Not a Correct One — the 5h Window's Phase (2026-09-08)
 
-The fleet burn watcher measured a window trailing from **run time**. The account's 5h window has a fixed phase, so that window covers strictly more past time than the real one: everything between `now - 5h` and the true start is burn the last reset already forgave. It raised a BREACH and held fleet fan-out on that basis while the account's own session meter, covering the real window, sat around half used at roughly two thirds elapsed.
+The fleet burn watcher measured a window trailing from **run time**. The account's 5h window has a fixed phase, so that window covers strictly more past time than the real one: everything between `now - 5h` and the true start is burn the last reset already forgave. It computed a BREACH and a fleet-wide hold on that basis while the account's own session meter, covering the real window, sat around half used at roughly two thirds elapsed. Nothing was actually throttled — that loop runs without `--enforce` — so the cost was a false alarm and the attention it takes.
 
 **The phase cannot be recovered from the transcripts, and the attempt looks like it works.** A window opens at the first turn after the previous one closes, so the phase is only visible in an idle gap — and a fleet busy enough for the watch to matter never has one. Walking 5h tiles forward from the start of a scan returns a boundary set that is internally consistent and reproducible; run it over five lookbacks and you get **two different phases hours apart**, each equally consistent. Without a gap the walk just reads back whatever phase its scan happened to begin on.
 
@@ -13,7 +13,47 @@ The fleet burn watcher measured a window trailing from **run time**. The account
 - **A one-sided error still needs saying out loud.** A trailing window can only ever over-report, so it is an **upper bound**, not a measurement — and the fix is not just to correct it but to make anything built on it refuse to raise an alarm or throttle anyone.
 - **Fixing the phase exposed a second error instead of hiding it.** On the corrected window the token proxy still sat near its ceiling while the real meter read about half. The proxy sums raw tokens; the meter is model-weighted. Two errors of opposite sign had been cancelling, which is why the instrument had disagreed with the meter in *both* directions on consecutive passes — the tell for uncalibrated, as against conservative.
 
-Same family as trusting a process table for MCP health, and as the undated log line above: **an external surface's phase, freshness or identity is not inferable from the surface itself.** Where the authoritative value exists only behind a human-read panel, record it with its timestamp and let everything downstream degrade honestly when it is missing.
+Same family as trusting a process table for MCP health, and as the undated-log-line entry below: **an external surface's phase, freshness or identity is not inferable from the surface itself.** Where the authoritative value exists only behind a human-read panel, record it with its timestamp and let everything downstream degrade honestly when it is missing.
+
+## `--replace-text` Does Not Touch Commit Messages (2026-09-08)
+
+A 13-term `git filter-repo --replace-text` mapping was run to scrub this repo
+before it went public, and came back reported as possibly failed. It had not
+failed. It had done exactly half the job, silently.
+
+**`--replace-text` rewrites blob contents only.** Commit messages need a second
+pass with `--replace-message`, which takes the same file in the same format. The
+run reports success either way, and `git log -S'<term>'` — the obvious
+verification — searches *diffs*, so it comes back clean while the term is still
+sitting in a commit message that ships with the push. Only `git log --grep`
+finds it.
+
+- **Verify both surfaces, per term, across all refs.** `git log --all -S"$t"`
+  for content and `git log --all --grep="$t" -i` for messages. Ten of thirteen
+  terms passed the first check and failed the second.
+- **The rewrite also drops the `origin` remote**, every time. Re-add it after
+  each pass or the next command fails for an unrelated-looking reason.
+- **Re-runs need `--force`**, because `.git/filter-repo/already_ran` otherwise
+  prompts for confirmation.
+- **Rename in matched pairs.** Replacing a project's slug without also replacing
+  its display name breaks any test asserting one maps to the other. Put both
+  spellings in one mapping file and the fixtures stay self-consistent.
+- **Blind substitution turns instructions into dead addresses.** Two lines here
+  were operational — a launchd label and a log path — and the rename left them
+  pointing at things that do not exist, with nothing to indicate it. Grep the
+  result for the new tokens and read each site.
+
+**The reported error was a red herring, and worth recognising on sight.** The
+verification line was `git log --all --oneline -S'term'      # must print nothing`,
+which failed with `fatal: ambiguous argument '#'`. **Interactive zsh does not
+treat `#` as a comment** — git received `#` as a revision argument. The rewrite
+had already succeeded; only the check failed to parse.
+
+**A force-push does not reach `refs/pull/N/head`.** GitHub keeps one per pull
+request forever, they survive any branch rewrite, and no API deletes them —
+only a Support garbage-collect or recreating the repo. Sixteen of twenty here
+still carry the pre-rewrite content. Treat a history scrub on a repo with
+merged PRs as partial by construction, and say so before it is presented as done.
 
 ## An Undated Log Line Cannot Tell You When It Happened (2026-09-08)
 

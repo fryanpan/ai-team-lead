@@ -11,6 +11,9 @@ appliesTo: main
 
 1. `set_summary` with 1–2 sentences on what you're working on — this is what peers see.
 2. `list_peers` (scope `machine`) when you need to coordinate. Identify the team-lead by its summary, and remember its `stable_id`; never match on a hardcoded path.
+3. `watch_repo("auto")` for your own repo, unless `list_watched` already shows it.
+
+**A session that watches no project repo is deaf, and the broker looks perfectly healthy while it is.** Measured 2026-09-08: `show_status` reported the broker running and polling with all nine sessions attached and zero queued — and every one of those nine was watching only the channel's own repo, because nothing called `watch_repo` until `ship-auto` did it lazily at PR time. So no CI result, review request, merge or deploy on any project reached anybody, and the surface you would check to find that out was green. Watch at startup, not at first push.
 
 ## Messaging the team-lead
 

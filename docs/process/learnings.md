@@ -2,6 +2,18 @@
 
 Technical discoveries that should persist across sessions.
 
+## An Undated Log Line Cannot Tell You When It Happened (2026-09-08)
+
+Grepping the github broker's log for errors returned a run of `Notification fetch error: Unable to connect` at 13:36-13:39. I read them as live and was one sentence from reporting a current outage on a broker that was working.
+
+**They were from an earlier day.** The log stamps `[github-broker HH:MM:SS]` with no date, so every day's lines land in the same clock positions and `tail`/`grep` interleave them by position rather than by time. The file's last write was 06:32 PDT and its final line reads 13:32 — the same instant in UTC. Everything timestamped after 13:32 in that file is necessarily older than the end of the file.
+
+- **A timestamp without a date is a position, not a time.** Before quoting one as current, anchor it: compare the file's mtime against its last line, and check whether your "recent" lines sort after that.
+- **Two clocks in one investigation is the trap.** The log writes UTC, `date` prints PDT, and the seven-hour offset is exactly large enough to make yesterday's errors look like this morning's.
+- **The healthy surface was right and the log reading was wrong** — the reverse of the usual case, which is why it was persuasive. `/health` said `polling: true` with a resolved token and nine sessions; I believed the log over it because a log feels like evidence and a health endpoint feels like a claim.
+
+Same family as the two false REDs fixed earlier the same morning: in all three the monitor reported a failure that had not happened. **A check that cries wolf costs more than no check, because it trains everyone to skim the red list.**
+
 ## A 404 From an MCP Verb Can Mean the Route Was Renamed, and the Updater Will Tell You Everything Is Fine (2026-09-07)
 
 `create_diff_review` returned `POST /workspaces/<board-id>/reviews → 404: not found` on a

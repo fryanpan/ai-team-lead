@@ -2,6 +2,46 @@
 
 Technical discoveries that should persist across sessions.
 
+## `--replace-text` Does Not Touch Commit Messages (2026-09-08)
+
+A 13-term `git filter-repo --replace-text` mapping was run to scrub this repo
+before it went public, and came back reported as possibly failed. It had not
+failed. It had done exactly half the job, silently.
+
+**`--replace-text` rewrites blob contents only.** Commit messages need a second
+pass with `--replace-message`, which takes the same file in the same format. The
+run reports success either way, and `git log -S'<term>'` — the obvious
+verification — searches *diffs*, so it comes back clean while the term is still
+sitting in a commit message that ships with the push. Only `git log --grep`
+finds it.
+
+- **Verify both surfaces, per term, across all refs.** `git log --all -S"$t"`
+  for content and `git log --all --grep="$t" -i` for messages. Ten of thirteen
+  terms passed the first check and failed the second.
+- **The rewrite also drops the `origin` remote**, every time. Re-add it after
+  each pass or the next command fails for an unrelated-looking reason.
+- **Re-runs need `--force`**, because `.git/filter-repo/already_ran` otherwise
+  prompts for confirmation.
+- **Rename in matched pairs.** Replacing a project's slug without also replacing
+  its display name breaks any test asserting one maps to the other. Put both
+  spellings in one mapping file and the fixtures stay self-consistent.
+- **Blind substitution turns instructions into dead addresses.** Two lines here
+  were operational — a launchd label and a log path — and the rename left them
+  pointing at things that do not exist, with nothing to indicate it. Grep the
+  result for the new tokens and read each site.
+
+**The reported error was a red herring, and worth recognising on sight.** The
+verification line was `git log --all --oneline -S'term'      # must print nothing`,
+which failed with `fatal: ambiguous argument '#'`. **Interactive zsh does not
+treat `#` as a comment** — git received `#` as a revision argument. The rewrite
+had already succeeded; only the check failed to parse.
+
+**A force-push does not reach `refs/pull/N/head`.** GitHub keeps one per pull
+request forever, they survive any branch rewrite, and no API deletes them —
+only a Support garbage-collect or recreating the repo. Sixteen of twenty here
+still carry the pre-rewrite content. Treat a history scrub on a repo with
+merged PRs as partial by construction, and say so before it is presented as done.
+
 ## An Undated Log Line Cannot Tell You When It Happened (2026-09-08)
 
 Grepping the github broker's log for errors returned a run of `Notification fetch error: Unable to connect` at 13:36-13:39. I read them as live and was one sentence from reporting a current outage on a broker that was working.

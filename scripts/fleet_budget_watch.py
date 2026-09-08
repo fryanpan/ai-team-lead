@@ -108,10 +108,38 @@ STATE = argval("--state", os.path.join(
 # Keep this list SHORT and tied to committed weekly goals. A project that is not
 # named here is unprotected, which is the correct default: most weeks most
 # projects are not load-bearing, and protecting everything protects nothing.
-PROTECTED = {
-    "project-alpha": 0.30,   # this week's goal 2
-    "ai-team-lead": 0.10,            # coordination has to survive a squeeze
-}
+# The names live OUTSIDE this repo, which is public: a protected project is by
+# definition one Bryan is working on this week, and that is exactly what should
+# not be inferable from a public commit. Same split as the scrub denylist.
+#
+# Format is a JSON object of {project-directory-name: reserved-share}. A missing
+# or unreadable file falls back to the coordination entry alone, which is the
+# safe direction — under-protecting throttles work, over-protecting silently
+# lets a project dodge the budget.
+PROTECTED_PATH = argval("--protected", os.path.join(
+    HOME, ".config", "team-lead", "protected-projects.json"))
+
+
+def _load_protected():
+    fallback = {"ai-team-lead": 0.10}
+    try:
+        with open(PROTECTED_PATH) as fh:
+            loaded = json.load(fh)
+    except FileNotFoundError:
+        return fallback, "no file at %s" % PROTECTED_PATH
+    except (OSError, ValueError) as exc:
+        return fallback, "%s unreadable: %s" % (PROTECTED_PATH, exc)
+    if not isinstance(loaded, dict) or not loaded:
+        return fallback, "%s is not a non-empty object" % PROTECTED_PATH
+    bad = {k: v for k, v in loaded.items()
+           if not isinstance(v, (int, float)) or not 0 < v <= 1}
+    if bad:
+        return fallback, "%s has shares outside (0, 1]: %s" % (
+            PROTECTED_PATH, ", ".join(sorted(bad)))
+    return dict(loaded), None
+
+
+PROTECTED, PROTECTED_WARNING = _load_protected()
 # Below this share of the window, nobody is throttled regardless of the split —
 # a quiet fleet has no contention to resolve.
 FLOOR_ENGAGE = 0.55
@@ -1108,6 +1136,13 @@ def main():
                 for k, v in holds.items()))
         print()
         print(f"verdict: {verdict}" + (f" — {detail}" if detail else ""))
+        if PROTECTED_WARNING:
+            # Loud, because the fallback silently under-protects: a project that
+            # should hold a reserve reads as unprotected and the split verdict
+            # looks better than the truth.
+            print(f"WARNING: protected-projects config not loaded "
+                  f"({PROTECTED_WARNING}) — running with "
+                  f"{sorted(PROTECTED)} only.")
         if decision:
             print(f"standing decision ({decision['at']}, at "
                   f"{decision['share']:.0%}): {decision['text']}")

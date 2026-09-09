@@ -2514,3 +2514,27 @@ The first attempt copied only `codex` and gave a working `codex --version` and a
 `codex-path/` and `codex-resources/` as siblings of `bin/`. A relocated binary has to keep
 its whole tree, and the smoke test has to exercise a subcommand -- `--version` passes in
 exactly the state where real work fails.
+
+## "Parked, Safe To Kill" Does Not Mean Pushed (2026-09-08)
+
+A peer being spun down reported `Parked. Safe to kill — tree clean, nothing pushed.` The clean tree
+was true. The branch was also **11 commits ahead of its upstream**, including fixes the same message
+described as already durable.
+
+Nothing was lost — a commit outlives the session that made it. But those 11 commits would have
+existed on exactly one machine, inside a worktree, with no remote copy, and the peer that knew about
+them was about to stop existing.
+
+- **Read `git log --oneline @{u}..` before you kill, every time.** `status --porcelain` answers a
+  different question: it sees the working tree, not the gap to the remote. A peer reporting "tree
+  clean" is answering the question it was asked.
+- **"Nothing pushed" is a statement of fact, not a decision.** When a peer explains why it did not
+  push — one of them deliberately declined to fast-forward `origin/main`, correctly — that reasoning
+  is worth honouring. A bare "nothing pushed" is just the state, and the state is fixable in one
+  command.
+- **Push it yourself rather than spending a round-trip asking.** The branch already has an upstream,
+  the peer is parked, and the push is non-destructive and reversible. Asking costs a turn and gets
+  the same result.
+
+Same family as trusting a health surface: the peer's self-report was accurate about the thing it
+measured and silent about the thing that mattered.

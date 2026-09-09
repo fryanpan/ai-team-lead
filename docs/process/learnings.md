@@ -2538,3 +2538,33 @@ them was about to stop existing.
 
 Same family as trusting a health surface: the peer's self-report was accurate about the thing it
 measured and silent about the thing that mattered.
+
+## A Plugin MCP Server's `process.cwd()` Is The Plugin's Directory — Two Plugins, One Root Cause (2026-09-08)
+
+Found twice in one day, in unrelated plugins, both times presenting as something else.
+
+- **The Sentry channel** computed each subscriber's address as `computeStableId(process.cwd())`, so every
+  subscription was filed under the plugin's own directory hash. Events "matched" and reached nobody.
+- **The GitHub channel** resolves `watch_repo("auto")` against `process.cwd()` (`server.ts:191`), and
+  auto-watches `detectRepo(process.cwd())` at startup (`server.ts:315`). So `auto` can only ever find the
+  channel's own repo — and every session's watch list arrives pre-populated with it, which is what made
+  "all nine sessions attached" look like coverage when nobody was subscribed to anything.
+
+**The launcher is usually the reason, and it is deliberate.** `bin/github-channel-mcp.sh:114` `cd`s to the
+plugin directory so bun's module resolution and `.env` loading "behave the same regardless of the session's
+cwd". That is a good reason to change the cwd and a fatal one to then read it as the caller's location.
+`claude-hive-mcp` uses the identical `process.cwd()` line and works only because it happens to be launched
+project-scoped — so the correct-looking code is not evidence the pattern is safe.
+
+**What to check when a per-session feature in a plugin MCP server misbehaves:**
+
+- Grep the server for `process.cwd()` before anything else. If the feature is per-session and the value is
+  per-plugin, that is the bug, whatever the symptom looks like.
+- Read the launcher script for a `cd`. The fix is usually to capture `$PWD` into an env var *before* it,
+  and have the server prefer that.
+- **The tell is a success-shaped reply.** `Already watching <the plugin's own repo>` and a subscription
+  logged as `matched` are both indistinguishable from working, which is why both defects survived weeks.
+  Confirm with the list-back call (`list_watched`), never the write's own return value.
+
+A tool argument that overrides the bad default — `watch_repo`'s `cwd` — makes the feature work today and
+does not fix it, because nothing makes a caller pass it.

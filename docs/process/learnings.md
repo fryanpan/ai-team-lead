@@ -2514,3 +2514,32 @@ The first attempt copied only `codex` and gave a working `codex --version` and a
 `codex-path/` and `codex-resources/` as siblings of `bin/`. A relocated binary has to keep
 its whole tree, and the smoke test has to exercise a subcommand -- `--version` passes in
 exactly the state where real work fails.
+
+## A Decision Item Inherits Its Numbers From Whatever Doc First Stated Them (2026-09-10)
+
+A daily review asked the user to choose between two published figures, "~4.7x measured
+vs ~5.6x imputed". Both came from a handoff written four days earlier. The owning peer
+had since produced a final numbers card, and **neither figure appears in it.** The real
+choice was which of three aggregation bases to headline, and the imputation the old
+wording implied was a single 500 ms allowance, not a separate result.
+
+The item had been carried forward across several days of reviews and into the user's
+task list without anyone re-reading the artifact it summarised.
+
+- **A decision item is a claim about current state, so re-derive it from the artifact,
+  not from the last review that carried it.** Carrying a bullet forward is cheap and
+  feels like continuity; it is actually an assertion made without evidence, and it ages
+  silently. Nothing errors when the underlying numbers move.
+- **When a peer supplies figures, read the source before restating them to the user.**
+  The peer's relay here was accurate — the point is that the check cost one file read,
+  and the alternative was the user answering a question whose options did not exist.
+- **A peer's `set_summary` is a cache, not a status.** The same session's summary still
+  described a run as "armed to self-launch" three days after that run had finished. A
+  summary is written once and updated when its author remembers to; treating it as live
+  state is the same error as reading a tmux pane.
+- **The tell is a number that appears in prose but not in the artifact.** Grep the
+  source for the literal figure you are about to put in front of someone. If it is not
+  there verbatim, you are quoting a summary of a summary.
+
+The general rule: **before asking someone to decide between options, confirm the options
+still exist.** A stale question is worse than no question, because it gets answered.

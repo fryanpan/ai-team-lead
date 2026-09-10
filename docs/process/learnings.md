@@ -2,6 +2,22 @@
 
 Technical discoveries that should persist across sessions.
 
+## "Matched" Is Not "Delivered" — Two Silent ID Mismatches in the Sentry Channel (2026-09-08)
+
+Asked whether Sentry events worked, every surface said yes: the launchd job was loaded with `LastExitStatus 0`, the daemon was listening, its log carried a fresh `webhook matched` line naming the project and `matched_peers: 1`, and `sentry_list_my_watches` returned an active subscription. Nothing had ever arrived. The event sat in the broker's queue with `delivered=0`, addressed to a `stable_id` **no running session holds**.
+
+**The receiver logs matching and stops there.** Match and delivery are separate legs, and only the first is instrumented — a `send_message failed` line exists but never fires, because the broker accepts the message and drops it silently when the address resolves to nobody. A log that records intent and not outcome reads identically in both cases.
+
+**A plugin MCP server's `process.cwd()` is the plugin's directory, not the session's.** The subscription store keys on `sha256(git_root || cwd)[:12]` to mirror the broker's peer id, and the derivation is correct — but it was called with the server's own cwd, so every watch from every peer files under the *channel repo's* hash instead of the caller's. The sibling MCP using the identical line works only because it is launched as a project-scoped server with the session's cwd. **Same code, different launch context, opposite result.**
+
+**A second mismatch predated it: two spellings of the same directory.** Older subscriptions hashed `/Users/<user>/dev/<x>` while the broker registers peers under `/Volumes/Data/Users/<user>/dev/<x>`. Both paths resolve to the same directory and neither is a symlink, so nothing anywhere looks wrong — but they are different strings, so they are different hashes, so they are different peers.
+
+- **Instrument the last leg, not the first.** "Matched", "queued", "sent", "accepted" are all upstream of the only fact worth logging: the recipient got it. Where the last leg cannot report back, the check belongs on the receiving side.
+- **A hash used as an address needs its inputs pinned, not just its algorithm.** Two implementations agreeing on the formula and disagreeing on what they feed it produce ids that are individually valid and mutually unroutable — and there is no error, because a well-formed address for nobody looks exactly like a well-formed address.
+- **Before trusting a subscription list, join it against the live registry.** `list_my_watches` answers "is there a row", never "can that row be reached". The check that finds this is one join and it exists nowhere.
+- **The daemon had also been crash-looping for a month behind the same green surface** — a launchd sandbox denial on the volume path, ~482k identical lines, `LastExitStatus 0` throughout because the wrapper exited cleanly each time. Same family as the frozen weekly refresh: `launchctl list` reports the last exit, and a job that respawns fast enough is always between failures when you look.
+
+
 ## A Self-Consistent Derivation Is Not a Correct One — the 5h Window's Phase (2026-09-08)
 
 The fleet burn watcher measured a window trailing from **run time**. The account's 5h window has a fixed phase, so that window covers strictly more past time than the real one: everything between `now - 5h` and the true start is burn the last reset already forgave. It computed a BREACH and a fleet-wide hold on that basis while the account's own session meter, covering the real window, sat around half used at roughly two thirds elapsed. Nothing was actually throttled — that loop runs without `--enforce` — so the cost was a false alarm and the attention it takes.

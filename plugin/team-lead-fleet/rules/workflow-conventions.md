@@ -65,6 +65,22 @@ The arithmetic is simple and unforgiving: burn is **turns × context size**, and
 - **`budget-watch` may send you a `HOLD SUBAGENT FAN-OUT` message. Comply immediately and keep working.** It is not a stop: run your own loop, serialize what you would have parallelized. It lifts itself and tells you when it does. Ignoring it is choosing to block every session on the machine, including your own.
 - **Context size is the other half, and it only ever grows.** `/clear` at a real task boundary, `/compact` mid-task. A session left running for a day pays its whole context on every turn it takes, including the ones that do nothing.
 
+### Restarting a session that has builders: find the BRANCH, not the dirty worktree
+
+A builder warned of an incoming restart **commits but does not push**. So after the cycle its work exists as an
+unpushed local branch, and the instinct — sweep the worktrees for dirty state and see which one is live — is
+not merely slow, it points away from the answer. Measured 2026-09-10: sixteen worktrees in one repo were
+dirty, nearly all long abandoned, and the live builder's was **not among them precisely because it had
+committed**. Dirty state finds the builders that lost work; the one that checkpointed correctly is invisible
+to it.
+
+- **`git for-each-ref --sort=-committerdate refs/heads | head` names it in one call.** Recency of commit is
+  the signal, and it survives the restart that destroyed every other trace.
+- **The lead pushes the branch before briefing a replacement.** The builder is gone and cannot; an unpushed
+  branch is one `git worktree remove` away from being nothing, and the replacement cannot see it at all.
+- **Brief the replacement from the task, not from a reconstruction.** What the dead builder held was context,
+  not commits — that is the part the restart actually took, and it does not come back by staring at the diff.
+
 ## Planning
 
 Plans go to `docs/product/plans/<prefix>-plan.md`, `<prefix>` being the ticket or sprint number — ask if unclear. A plan in `.claude/plans/` gets persisted with `/persist-plan`. It carries measurable outcomes, the alternatives you rejected and why, the design, and the execution and testing strategy. Diagrams are mermaid.

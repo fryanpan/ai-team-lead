@@ -19,12 +19,18 @@ appliesTo: main
    actually in the list; the reply alone does not tell you.
 
 **A restart drops your repo watch, so "I watched it at startup" is only ever true of THIS session.** Measured
-2026-09-10 across four peers cycled in one account rotation: every one came back with `list_watched` empty,
-including three that had verified watches before the cycle. Four for four is the whole sample — not a peer that
-kept its watch. Nothing announces it — the broker is green, the session is healthy, and the only surface that
-says otherwise is `list_watched`. So the startup step above is not a one-time setup
-you can assume a predecessor did; run it on every session start, and read `list_watched` rather than the
-subscribe call's reply.
+2026-09-10 across an entire account rotation — five peers and the team-lead itself: every one came back with
+`list_watched` empty, including four that had verified watches before the cycle. Six for six is the whole
+sample, with no session that kept its watch. Nothing announces it — the broker is green, the session is
+healthy, and the only surface that says otherwise is `list_watched`. So the startup step above is not a
+one-time setup you can assume a predecessor did; run it on every session start, and read `list_watched`
+rather than the subscribe call's reply.
+
+**Do not generalise that to your other channels — they do not all drop.** In the same rotation, Sentry watches
+survived every restart, because they are keyed on a launch-path hash rather than on the session. So "I
+restarted, therefore I am unsubscribed from everything" is as wrong as the assumption it replaces, and
+re-subscribing blindly to a channel that kept its state is noise. Check each channel's own list — the GitHub
+one is the one that needs re-arming.
 
 **A session that watches no project repo is deaf, and the broker looks perfectly healthy while it is.** Measured 2026-09-08: `show_status` reported the broker running and polling with all nine sessions attached and zero queued — and every one of those nine was watching only the channel's own repo, because nothing called `watch_repo` until `ship-auto` did it lazily at PR time. So no CI result, review request, merge or deploy on any project reached anybody, and the surface you would check to find that out was green. Watch at startup, not at first push.
 

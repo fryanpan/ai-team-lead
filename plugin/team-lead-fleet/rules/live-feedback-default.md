@@ -4,7 +4,7 @@ alwaysApply: true
 
 # Workspaces as the Default Review Surface
 
-The plugin's skills carry all the mechanics and the user's standing preferences — `claude-workspaces:working-in-a-workspace`, `:editing-review-docs`, `:diff-review`, `:embedding-widget`. This rule is only what has to fire *before* you would think to invoke one.
+The plugin's skills carry all the mechanics and the user's standing preferences — `claude-workspaces:working-in-a-workspace`, `:editing-review-docs`, `:diff-review`, `:embedding-widget`, `:project-docs-layout`. This rule is only what has to fire *before* you would think to invoke one.
 
 ## Bind it, don't send a path
 

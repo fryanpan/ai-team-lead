@@ -21,6 +21,31 @@ appliesTo: main
 
 A project with public APIs or a mature schema moves contract changes into the hard-to-reverse column; note it in its own `workflow-conventions.md`.
 
+### Over $50 of API or eval spend needs explicit approval first (2026-09-09)
+
+Set fleet-wide after an eval run cost several times what anyone expected, because
+nobody had costed it before starting it. Metered API spend is the blind spot: it
+is invisible to the subscription quota meters, so nothing else in the fleet
+catches it.
+
+- **Estimate the spend BEFORE you run it, not after.** The failure was not an
+  expensive eval; it was an eval whose cost nobody put a number on until the bill
+  existed. A run you cannot cost is a run you file rather than start.
+- **Over $50 → file a review item and wait.** Hard to reverse in the way that
+  matters: the money is gone the moment the job runs, and no amount of good
+  output un-spends it.
+- **CI that calls a paid model: $1/day, and once daily beats per-push.** A job
+  that cannot fit the cap under continuous triggers drops to a daily schedule
+  rather than asking for more budget. Put a hard cap in the script that aborts
+  past the line and prints its estimate.
+- **This is separate from the weekly quota.** Subscription tokens are what
+  `token-control.md` governs; this is metered **API** spend, which the quota
+  meters do not show at all. A pass reading "weekly non-binding" says nothing
+  about it.
+- **It binds recurring jobs hardest.** A one-off you notice; a nightly eval at a
+  few dollars a run is what reaches $50 while nobody is looking. Cost it per run,
+  multiply by the schedule, file it if the month clears $50.
+
 ## Turn efficiency
 
 Turn count is what the weekly meter weights most heavily. Beyond the harness's own batching advice:

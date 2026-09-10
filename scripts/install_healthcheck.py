@@ -198,9 +198,24 @@ BASE_CHECKS = [
     # honest fix is upstream (do not log an expected condition as an error);
     # until that lands this states the tolerance in one place instead of
     # narrowing the pattern until it catches nothing new.
-    {"type": "log_errors", "name": "github broker", "max": 0,
+    # max/window widened 2026-09-10. `max: 0` over 1440m meant ONE transient
+    # network blip pinned this red for a full day: a single
+    # "socket connection was closed unexpectedly" at 05:09:46 held it red for
+    # 14 consecutive runs while /health answered ok, port 7902 had its
+    # listener, and the broker was actively registering sessions throughout.
+    # A polling loop over the network cannot promise zero errors in 24h, so
+    # that threshold graded a working daemon as broken and taught us to skim
+    # past it -- the failure mode the check exists to prevent.
+    #
+    # 2 in 60m keeps the real shape: a genuine outage clusters. The 13:36-13:39
+    # connectivity failure in this same log was ~9 lines in 3 minutes and trips
+    # this comfortably, while today's single line does not. Matches the notion
+    # receiver check above, which has used max/window rather than zero-tolerance
+    # since it was written. `max_error_streak` below still catches a slow drip
+    # that never clusters.
+    {"type": "log_errors", "name": "github broker", "max": 2,
      "path": "~/Library/Logs/github-channel-broker.log",
-     "pattern": r"WARNING|error", "window_minutes": 1440,
+     "pattern": r"WARNING|error", "window_minutes": 60,
      "ignore": r"Failed to start server\. Is port \d+ in use\?",
      # NO max_silence_minutes. THIS LOG IS EVENT-DRIVEN: the broker writes on
      # session register/expire and on watches, and nothing else. A quiet fleet
@@ -253,9 +268,16 @@ BASE_CHECKS = [
     #     budget watcher leaves an artifact to age-check; fleet-monitor writes
     #     nothing, so its death was invisible to every other check here. The
     #     guard grades both every 2 minutes, so 15m is seven missed passes. ---
+    # Path comes from STATE_DIR, not a literal. It was hardcoded to the
+    # ~/Library/Application Support fallback and never followed the deploy root
+    # to /opt/fleet, so this read "the guard has never written state, so nothing
+    # is watching the loops" while the guard was running and had written
+    # guard-state.json three minutes earlier. A check that asserts the wrong
+    # path fails exactly like the outage it is looking for, which is the one
+    # failure a monitor must not have. Fixed 2026-09-10.
     {"type": "monitor_loops", "name": "monitor loops",
      "why": "a downed loop means the fleet is unwatched and nothing says so",
-     "path": "~/Library/Application Support/team-lead/guard-state.json",
+     "path": os.path.join(STATE_DIR, "guard-state.json"),
      "max_age_minutes": 15},
 
     # --- did anyone actually READ the quota meter? The token-watch is a

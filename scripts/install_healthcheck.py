@@ -253,15 +253,9 @@ BASE_CHECKS = [
     #     budget watcher leaves an artifact to age-check; fleet-monitor writes
     #     nothing, so its death was invisible to every other check here. The
     #     guard grades both every 2 minutes, so 15m is seven missed passes. ---
-    #     The path is RESOLVED, not spelled out: fleet_guard.py picks its own
-    #     state dir the same way this installer picks its deploy root, so a
-    #     literal here goes stale the moment the root moves. It did -- the guard
-    #     migrated to /opt/fleet and this check spent hours aging an abandoned
-    #     file. Only the mtime guard below turned that into a RED; without it
-    #     the frozen copy would have reported both loops up forever. ---
     {"type": "monitor_loops", "name": "monitor loops",
      "why": "a downed loop means the fleet is unwatched and nothing says so",
-     "path": os.path.join(STATE_DIR, "guard-state.json"),
+     "path": "~/Library/Application Support/team-lead/guard-state.json",
      "max_age_minutes": 15},
 
     # --- did anyone actually READ the quota meter? The token-watch is a

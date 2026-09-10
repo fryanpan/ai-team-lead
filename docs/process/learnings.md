@@ -2538,3 +2538,73 @@ them was about to stop existing.
 
 Same family as trusting a health surface: the peer's self-report was accurate about the thing it
 measured and silent about the thing that mattered.
+
+## An Event That Arrives And Is Ignored Looks Exactly Like One That Never Arrived (2026-09-10)
+
+A peer reported that a webhook bridge in another agent's repo matched an event to a
+subscriber and then never delivered it. The evidence was real and specific: two match
+lines in the bridge's log, a subscription it had created itself minutes earlier, and a
+count -- **zero** of those events in its own transcript, against 1,653 blocks from a
+different channel the same day. It asked whether to send a patch.
+
+Every leg had worked. The events were in its transcript the whole time.
+
+**The count was the wrong instrument, and a count is exactly what reads as proof.** A
+search that misses returns zero, and zero is indistinguishable from absence. Re-running
+the same search confirms the same wrong number as many times as you like.
+
+The specific miss is worth memorising, because it will recur for every bridge built this
+way. **A bridge that routes through another channel keeps that channel's `source`, not
+its own.** These events arrive as `source="claude-hive"` -- the receiver hands them to the
+hive and the hive delivers them -- so a tally bucketed by the `source=` attribute files
+every one of them under the hive's count and reports zero for the bridge. The events were
+in the transcript the whole time, inside a bucket of 204 the searcher had already
+attributed to something else. **Match on payload, not on transport**: the project slug,
+the issue title, the emoji the formatter emits.
+
+### The chain has four legs and each one keeps its own record
+
+Establish them in order rather than reasoning from the endpoints:
+
+1. **The sender's log** -- did it match, and to which subscriber id.
+2. **The MCP server's stderr log**, under `~/Library/Caches/claude-cli-nodejs/<encoded-cwd>/mcp-logs-<server>/`
+   -- a `notifications/claude/channel` line is the push actually leaving the server.
+3. **The recipient's transcript** -- a `queue-operation` **enqueue**, a matching
+   **remove** some seconds later, then an `attachment` of type `queued_command`. That
+   triple is delivery into a turn. Compare it against a message the session demonstrably
+   acted on; if the shapes match, delivery is not the problem.
+4. **The broker's message table** -- and read an ABSENT row correctly. Undelivered rows
+   are kept for a TTL (24h by default) and acked rows are deleted, so a missing row
+   inside the TTL means the recipient acked it. The intuition runs the other way and is
+   wrong.
+
+### Do not infer a bug from a silent log
+
+The deployed copy of the bridge was a version behind the repo, and the newer code was the
+half that logs whether a matched subscriber is deliverable. So after a match the running
+daemon logged nothing -- not a send, not an error -- and that silence was read as the
+failure itself. **A log that cannot record an outcome is not evidence of a bad outcome.**
+Check what the running binary is capable of saying before you interpret what it did not
+say. Same family as trusting a health check that was never wired to the thing it names.
+
+### A tool result carrying an inbound message is not a loopback
+
+The same report included a second symptom: a message send that "came back to me with
+sender and target both reading as the recipient." That is the hive client's piggyback --
+buffered inbound messages are appended to the next tool result under a "Pending messages
+received while you were away" heading. The send succeeded; the block underneath it was a
+different message arriving. Two unrelated oddities in one hour invite a single-cause
+story, and that story is usually wrong.
+
+### The real defect is the one nobody can see
+
+An event that lands in a session's queue, is taken into a turn, and produces no response
+leaves the same trace as one that was never sent -- from outside AND from inside that
+session. Nothing prompts an agent to read its own cache directory or another session's
+transcript, and the negative result feels conclusive. **When a channel looks dead, the
+first question is not "was it sent" but "can I tell the difference from here".**
+
+`scripts/channel_delivery_trace.py` walks all four legs for one payload string and says
+which of the two cases you are in. It takes the RECIPIENT's cwd and a payload substring --
+an issue title, a project slug -- and will not be pointed at a `source=` attribute, because
+that is the search that returns a confident zero.

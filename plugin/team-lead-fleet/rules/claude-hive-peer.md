@@ -19,9 +19,10 @@ appliesTo: main
    actually in the list; the reply alone does not tell you.
 
 **A restart drops your repo watch, so "I watched it at startup" is only ever true of THIS session.** Measured
-2026-09-10 across three peers cycled in one pass: every one came back with `list_watched` empty, including two
-that had verified watches before the cycle. Nothing announces it — the broker is green, the session is healthy,
-and the only surface that says otherwise is `list_watched`. So the startup step above is not a one-time setup
+2026-09-10 across four peers cycled in one account rotation: every one came back with `list_watched` empty,
+including three that had verified watches before the cycle. Four for four is the whole sample — not a peer that
+kept its watch. Nothing announces it — the broker is green, the session is healthy, and the only surface that
+says otherwise is `list_watched`. So the startup step above is not a one-time setup
 you can assume a predecessor did; run it on every session start, and read `list_watched` rather than the
 subscribe call's reply.
 

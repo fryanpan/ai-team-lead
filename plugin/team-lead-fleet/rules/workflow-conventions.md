@@ -21,31 +21,6 @@ appliesTo: main
 
 A project with public APIs or a mature schema moves contract changes into the hard-to-reverse column; note it in its own `workflow-conventions.md`.
 
-### Over $50 of API or eval spend needs explicit approval first (2026-09-09)
-
-Set fleet-wide after an eval run cost several times what anyone expected, because
-nobody had costed it before starting it. Metered API spend is the blind spot: it
-is invisible to the subscription quota meters, so nothing else in the fleet
-catches it.
-
-- **Estimate the spend BEFORE you run it, not after.** The failure was not an
-  expensive eval; it was an eval whose cost nobody put a number on until the bill
-  existed. A run you cannot cost is a run you file rather than start.
-- **Over $50 → file a review item and wait.** Hard to reverse in the way that
-  matters: the money is gone the moment the job runs, and no amount of good
-  output un-spends it.
-- **CI that calls a paid model: $1/day, and once daily beats per-push.** A job
-  that cannot fit the cap under continuous triggers drops to a daily schedule
-  rather than asking for more budget. Put a hard cap in the script that aborts
-  past the line and prints its estimate.
-- **This is separate from the weekly quota.** Subscription tokens are what
-  `token-control.md` governs; this is metered **API** spend, which the quota
-  meters do not show at all. A pass reading "weekly non-binding" says nothing
-  about it.
-- **It binds recurring jobs hardest.** A one-off you notice; a nightly eval at a
-  few dollars a run is what reaches $50 while nobody is looking. Cost it per run,
-  multiply by the schedule, file it if the month clears $50.
-
 ## Turn efficiency
 
 Turn count is what the weekly meter weights most heavily. Beyond the harness's own batching advice:
@@ -61,6 +36,7 @@ Turn count is what the weekly meter weights most heavily. Beyond the harness's o
 The arithmetic is simple and unforgiving: burn is **turns × context size**, and a mature session costs roughly **160–200k tokens per turn** no matter how small the turn is. Twelve sessions taking 720 turns in an hour spent 119M — enough on its own to project past the ceiling.
 
 - **Cap your own parallel fan-out at three subagents.** Beyond three you are usually buying wall-clock you will spend waiting anyway.
+- **Stop a subagent in the same turn you close its dispatch.** A parallelism cap governs DISPATCH, not processes: `close_dispatch` frees the board slot while the agent stays resident, so the cap keeps reading as observed while the real footprint grows without limit. One session reached **33 idle builders** alongside the two actually working (2026-09-09) and only stopped because the user noticed. Pair `TaskStop` with `close_dispatch` the way `register_dispatch` is already paired with the spawn. Keep an agent alive only while a rework round is genuinely expected of it — a parked branch does not need its builder resident, because the worktree and the branch both survive the stop and a fresh round can be briefed from scratch.
 - **A 35-agent review workflow is a decision, not a default.** It was the single biggest line in the fleet on 2026-09-03. Fan out that wide only when someone asked for it, and never twice on the same artifact — re-verification is one focused agent.
 - **`budget-watch` may send you a `HOLD SUBAGENT FAN-OUT` message. Comply immediately and keep working.** It is not a stop: run your own loop, serialize what you would have parallelized. It lifts itself and tells you when it does. Ignoring it is choosing to block every session on the machine, including your own.
 - **Context size is the other half, and it only ever grows.** `/clear` at a real task boundary, `/compact` mid-task. A session left running for a day pays its whole context on every turn it takes, including the ones that do nothing.

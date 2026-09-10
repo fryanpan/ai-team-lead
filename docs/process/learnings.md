@@ -2538,3 +2538,39 @@ them was about to stop existing.
 
 Same family as trusting a health surface: the peer's self-report was accurate about the thing it
 measured and silent about the thing that mattered.
+
+## A Real Failure *Shape* In One Namespace Becomes An Asserted *Incident* In Another (2026-09-10)
+
+A planning doc carried "events have never reached any agent — two ID mismatches
+behind a green status surface." I handed that to a session as established fact and
+asked it to record its conclusions about them. It refused, correctly: it had never
+observed a mismatch and would not write a plausible finding into a durable record.
+
+Tracing it, the phrase existed in exactly one line of one doc, with no supporting
+entry anywhere. What was real was a *different* thing: a tool had warned about a
+genuine failure class in a second, unrelated identity namespace — after a rename,
+watches strand on the old id, and an empty watch set then reads identically to
+never having subscribed. Silent, green, no error. True shape; no evidence it had
+ever fired here, and none at all that it fired twice.
+
+**The mechanism to watch for: a true premise about how something CAN fail, plus a
+real symptom, gets written down as an account of what DID fail.** It reads as
+established because both halves are true. The invented part is only the join, and
+the join is the part nobody sources.
+
+- **A count is the tell.** "Two mismatches" is not something a shape can tell you —
+  it can only come from having observed two. A specific number attached to a
+  mechanism nobody instrumented is where to start pulling.
+- **Grep for the claim before repeating it.** One hit, in the doc that first said
+  it, means it has no provenance — it has an origin. Those are different.
+- **Mark it unverified rather than deleting it.** You can usually show a claim is
+  unsupported; you can rarely show it is false. Deleting destroys the trail that
+  lets the next reader check.
+- **Keep the true shape visibly separate from the unproven incident**, or the next
+  reader re-derives the same claim from the same real premise — which is exactly
+  how it got here.
+
+**The rule: when you hand a peer a "known" finding to build on, cite where it is
+recorded. If you cannot, say it is unverified in the same breath.** A finding
+passed down as fact acquires the receiving session's name, and then it has two
+sources and still no evidence.

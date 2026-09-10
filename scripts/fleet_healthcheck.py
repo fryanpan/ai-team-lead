@@ -1091,8 +1091,19 @@ def _latest_trend_entry(text):
     # reported "no reading has been recorded". A staleness check that a format
     # slip can blind is worse than no check: it reports the loop dead when the
     # loop ran, and the operator goes looking for a cron that is fine.
+    # 2026-09-10: widened AGAIN, and for the third format. The prefix is now
+    # OPTIONAL -- entries have also been appended bare, with no backtick and no
+    # bullet ("2026-09-10 08:37 PT - ..."), and the parser skipped every one.
+    # Three live readings sat in the file, the newest 3h old, while this check
+    # reported the last one as 22h old and RED. That sent a morning review to
+    # blame the cron, which was armed and firing correctly the whole time.
+    #
+    # The lesson is in the failure SHAPE, not the regex: this check's input is
+    # a hand-written line, so any parser that enumerates prefixes will keep
+    # losing to the next person who writes one differently. Anchor + a required
+    # trailing "PT" is what actually identifies an entry.
     pat = re.compile(
-        r"^(?:`|- \*\*)(\d{4}-\d{2}-\d{2})\s+~?(\d{1,2}):(\d{2})\s*PT",
+        r"^(?:`|- \*\*)?(\d{4}-\d{2}-\d{2})\s+~?(\d{1,2}):(\d{2})\s*PT",
         re.M)
     best = None
     for m in pat.finditer(text):

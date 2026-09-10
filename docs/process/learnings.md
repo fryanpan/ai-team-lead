@@ -2554,3 +2554,52 @@ them was about to stop existing.
 
 Same family as trusting a health surface: the peer's self-report was accurate about the thing it
 measured and silent about the thing that mattered.
+
+## A Plugin MCP Server's `process.cwd()` Is The Plugin's Directory — Two Plugins, One Root Cause (2026-09-08)
+
+Found twice in one day, in unrelated plugins, both times presenting as something else.
+
+- **The Sentry channel** computed each subscriber's address as `computeStableId(process.cwd())`, so every
+  subscription was filed under the plugin's own directory hash. Events "matched" and reached nobody.
+- **The GitHub channel** resolves `watch_repo("auto")` against `process.cwd()` (`server.ts:191`), and
+  auto-watches `detectRepo(process.cwd())` at startup (`server.ts:315`). So `auto` can only ever find the
+  channel's own repo — and every session's watch list arrives pre-populated with it, which is what made
+  "all nine sessions attached" look like coverage when nobody was subscribed to anything.
+
+**The launcher is usually the reason, and it is deliberate.** `bin/github-channel-mcp.sh:114` `cd`s to the
+plugin directory so bun's module resolution and `.env` loading "behave the same regardless of the session's
+cwd". That is a good reason to change the cwd and a fatal one to then read it as the caller's location.
+`claude-hive-mcp` uses the identical `process.cwd()` line and works only because it happens to be launched
+project-scoped — so the correct-looking code is not evidence the pattern is safe.
+
+**What to check when a per-session feature in a plugin MCP server misbehaves:**
+
+- Grep the server for `process.cwd()` before anything else. If the feature is per-session and the value is
+  per-plugin, that is the bug, whatever the symptom looks like.
+- Read the launcher script for a `cd`. The fix is usually to capture `$PWD` into an env var *before* it,
+  and have the server prefer that.
+- **The tell is a success-shaped reply.** `Already watching <the plugin's own repo>` and a subscription
+  logged as `matched` are both indistinguishable from working, which is why both defects survived weeks.
+  Confirm with the list-back call (`list_watched`), never the write's own return value.
+
+A tool argument that overrides the bad default — `watch_repo`'s `cwd` — makes the feature work today and
+does not fix it, because nothing makes a caller pass it.
+
+## A Row's Reviews List Is A Different Surface From Its Threads (2026-09-09)
+
+`list_threads` on `task:<id>` returns only comment threads. **A review item's answer — the actual decision, in
+the user's own words — lives on the task's `reviews` field, reachable through
+`list_tasks(fields:["id","title","status","reviews"])`.** The two surfaces do not cross-reference each other.
+
+The cost: a peer relayed a ruling from the user on a row. I ran `list_threads`, saw only my comment and the
+peer's, and publicly told the peer the ruling "is not on this row" and that I would not record it as the user's
+decision. It was on the row — a review item answered by the user, timestamped nineteen minutes earlier. The peer
+was accurate and I had to withdraw on the same thread.
+
+**Reading one surface and finding nothing is not evidence.** The relayed-approval rule says to verify rather than
+trust a peer's "the user approved this"; verifying means checking every surface an answer can land on, and
+concluding absence from one of them is a stronger claim than the evidence supports. Say "I did not find it in the
+threads" — never "it is not on this row".
+
+`list_tasks` trims rows hard by default, so pass `fields` explicitly and include `reviews`; without it the field
+is absent from the response and looks like an empty answer rather than an unrequested one.

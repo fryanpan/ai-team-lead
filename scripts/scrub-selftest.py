@@ -272,12 +272,21 @@ def check_prepush_range() -> list[str]:
     with tempfile.TemporaryDirectory() as tmp:
         origin = os.path.join(tmp, "origin.git")
         work = os.path.join(tmp, "work")
+        # Every git call here gets clean_git_env(). Run from the hook, an
+        # inherited GIT_DIR sends `init`, `config`, `add -A`, `commit` and
+        # `checkout` at the REAL repo while cwd names the fixture: measured,
+        # it set the shared config's identity to this fixture's, committed a
+        # tree deleting most of the repo onto the branch being pushed, moved
+        # local main, and tried `push origin main` against the real remote.
+        clean = clean_git_env()
         g = lambda *a, **kw: subprocess.run(  # noqa: E731
-            ["git", *a], cwd=kw.pop("cwd", work), capture_output=True, text=True, **kw)
+            ["git", *a], cwd=kw.pop("cwd", work), capture_output=True, text=True,
+            env=clean, **kw)
 
         subprocess.run(["git", "init", "--bare", "-b", "main", origin],
-                       capture_output=True, check=True)
-        subprocess.run(["git", "clone", origin, work], capture_output=True, check=True)
+                       capture_output=True, check=True, env=clean)
+        subprocess.run(["git", "clone", origin, work], capture_output=True, check=True,
+                       env=clean)
         g("config", "user.email", "selftest@example.invalid")
         g("config", "user.name", "Selftest")
 
@@ -325,7 +334,7 @@ def check_prepush_range() -> list[str]:
             ["bash", hook],
             cwd=work, capture_output=True, text=True,
             input=f"refs/heads/feature {sha} refs/heads/feature {zero}\n",
-            env={**os.environ, "SCRUB_SKIP_HAIKU": "1"},
+            env={**clean_git_env(), "SCRUB_SKIP_HAIKU": "1"},
         )
         if not os.path.exists(record):
             failures.append("pre-push range: hook never invoked the scanner")

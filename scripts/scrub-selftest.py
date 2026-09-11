@@ -247,6 +247,120 @@ def check_decision_table() -> None:
                f"got {got!r}, wanted {want!r}")
 
 
+def check_prepush_range() -> list[str]:
+    """The hook must scan what the push ADDS, not what separates two tips.
+
+    `A..B` on a branch that is BEHIND its base also carries the inverse of every
+    commit the base has and the branch lacks — the base's newer content arrives
+    as `-` lines and the content it replaced comes back as `+`. The scanner then
+    judges text this push does not introduce and that is already public on the
+    base, and blocks. `A...B` diffs from the merge base and is exactly the
+    branch's own additions.
+
+    This drives the REAL hook with a recorder in place of scrub-check.py, so it
+    fails if the hook's range changes back — reimplementing the range here would
+    pass while the hook stayed broken. The assertion is on content, not on
+    whether the string has three dots: a planted marker that exists only on the
+    base must not appear in the range the hook chose.
+    """
+    failures: list[str] = []
+    marker = "zephyr-base-only-marker"
+    hook = os.path.join(os.path.dirname(HERE), ".githooks", "pre-push")
+    if not os.path.isfile(hook):
+        return failures  # peer repo without the hook — nothing to assert
+
+    with tempfile.TemporaryDirectory() as tmp:
+        origin = os.path.join(tmp, "origin.git")
+        work = os.path.join(tmp, "work")
+        # Every git call here gets clean_git_env(). Run from the hook, an
+        # inherited GIT_DIR sends `init`, `config`, `add -A`, `commit` and
+        # `checkout` at the REAL repo while cwd names the fixture: measured,
+        # it set the shared config's identity to this fixture's, committed a
+        # tree deleting most of the repo onto the branch being pushed, moved
+        # local main, and tried `push origin main` against the real remote.
+        clean = clean_git_env()
+        g = lambda *a, **kw: subprocess.run(  # noqa: E731
+            ["git", *a], cwd=kw.pop("cwd", work), capture_output=True, text=True,
+            env=clean, **kw)
+
+        subprocess.run(["git", "init", "--bare", "-b", "main", origin],
+                       capture_output=True, check=True, env=clean)
+        subprocess.run(["git", "clone", origin, work], capture_output=True, check=True,
+                       env=clean)
+        g("config", "user.email", "selftest@example.invalid")
+        g("config", "user.name", "Selftest")
+
+        os.makedirs(os.path.join(work, "scripts"), exist_ok=True)
+        recorder = os.path.join(work, "scripts", "scrub-check.py")
+        record = os.path.join(tmp, "range.txt")
+        with open(recorder, "w") as f:
+            f.write(
+                "#!/usr/bin/env python3\n"
+                "import sys\n"
+                "a = sys.argv[1:]\n"
+                "r = a[a.index('--diff-range') + 1] if '--diff-range' in a else ''\n"
+                f"open({record!r}, 'w').write(r)\n"
+                "sys.exit(0)\n"
+            )
+
+        # The marker has to sit on a file the base MODIFIES, not on one the base
+        # adds. A base-only NEW file shows up two-dot as a deletion, which the
+        # scanner already ignores; the case that actually bit is a base-side
+        # EDIT, where the branch's older version of the line resurfaces as a `+`
+        # and reads to the scanner as content this push introduces.
+        seed = os.path.join(work, "seed.md")
+        with open(seed, "w") as f:
+            f.write(f"{marker}\n")
+        g("add", "-A"); g("commit", "-m", "seed"); g("push", "-u", "origin", "main")
+
+        # The branch forks HERE, carrying the marker but never touching that line.
+        g("checkout", "-b", "feature")
+        with open(os.path.join(work, "branch.md"), "w") as f:
+            f.write("the branch's own addition\n")
+        g("add", "-A"); g("commit", "-m", "branch work")
+
+        # Base edits the marker line away. The branch still has the old text, so
+        # a two-dot range re-adds it.
+        g("checkout", "main")
+        with open(seed, "w") as f:
+            f.write("the base replaced that line\n")
+        g("add", "-A"); g("commit", "-m", "base moves on"); g("push", "origin", "main")
+        g("fetch", "origin")
+        g("checkout", "feature")
+
+        sha = g("rev-parse", "feature").stdout.strip()
+        zero = "0" * 40
+        proc = subprocess.run(
+            ["bash", hook],
+            cwd=work, capture_output=True, text=True,
+            input=f"refs/heads/feature {sha} refs/heads/feature {zero}\n",
+            env={**clean_git_env(), "SCRUB_SKIP_HAIKU": "1"},
+        )
+        if not os.path.exists(record):
+            failures.append("pre-push range: hook never invoked the scanner")
+            print(f"  FAIL  pre-push range: scanner not invoked\n{proc.stderr}")
+            return failures
+
+        with open(record) as f:
+            chosen = f.read().strip()
+        scanned = g("diff", chosen).stdout
+        added = "".join(l for l in scanned.splitlines(keepends=True) if l.startswith("+"))
+
+        if marker in added:
+            failures.append("pre-push range: scans the base's own content")
+            print(f"  FAIL  pre-push range scans base-only content (range: {chosen})")
+        else:
+            print(f"  ok    pre-push range excludes base-only content ({chosen})")
+
+        if "the branch's own addition" not in added:
+            failures.append("pre-push range: misses the branch's additions")
+            print(f"  FAIL  pre-push range misses the branch's own additions ({chosen})")
+        else:
+            print("  ok    pre-push range still carries the branch's additions")
+
+    return failures
+
+
 def main() -> int:
     check_git_env_isolation()
     check_decision_table()
@@ -385,6 +499,8 @@ def main() -> int:
         # paths that were never theirs.
         r = run([clean], absent, absent, cwd=local_repo)
         expect("a clone with no fleet config still pushes (local registry present)", r.returncode, 0, r.stderr)
+
+    failures.extend(check_prepush_range())
 
     if failures:
         print(f"\n{len(failures)} self-test failure(s): {', '.join(failures)}")

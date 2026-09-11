@@ -69,8 +69,10 @@ pool-b@example.com     38%   62%    43%  Fri 09-11 04:00     ~29h  live  <- ACTI
   number is not. Say "80% or worse", never "80%".
 - **A reading taken while a pool was still active is an under-read**, because the
   pool kept climbing after it. Check `account_since` before quoting one.
-- **Runway is measured off the active pool's own meter** (`used% ÷ hours since
-  account_since`), not from tokens. Never project multiple days off the current
+- **Runway is measured off the active pool's own meter** — points GAINED since
+  the stint began ÷ hours — not from tokens, and never `used% ÷ hours`. That
+  assumes the pool was empty when the fleet arrived; a pool re-entered at 59%
+  read as 5.05 pts/h against a real 1.7 and produced a false Tier 2 on 09-10. Never project multiple days off the current
   5h window: on a quiet morning it read a third of the sustained rate and
   projected 99h of runway against a real 29h.
 - **The GAP line is the finding.** Whether the active pool outlasts the next

@@ -40,6 +40,33 @@ session.
   Here it turned a routine step into a caught defect; run blind, it would have silently destroyed
   four subscriptions including an experiment that had been deliberately armed.
 
+## `vm_stat` Reports Pages, Not Bytes, and the Page Size Is Not 4 KB (2026-09-10)
+
+Two agents independently sized the machine's memory pressure during an account
+rotation, and one of them multiplied `vm_stat`'s page counts by 4096. Every
+figure in its report came out **4x too large** — inactive memory read as 8.9 GB
+against a real 3.3 GB, and a free-page count read as ~15 MB against a real
+56 MB.
+
+- **`vm_stat` prints the page size in its own first line** — `(page size of
+  16384 bytes)` on Apple Silicon. It is not a lookup; it is at the top of the
+  output being parsed. Both wrong numbers came from not reading a header that
+  was already on screen.
+- **The direction of the error is what makes it dangerous.** A 4x overstatement
+  of reclaimable memory reads as comfortable headroom, so the conclusion it
+  supports is "we can spend" — and the correction arrives only after something
+  has already been spent against it.
+- **Free-page count is the wrong instrument regardless.** It oscillates by tens
+  of megabytes minute to minute, so two readings taken at different moments say
+  nothing about a trend, and a claim of the form "memory went the wrong way
+  across the restart" cannot be supported by it. **Swap used against swap total
+  is the binding figure** — that is what a wedge comes out of.
+- **A conclusion built on arithmetic is not a measurement.** The headline here
+  ("the cycle gave back load, not memory") survived one round of peer review and
+  reached a fleet-facing summary before the underlying number was checked. When
+  a peer reports a derived figure, ask what it was derived from before carrying
+  it anywhere durable.
+
 ## "Matched" Is Not "Delivered" — Two Silent ID Mismatches in the Sentry Channel (2026-09-08)
 
 Asked whether Sentry events worked, every surface said yes: the launchd job was loaded with `LastExitStatus 0`, the daemon was listening, its log carried a fresh `webhook matched` line naming the project and `matched_peers: 1`, and `sentry_list_my_watches` returned an active subscription. Nothing had ever arrived. The event sat in the broker's queue with `delivered=0`, addressed to a `stable_id` **no running session holds**.

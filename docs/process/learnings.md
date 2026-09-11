@@ -2,6 +2,454 @@
 
 Technical discoveries that should persist across sessions.
 
+## The Pre-Push Leak Gate Fails OPEN When Its Model Is Unavailable (2026-09-09)
+
+The shared Anthropic key behind `scripts/scrub-haiku.py` hit its monthly usage limit. The scanner now prints
+
+```
+[scrub-haiku] HTTP 400 from Anthropic API: ... You will regain access on 2026-10-01
+[scrub-haiku] Haiku check unavailable; relying on regex check only.
+```
+
+**and exits 0.** The push proceeds. `.githooks/pre-push` treats a non-zero exit as a block, so an unreachable
+model is indistinguishable from a clean diff at the only place that decides.
+
+This is not hypothetical and it caught me the same day. The regex gate keys on project names from
+`registry.yaml` plus a denylist; **it does not catch the user's own name.** The semantic scanner does — that
+morning it rejected a commit of mine flagging exactly that. With it dark, a branch of mine carrying the name
+four times in a skill and once in a script comment passed the gate with `REGEX_EXIT=0`, on a PUBLIC repo. Found
+by hand-grepping the diff, not by any check.
+
+**A degraded gate that reports success is worse than no gate**, because the first one is trusted. Same family as
+the process table looking healthy for a dead MCP server, and as a tmux pane rendering a state it cannot know.
+
+Until the key is restored: **hand-grep every diff to a public repo for names and ids before pushing** —
+`git diff origin/main..HEAD -U0 | grep '^+' | grep -E '<name>|<handle>'`. Do not read `REGEX_EXIT=0` as clean.
+The fix in the hook is to fail CLOSED on an API error and require an explicit `SCRUB_SKIP_HAIKU=1` to proceed,
+so that bypassing a broken scanner is a decision someone makes rather than a default nobody sees.
+
+## A Status-Filtered Sweep Only Covers The Lanes You Guessed (2026-09-09)
+
+Verifying a relayed instruction, I swept `list_tasks` on a board across
+`triage`, `todo`, `building`, `blocked` and `done`, found the cited task in
+none of them, and told the peer its citation did not resolve. The task existed
+the whole time in **`in-progress`** — a lane I did not know was in the set and
+therefore never queried. The peer re-sent the citation and it verified on the
+first try.
+
+**A status filter turns "I did not look there" into a result that reads exactly
+like "it is not there."** Five empty-or-absent responses felt like thorough
+coverage; they were five lanes out of six.
+
+- **Enumerate the lanes from the tool, not from memory.** If the API will not
+  list its own status values, one unfiltered call — even a costly one — beats
+  five filtered calls that leave an unknown gap.
+- **A filtered miss is evidence about the filter, not about the record.** Say
+  "not in the lanes I checked", and name them, so the reader can spot the one
+  you left out. I said "does not exist in any lane", which was a claim I had
+  not earned.
+- **Same family as the review-item miss earlier the same day** — `list_threads`
+  returned empty because the answer lived on the task's `reviews` field. Both
+  times the surface answered honestly about its own scope and I read it as an
+  answer about the world.
+
+## An Account Rotation Reaches RUNNING Sessions — No Respawn Needed (2026-09-09)
+
+Bryan rotated the fleet from one pool account to another with
+`/login` in the team-lead session, then asked me to "move all other agents over."
+I was about to run a full `respawn.py --mode all`, which would have killed a
+hardening subagent holding a build lock and two in-flight builders mid-merge.
+
+**Measured instead, on a peer I never touched.** Same pane, same process, no
+restart:
+
+- 18:37 — `/usage` read 74% blended / 96% Fable, resets **Fri 09-11 03:59** (that
+  is `claude@`)
+- 19:43 — `/usage` read 59% blended / 99% Fable, resets **Mon 09-14 07:00** (that
+  is the second account)
+
+A running session picks up the new credential live. The respawn would have cost
+real work and bought nothing.
+
+- **Rotation and plugin delivery are NOT the same problem.** Plugin rules arrive
+  only through a SessionStart hook, so a peer genuinely must restart to get them
+  (`ship-fleet`). Credentials are read per request. Do not generalize the plugin
+  rule to the token.
+- **Verify with a before/after on ONE untouched pane.** Two readings of the same
+  peer, minutes apart, with the reset timestamp as the discriminator — the
+  percentage alone would not have told them apart.
+- **The reset time is the pool's identity**, not the percentage. Same reset =
+  same pool, which is what makes this test work at all.
+
+## The Estate Panel Died On The Rotation It Exists To Cover (2026-09-09)
+
+`fleet_budget_watch.py` printed runways of **5.3 billion hours** and then crashed
+with `OverflowError: date value out of range` formatting the exhaustion date —
+the first time it was run after an account switch.
+
+**Cause:** `_runway_hours` fell back to `(points_left * TOKENS_PER_POINT) /
+tokens_per_hour` when no measured rate existed. After a rotation the new pool has
+no 2h base AND the 5h window is freshly clamped to near-zero tokens, so it
+divided by ~0.
+
+- **The fallback contradicted the skill that owns the tool.** `token-watch` says
+  plainly: never project runway off the current 5h window. The code did exactly
+  that as its silent fallback. **A doctrine written in the skill and violated in
+  the code is not a doctrine.**
+- **Fixed by deleting the fallback, not repairing it.** No measured rate now
+  prints a blank runway and says why. A fabricated number that survives to the
+  report is worse than a gap that does not.
+- **Added `carried_rate()`**: burn rate is a property of the fleet, not of the
+  pool it bills, so the previous pool's measured rate carries forward for the
+  first ~2h — labelled `CARRIED OVER from <pool>`, never presented as measured.
+- **A tool's worst moment to fail is the event it was built for.** It had run
+  clean for days because no rotation had happened.
+
+## `ps` RSS Cannot See A Memory Hog That Has Been Compressed Out (2026-09-09)
+
+Asked why the Mac was slow, I measured with `ps -axo rss=` and reported **"java
+is only 0.09 GB across 4 procs"** — then said so to the user and to a peer, which
+repeated my method and independently "confirmed" it. Both of us were wrong. The
+user pasted `top`:
+
+```
+77523  java   MEM 4127M  CMPRS 4097M   -Xmx3g  0.0% CPU  ppid 1
+78956  java   MEM 1915M  CMPRS 1907M   -Xmx3g  0.0% CPU
+```
+
+**~6 GB in two JVMs, ~98% of it compressed.** RSS counts only pages resident in
+physical memory; macOS had compressed nearly all of theirs because both daemons
+were idle. So the processes doing the most damage to a thrashing machine are
+exactly the ones RSS renders invisible — an idle hog reads as ~50 MB.
+
+- **For "why is this machine slow", use `top -l 1 -stats pid,ppid,mem,cmprs`**,
+  not `ps rss`. `ps` has no column for compressed footprint at all.
+- **The symptom is systematic, not random.** RSS undercounts idle processes
+  specifically, and idle-but-huge is the whole profile of a stale daemon.
+- **Check `PhysMem`/compressor and swap first**: 15G used / 452M unused with
+  5123M in the compressor said the answer was "something big is compressed" a
+  full round before I found which process.
+- **A peer confirming your finding with your method is not corroboration.** It
+  reproduced my error and made me more confident. Ask what they measured with.
+
+**The second finding — and my first explanation of it was wrong.** I said Gradle
+had reused the running 3g daemon, making the peer's new 2g cap inert. The peer
+corrected me: *a 2g request does not reuse a 3g daemon, it starts a second one.*
+The caps would have ADDED a daemon, not replaced one. What these two actually
+were is leftovers from a finished build, orphaned to ppid 1.
+
+**And that is the part worth keeping: `./gradlew --stop` could not touch them.**
+It stopped one unrelated daemon, then reported **"No Gradle daemons are
+running"** while 77523 and 78956 were alive at 4073M and 1915M. An orphaned
+daemon is deregistered, so no Gradle client can reach it — the supported tool
+reports a clean state it has no visibility into. Same family as the killer item:
+**an external surface is not state.** `gradlew --stop` saying "none running" is a
+render of the daemon registry, not of the process table.
+
+- **Confirm a daemon is gone from `ps`/`top`, never from `--stop`'s output.**
+- **Before killing, read the daemon's own log rather than trusting 0% CPU** —
+  the peer checked for `Finishing executing command: Build{...}` and confirmed
+  no build was in flight, then used TERM rather than KILL. 0% CPU alone cannot
+  tell an idle daemon from one between phases.
+- **Result: compressor 7.0 GB → 2.9 GB, swap used 13.2 GB → 4.1 GB**, zero java
+  processes left.
+
+## A Single `top` Sample Says How Big, Never Whether It Is Idle (2026-09-09)
+
+Chasing the memory problem I read `top -l 1` and reported a Gradle daemon as
+**"0.0% CPU, idle"** — twice, on the same daemon, an hour apart. The owning
+agent checked its log both times and it was mid-build at ~46% CPU. My reading
+would have licensed killing a live build.
+
+- **`top -l 1` reports CPU since boot, not now.** Use `top -l 2` and read the
+  SECOND sample. The first is an average over the machine's uptime and is
+  nearly meaningless for "what is running right now".
+- **Even a correct instantaneous sample cannot see idleness.** A multi-module
+  assemble sits at 0% between tasks routinely, so one sample of a busy build is
+  indistinguishable from an idle daemon.
+- **The process's own log is the state**; the CPU column is a render of one
+  instant. Read for a `Finishing executing command` line, or ask the owning
+  agent — it holds the build lock and knows.
+- **This is the killer item in another costume.** "A tmux pane is a render, not
+  state" and "a `%CPU` sample is a render, not state" are the same error, and I
+  made the second one while the first is written at the top of `CLAUDE.md`.
+- **Kept it out of the tool.** `print_memory()` now says in its own output that
+  it is a one-sample reading that cannot judge idleness — a wrong inference in
+  conversation costs one turn; compiled into a script it repeats forever.
+
+## The Socket-PCB Leak Recurred, And The Watcher Warned For 8h Again (2026-09-09)
+
+A third machine-wide `ENOBUFS` outage, and the same one as 2026-09-04 in every
+measurable respect: `net.inet.tcp.pcbcount` reached **162,199 against 75
+enumerable sockets** and the machine became unusable until a reboot at 20:09 PT.
+The wall is empirically **~162,200 PCBs** — 09-04 died at 162,169, 09-09 at
+162,199. Treat that as a hard ceiling, not a coincidence.
+
+**Every other reading said the machine was healthy.** mbuf pool 1.4–4.1% in use,
+`kern.num_files` a twelfth of its limit, socket count a normal 300–450. Only the
+**gap** — `pcbcount` minus enumerable sockets — moved. That is the metric.
+
+**The leak is NOT a constant background rate, which is what 09-04 concluded.**
+The hourly series refutes the 2,027/hour model outright:
+
+- Sep 7 20:00 → Sep 8 12:00, fleet idle overnight: **flat at ~29,400, +16/hour.**
+- Sep 8 18:00 → 19:00: **+6,848 in one hour**, a step change.
+- Sep 9 13:00 → 16:00, a lull: back down to **+190/hour**.
+- Sep 9 16:00 → 20:00, heavy subagent fan-out: **+4,858/hour**, final hour +8,065.
+
+A leak with a flat overnight and a 400x swing between busy and idle is **per
+operation, not per unit time**. It tracks agent and subagent teardown — the same
+family as the bun `server.stop()` without `true` finding of 2026-08-30. The
+steepest run coincides exactly with the 33-idle-builders window. **Capping
+fan-out is therefore a real mitigation here, not just a token-budget measure.**
+
+**The watcher fired at 11:43 PT and told nobody — for the second outage running.**
+`socket-watch.sh` crossed WARN at pcbcount 120,318, **8h26m before the wall**, and
+wrote **1,901 non-OK rows** to its CSV. The 09-04 entry already named this exact
+failure and the alerter that was built in response posts to a board row, which is
+a surface nobody opens under load. **An alert that lands somewhere with no reader
+is the same as no alert**, and this is now three instances of that pattern on this
+machine (health checker, socket-watch 09-04, socket-watch 09-09).
+
+- **The delivery path must reach a human or a session that is awake**, not a row.
+- **Do not route the alert through the network it is warning about.** By CRITICAL
+  the machine cannot open a socket, so a board post is guaranteed to fail exactly
+  when it matters. WARN is the only window where remote delivery still works.
+
+**Reading the aftermath correctly:** as ENOBUFS sets in, enumerable sockets *fall*
+(391 → 75) while pcbcount stays pinned. That collapse is processes failing to open
+sockets — a symptom. Do not read the shrinking holder list as the leak draining.
+
+## Squash-Merge Makes Git Ancestry Lie To A Branch-Cleanup Pass (2026-09-09)
+
+`git branch --merged` and three-dot diffs are the obvious way to find branches
+safe to delete, and **in a squash-merging repo they cannot tell a merged branch
+from an abandoned one.** A squash lands as one new commit with no ancestry link
+to the branch, so the branch reads as unmerged forever. Both surfaces answer
+confidently, which is what makes this dangerous rather than merely wrong —
+there is no error and no empty result to prompt a second look.
+
+**Ask the forge, not the graph:** `gh pr list --state all --head <branch>`, and
+delete only on `MERGED`. A branch with no PR, or a closed-unmerged one, goes on
+a list for a human — deletion is the one irreversible move in a cleanup pass.
+
+**Measure the hazard before deciding anything — one command.** Compare
+`git branch --merged origin/main | wc -l` against the total branch count. Measured
+across four repos on one evening: **5 of 158**, **13 of 64**, **18 of 63**, and in
+the fourth, **0 of the 10 forge-MERGED branches were ancestors of the base at all**
+(`git merge-base --is-ancestor`). That turns "does ancestry work here" from a claim
+into a number, and it costs nothing.
+
+**`git branch -d` is NOT a safety net in a squash-merging repo — it is noise at a
+100% false-positive rate on exactly the branches that matter.** `-d` refuses a
+squash-merged branch for the same missing-ancestry reason, with the identical
+message it gives genuinely unmerged work. So the refusal carries no information
+where you need it most, and it fails in the *unsafe* direction: not by deleting
+too much, but by making you believe you verified something you did not. A brief
+that says "treat every `-d` refusal as leave-for-a-human" would have left 153 of
+158 branches undone while reading as caution.
+
+A flat "never `-D`" was filed here earlier the same day, relayed to three repos,
+and stalled the pass in two of them before an owning agent measured it and pushed
+back. **The rule that holds: `-D` only on a branch the forge returned MERGED,
+`-d` for anything else, and a `-d` refusal on a non-MERGED branch still means
+hands off.**
+
+**The real second net is a manifest, and it works regardless of merge strategy.**
+Dump every branch name and tip SHA before touching anything; any deletion then
+restores with `git branch <name> <sha>`. Independently, GitHub keeps the tip of a
+MERGED PR's branch and offers *Restore branch* on the PR page — so a forge-verified
+deletion already has two recovery paths that do not depend on ancestry being
+honest.
+
+**The general form, and the part worth carrying out of git entirely: "prefer the
+safe flag" and "prefer the safe check" can come apart.** `-d` is the safe-LOOKING
+flag, but it is keyed on the same ancestry the forge lookup exists to replace — so
+under squash-merge the two safeguards are one safeguard wearing two hats, and
+stacking them buys nothing while reading as defence in depth. Before calling two
+checks redundant protection, ask what each one reads. If it is the same source,
+you have one check and a false sense of two.
+
+**Check before assuming it does not apply.** `gh repo view <repo> --json
+squashMergeAllowed` settles it in one call. Squash was enabled on every personal
+repo checked here, so the safe default is to assume ancestry is unreliable.
+
+**The stash is shared across worktrees.** Tidying a dirty worktree by stashing it
+pushes onto a stack other sessions are using — a helpful-direction mistake that a
+subagent sweeping many worktrees will reach for. List dirty worktrees for a human
+instead; do not commit and do not stash.
+
+Found by the owning agent during a fleet-wide cleanup of every repo over 25
+branches or worktrees, and relayed to the other passes before they hit it.
+
+## A Clean-Worktree Check Must Be Self-Tested Before Its Clean Result Is Trusted (2026-09-09)
+
+During a fleet-wide worktree cleanup, an agent's first survey loop reported
+**0 dirty across all 37 worktrees.** It was false. The agent caught it only by
+running the check against a worktree it already knew was dirty; the corrected
+run found 8, two of them carrying 9 modified files.
+
+**Clean is the failure mode's disguise.** A broken check and a genuinely tidy
+repo produce byte-identical output, so nothing about the result invites a second
+look — and the consequence of believing it is deleting the one copy of somebody's
+work. Compare an error, which announces itself.
+
+- **Dirty a scratch file in one worktree and confirm the check sees it**, before
+  any clean reading is allowed to authorize a deletion. If the check cannot
+  detect a known-dirty worktree, none of its clean readings mean anything.
+- **The rule generalizes to any check whose safe answer is silence** — a leak
+  gate that finds nothing, a health probe that reports green, a lint pass with no
+  findings. A zero result is a claim about the checker as much as the subject.
+- This is the same family as the killer item on panes and process tables: an
+  external surface reporting healthy is not evidence of health.
+
+Worth pairing with [squash-merge makes ancestry lie]: that one gets the *branch*
+classification wrong, this one gets the *worktree* exclusion wrong, and a sweep
+needs both nets because they fail independently.
+
+## The Second Outage That Night Was Swap, Not Sockets — And RSS Fell While It Happened (2026-09-09)
+
+Two hard outages, ninety minutes apart, with **different causes**. Diagnosing the
+second as a recurrence of the first would have been wrong, and the metric that
+looked most like an answer was pointing the wrong way.
+
+**The 20:09 outage was the socket-PCB leak** (`pcbcount` 162,199 against 75
+enumerable sockets). **The 22:24 outage was not:** `pcbcount` was 5,260 at the
+last pre-reboot sample, nowhere near the ~162,200 wall. It was memory.
+
+`~/Library/Logs/fleet-guard.log`, two-minute cadence:
+
+```
+21:46 OK       swap  0.0GB · free 50% · load 0.23/core · 14 sessions (2.82GB)
+21:48 CRITICAL swap 13.05GB · free 33% · load 1.30/core · 14 sessions (1.55GB)
+22:00 CRITICAL swap 40.92GB · free 33% · load 30.95/core · 15 sessions (2.13GB)
+22:05 CRITICAL swap 40.98GB · free 34% · load 26.49/core ·  0 sessions (0.0GB)
+```
+
+Zero to 41GB of swap on a 16GB machine in **fourteen minutes**. The fleet's last
+successful command ran at 22:02:07 and `socket-watch` — a 15-second cadence — went
+silent at 22:02:31 and stayed silent for 22 minutes. `last` marks the session
+`crash`, there is no `shutdown time` for 22:24, and `log show` returns **zero**
+entries for the window because logd's in-memory buffer died with the machine.
+
+**The trap: `claude_gb` FELL as the crisis deepened — 3.6 → 2.82 → 1.55GB.** It is
+a sum of RSS, and RSS counts *resident* pages, so it drops as a process is paged
+out. The number that looks like "how much memory are the sessions using" is
+**anti-correlated with the failure it is supposed to detect**. Read literally it
+says the sessions got smaller while the machine died of their memory.
+
+- **The metric that keeps rising is `Anonymous pages` + the compressor**
+  (`vm_stat`). That is the population that *can* be swapped, and it does not fall
+  when pages move to swap — which is the whole point.
+- **Watch free space on the BOOT disk too.** Swapfiles are written there. The
+  daily IO report had the volume at **14.95GB free** hours before a 41GB swap
+  demand; that is a second wall standing right behind the first, and nothing was
+  watching it.
+
+**Nothing on the machine recorded a single per-process memory number in that
+window, so the culprit cannot be named from any log.** Not `fleet-guard` (five
+aggregate numbers, no breakdown), not `socket-watch` (sockets only), not the
+healthcheck (hourly, and it never ran again). The best per-process evidence that
+exists is a spindump from the *earlier* reboot — `spindump -i` on the
+`.shutdownStall` in `/Library/Logs/DiagnosticReports/` decodes it, and it showed
+168 processes totalling **10.9GB of footprint**: 6.2GB of claude sessions, 2.9GB
+spread across ~40 `bun` MCP children, and a second user account's fleet holding
+2.6GB of it. That is the shape of a machine already at its ceiling before
+anything went wrong.
+
+**The fix is an attribution line, and it has to be written before the notify.**
+`fleet_guard.py` now logs `HOLDERS <name> <GB> x<count>` ranked by RSS on any
+non-ok band. RSS understates a swapped process, so it is a ranking and not an
+accounting — but a ranking is exactly what was missing, and it is worth
+remembering that the first measurement after adding it showed **38 `bun`
+processes against 8 claude sessions**.
+
+**The general form: before trusting a resource metric in a crisis, ask which
+direction it moves as the crisis deepens.** A gauge that falls under load reads
+as reassurance at precisely the moment it should be alarming, and it will be the
+last thing anyone suspects.
+
+## Copying a SQLite `.db` Is Not a Backup, and a Liveness-Keyed Migration Eats Idle Peers (2026-09-10)
+
+Two traps, both hit in the same ten minutes while redeploying a channel daemon, and both of the
+same shape: a step that reports success while doing nothing, or doing harm.
+
+**The backup captured nothing.** Standard practice before a schema migration is to copy the
+database first, so the `cp <db> <db>.bak` looked like diligence. The file it copied was **4KB and
+five months old**; a 251KB `-wal` sidecar held every row written since. SQLite in WAL mode leaves
+the main file frozen at the last checkpoint, so a copy of it is a copy of the database as it was,
+not as it is — and the copy is a perfectly valid database, so nothing complains. Reading it back
+returned `no such table`, which was the only reason this surfaced at all.
+
+- **Back up the `-wal` and `-shm` alongside the `.db`, or use `sqlite3 <db> ".backup"`**, which
+  checkpoints first. A bare `cp` of the `.db` is the failure, not the fallback.
+- **Verify a backup by reading from it**, before you rely on it. A file of plausible size proves
+  nothing; this one was implausible and still went unexamined until afterwards.
+
+**The migration would have deleted live state, and its dry run is the only reason it did not.**
+A one-off repair script existed to re-address rows whose ids were derived from the wrong path. Its
+dry run reported `keep: 4  remap: 0  drop: 4` — **nothing to repair, and half the table marked for
+deletion.** Every drop was classified `drop-no-session`: the id resolved to no *currently running*
+session.
+
+- **"No live session right now" is not "addressed to a directory no session can live in."** The
+  script's own docstring draws that distinction and its code does not; it asks the peer registry
+  who is up *at this instant* and treats absence as corruption.
+- **Under a lean-fleet policy this is maximally wrong.** Peers are deliberately spun down when
+  they have no live work, so the majority are offline at any moment, and the rows most likely to
+  be destroyed belong to the projects that are quietest — exactly the ones whose subscription is
+  the only thing that would ever wake them.
+- **A migration that decides from live process state is not a migration.** Its verdict changes
+  between two runs an hour apart with no change to the data. Key it on something durable — the
+  path resolving to a real directory, an id that is well-formed — and let a row for an idle peer
+  survive.
+- **Run the dry run and read it, even when the script is "a one-off nobody has to think about".**
+  Here it turned a routine step into a caught defect; run blind, it would have silently destroyed
+  four subscriptions including an experiment that had been deliberately armed.
+
+## `vm_stat` Reports Pages, Not Bytes, and the Page Size Is Not 4 KB (2026-09-10)
+
+Two agents independently sized the machine's memory pressure during an account
+rotation, and one of them multiplied `vm_stat`'s page counts by 4096. Every
+figure in its report came out **4x too large** — inactive memory read as 8.9 GB
+against a real 3.3 GB, and a free-page count read as ~15 MB against a real
+56 MB.
+
+- **`vm_stat` prints the page size in its own first line** — `(page size of
+  16384 bytes)` on Apple Silicon. It is not a lookup; it is at the top of the
+  output being parsed. Both wrong numbers came from not reading a header that
+  was already on screen.
+- **The direction of the error is what makes it dangerous.** A 4x overstatement
+  of reclaimable memory reads as comfortable headroom, so the conclusion it
+  supports is "we can spend" — and the correction arrives only after something
+  has already been spent against it.
+- **Free-page count is the wrong instrument regardless.** It oscillates by tens
+  of megabytes minute to minute, so two readings taken at different moments say
+  nothing about a trend, and a claim of the form "memory went the wrong way
+  across the restart" cannot be supported by it. **Swap used against swap total
+  is the binding figure** — that is what a wedge comes out of.
+- **A conclusion built on arithmetic is not a measurement.** The headline here
+  ("the cycle gave back load, not memory") survived one round of peer review and
+  reached a fleet-facing summary before the underlying number was checked. When
+  a peer reports a derived figure, ask what it was derived from before carrying
+  it anywhere durable.
+
+## "Matched" Is Not "Delivered" — Two Silent ID Mismatches in the Sentry Channel (2026-09-08)
+
+Asked whether Sentry events worked, every surface said yes: the launchd job was loaded with `LastExitStatus 0`, the daemon was listening, its log carried a fresh `webhook matched` line naming the project and `matched_peers: 1`, and `sentry_list_my_watches` returned an active subscription. Nothing had ever arrived. The event sat in the broker's queue with `delivered=0`, addressed to a `stable_id` **no running session holds**.
+
+**The receiver logs matching and stops there.** Match and delivery are separate legs, and only the first is instrumented — a `send_message failed` line exists but never fires, because the broker accepts the message and drops it silently when the address resolves to nobody. A log that records intent and not outcome reads identically in both cases.
+
+**A plugin MCP server's `process.cwd()` is the plugin's directory, not the session's.** The subscription store keys on `sha256(git_root || cwd)[:12]` to mirror the broker's peer id, and the derivation is correct — but it was called with the server's own cwd, so every watch from every peer files under the *channel repo's* hash instead of the caller's. The sibling MCP using the identical line works only because it is launched as a project-scoped server with the session's cwd. **Same code, different launch context, opposite result.**
+
+**A second mismatch predated it: two spellings of the same directory.** Older subscriptions hashed `/Users/<user>/dev/<x>` while the broker registers peers under `/Volumes/Data/Users/<user>/dev/<x>`. Both paths resolve to the same directory and neither is a symlink, so nothing anywhere looks wrong — but they are different strings, so they are different hashes, so they are different peers.
+
+- **Instrument the last leg, not the first.** "Matched", "queued", "sent", "accepted" are all upstream of the only fact worth logging: the recipient got it. Where the last leg cannot report back, the check belongs on the receiving side.
+- **A hash used as an address needs its inputs pinned, not just its algorithm.** Two implementations agreeing on the formula and disagreeing on what they feed it produce ids that are individually valid and mutually unroutable — and there is no error, because a well-formed address for nobody looks exactly like a well-formed address.
+- **Before trusting a subscription list, join it against the live registry.** `list_my_watches` answers "is there a row", never "can that row be reached". The check that finds this is one join and it exists nowhere.
+- **The daemon had also been crash-looping for a month behind the same green surface** — a launchd sandbox denial on the volume path, ~482k identical lines, `LastExitStatus 0` throughout because the wrapper exited cleanly each time. Same family as the frozen weekly refresh: `launchctl list` reports the last exit, and a job that respawns fast enough is always between failures when you look.
+
+
 ## A Self-Consistent Derivation Is Not a Correct One — the 5h Window's Phase (2026-09-08)
 
 The fleet burn watcher measured a window trailing from **run time**. The account's 5h window has a fixed phase, so that window covers strictly more past time than the real one: everything between `now - 5h` and the true start is burn the last reset already forgave. It computed a BREACH and a fleet-wide hold on that basis while the account's own session meter, covering the real window, sat around half used at roughly two thirds elapsed. Nothing was actually throttled — that loop runs without `--enforce` — so the cost was a false alarm and the attention it takes.
@@ -2539,369 +2987,51 @@ them was about to stop existing.
 Same family as trusting a health surface: the peer's self-report was accurate about the thing it
 measured and silent about the thing that mattered.
 
-## The Pre-Push Leak Gate Fails OPEN When Its Model Is Unavailable (2026-09-09)
-
-The shared Anthropic key behind `scripts/scrub-haiku.py` hit its monthly usage limit. The scanner now prints
-
-```
-[scrub-haiku] HTTP 400 from Anthropic API: ... You will regain access on 2026-10-01
-[scrub-haiku] Haiku check unavailable; relying on regex check only.
-```
-
-**and exits 0.** The push proceeds. `.githooks/pre-push` treats a non-zero exit as a block, so an unreachable
-model is indistinguishable from a clean diff at the only place that decides.
-
-This is not hypothetical and it caught me the same day. The regex gate keys on project names from
-`registry.yaml` plus a denylist; **it does not catch the user's own name.** The semantic scanner does — that
-morning it rejected a commit of mine flagging exactly that. With it dark, a branch of mine carrying the name
-four times in a skill and once in a script comment passed the gate with `REGEX_EXIT=0`, on a PUBLIC repo. Found
-by hand-grepping the diff, not by any check.
-
-**A degraded gate that reports success is worse than no gate**, because the first one is trusted. Same family as
-the process table looking healthy for a dead MCP server, and as a tmux pane rendering a state it cannot know.
-
-Until the key is restored: **hand-grep every diff to a public repo for names and ids before pushing** —
-`git diff origin/main..HEAD -U0 | grep '^+' | grep -E '<name>|<handle>'`. Do not read `REGEX_EXIT=0` as clean.
-The fix in the hook is to fail CLOSED on an API error and require an explicit `SCRUB_SKIP_HAIKU=1` to proceed,
-so that bypassing a broken scanner is a decision someone makes rather than a default nobody sees.
-
-## A Status-Filtered Sweep Only Covers The Lanes You Guessed (2026-09-09)
-
-Verifying a relayed instruction, I swept `list_tasks` on a board across
-`triage`, `todo`, `building`, `blocked` and `done`, found the cited task in
-none of them, and told the peer its citation did not resolve. The task existed
-the whole time in **`in-progress`** — a lane I did not know was in the set and
-therefore never queried. The peer re-sent the citation and it verified on the
-first try.
-
-**A status filter turns "I did not look there" into a result that reads exactly
-like "it is not there."** Five empty-or-absent responses felt like thorough
-coverage; they were five lanes out of six.
-
-- **Enumerate the lanes from the tool, not from memory.** If the API will not
-  list its own status values, one unfiltered call — even a costly one — beats
-  five filtered calls that leave an unknown gap.
-- **A filtered miss is evidence about the filter, not about the record.** Say
-  "not in the lanes I checked", and name them, so the reader can spot the one
-  you left out. I said "does not exist in any lane", which was a claim I had
-  not earned.
-- **Same family as the review-item miss earlier the same day** — `list_threads`
-  returned empty because the answer lived on the task's `reviews` field. Both
-  times the surface answered honestly about its own scope and I read it as an
-  answer about the world.
-
-## An Account Rotation Reaches RUNNING Sessions — No Respawn Needed (2026-09-09)
-
-Bryan rotated the fleet from one pool account to another with
-`/login` in the team-lead session, then asked me to "move all other agents over."
-I was about to run a full `respawn.py --mode all`, which would have killed a
-hardening subagent holding a build lock and two in-flight builders mid-merge.
-
-**Measured instead, on a peer I never touched.** Same pane, same process, no
-restart:
-
-- 18:37 — `/usage` read 74% blended / 96% Fable, resets **Fri 09-11 03:59** (that
-  is `claude@`)
-- 19:43 — `/usage` read 59% blended / 99% Fable, resets **Mon 09-14 07:00** (that
-  is the second account)
-
-A running session picks up the new credential live. The respawn would have cost
-real work and bought nothing.
-
-- **Rotation and plugin delivery are NOT the same problem.** Plugin rules arrive
-  only through a SessionStart hook, so a peer genuinely must restart to get them
-  (`ship-fleet`). Credentials are read per request. Do not generalize the plugin
-  rule to the token.
-- **Verify with a before/after on ONE untouched pane.** Two readings of the same
-  peer, minutes apart, with the reset timestamp as the discriminator — the
-  percentage alone would not have told them apart.
-- **The reset time is the pool's identity**, not the percentage. Same reset =
-  same pool, which is what makes this test work at all.
-
-## The Estate Panel Died On The Rotation It Exists To Cover (2026-09-09)
-
-`fleet_budget_watch.py` printed runways of **5.3 billion hours** and then crashed
-with `OverflowError: date value out of range` formatting the exhaustion date —
-the first time it was run after an account switch.
-
-**Cause:** `_runway_hours` fell back to `(points_left * TOKENS_PER_POINT) /
-tokens_per_hour` when no measured rate existed. After a rotation the new pool has
-no 2h base AND the 5h window is freshly clamped to near-zero tokens, so it
-divided by ~0.
-
-- **The fallback contradicted the skill that owns the tool.** `token-watch` says
-  plainly: never project runway off the current 5h window. The code did exactly
-  that as its silent fallback. **A doctrine written in the skill and violated in
-  the code is not a doctrine.**
-- **Fixed by deleting the fallback, not repairing it.** No measured rate now
-  prints a blank runway and says why. A fabricated number that survives to the
-  report is worse than a gap that does not.
-- **Added `carried_rate()`**: burn rate is a property of the fleet, not of the
-  pool it bills, so the previous pool's measured rate carries forward for the
-  first ~2h — labelled `CARRIED OVER from <pool>`, never presented as measured.
-- **A tool's worst moment to fail is the event it was built for.** It had run
-  clean for days because no rotation had happened.
-
-## `ps` RSS Cannot See A Memory Hog That Has Been Compressed Out (2026-09-09)
-
-Asked why the Mac was slow, I measured with `ps -axo rss=` and reported **"java
-is only 0.09 GB across 4 procs"** — then said so to the user and to a peer, which
-repeated my method and independently "confirmed" it. Both of us were wrong. The
-user pasted `top`:
-
-```
-77523  java   MEM 4127M  CMPRS 4097M   -Xmx3g  0.0% CPU  ppid 1
-78956  java   MEM 1915M  CMPRS 1907M   -Xmx3g  0.0% CPU
-```
-
-**~6 GB in two JVMs, ~98% of it compressed.** RSS counts only pages resident in
-physical memory; macOS had compressed nearly all of theirs because both daemons
-were idle. So the processes doing the most damage to a thrashing machine are
-exactly the ones RSS renders invisible — an idle hog reads as ~50 MB.
-
-- **For "why is this machine slow", use `top -l 1 -stats pid,ppid,mem,cmprs`**,
-  not `ps rss`. `ps` has no column for compressed footprint at all.
-- **The symptom is systematic, not random.** RSS undercounts idle processes
-  specifically, and idle-but-huge is the whole profile of a stale daemon.
-- **Check `PhysMem`/compressor and swap first**: 15G used / 452M unused with
-  5123M in the compressor said the answer was "something big is compressed" a
-  full round before I found which process.
-- **A peer confirming your finding with your method is not corroboration.** It
-  reproduced my error and made me more confident. Ask what they measured with.
-
-**The second finding — and my first explanation of it was wrong.** I said Gradle
-had reused the running 3g daemon, making the peer's new 2g cap inert. The peer
-corrected me: *a 2g request does not reuse a 3g daemon, it starts a second one.*
-The caps would have ADDED a daemon, not replaced one. What these two actually
-were is leftovers from a finished build, orphaned to ppid 1.
-
-**And that is the part worth keeping: `./gradlew --stop` could not touch them.**
-It stopped one unrelated daemon, then reported **"No Gradle daemons are
-running"** while 77523 and 78956 were alive at 4073M and 1915M. An orphaned
-daemon is deregistered, so no Gradle client can reach it — the supported tool
-reports a clean state it has no visibility into. Same family as the killer item:
-**an external surface is not state.** `gradlew --stop` saying "none running" is a
-render of the daemon registry, not of the process table.
-
-- **Confirm a daemon is gone from `ps`/`top`, never from `--stop`'s output.**
-- **Before killing, read the daemon's own log rather than trusting 0% CPU** —
-  the peer checked for `Finishing executing command: Build{...}` and confirmed
-  no build was in flight, then used TERM rather than KILL. 0% CPU alone cannot
-  tell an idle daemon from one between phases.
-- **Result: compressor 7.0 GB → 2.9 GB, swap used 13.2 GB → 4.1 GB**, zero java
-  processes left.
-
-## A Single `top` Sample Says How Big, Never Whether It Is Idle (2026-09-09)
-
-Chasing the memory problem I read `top -l 1` and reported a Gradle daemon as
-**"0.0% CPU, idle"** — twice, on the same daemon, an hour apart. The owning
-agent checked its log both times and it was mid-build at ~46% CPU. My reading
-would have licensed killing a live build.
-
-- **`top -l 1` reports CPU since boot, not now.** Use `top -l 2` and read the
-  SECOND sample. The first is an average over the machine's uptime and is
-  nearly meaningless for "what is running right now".
-- **Even a correct instantaneous sample cannot see idleness.** A multi-module
-  assemble sits at 0% between tasks routinely, so one sample of a busy build is
-  indistinguishable from an idle daemon.
-- **The process's own log is the state**; the CPU column is a render of one
-  instant. Read for a `Finishing executing command` line, or ask the owning
-  agent — it holds the build lock and knows.
-- **This is the killer item in another costume.** "A tmux pane is a render, not
-  state" and "a `%CPU` sample is a render, not state" are the same error, and I
-  made the second one while the first is written at the top of `CLAUDE.md`.
-- **Kept it out of the tool.** `print_memory()` now says in its own output that
-  it is a one-sample reading that cannot judge idleness — a wrong inference in
-  conversation costs one turn; compiled into a script it repeats forever.
-
-## The Socket-PCB Leak Recurred, And The Watcher Warned For 8h Again (2026-09-09)
-
-A third machine-wide `ENOBUFS` outage, and the same one as 2026-09-04 in every
-measurable respect: `net.inet.tcp.pcbcount` reached **162,199 against 75
-enumerable sockets** and the machine became unusable until a reboot at 20:09 PT.
-The wall is empirically **~162,200 PCBs** — 09-04 died at 162,169, 09-09 at
-162,199. Treat that as a hard ceiling, not a coincidence.
-
-**Every other reading said the machine was healthy.** mbuf pool 1.4–4.1% in use,
-`kern.num_files` a twelfth of its limit, socket count a normal 300–450. Only the
-**gap** — `pcbcount` minus enumerable sockets — moved. That is the metric.
-
-**The leak is NOT a constant background rate, which is what 09-04 concluded.**
-The hourly series refutes the 2,027/hour model outright:
-
-- Sep 7 20:00 → Sep 8 12:00, fleet idle overnight: **flat at ~29,400, +16/hour.**
-- Sep 8 18:00 → 19:00: **+6,848 in one hour**, a step change.
-- Sep 9 13:00 → 16:00, a lull: back down to **+190/hour**.
-- Sep 9 16:00 → 20:00, heavy subagent fan-out: **+4,858/hour**, final hour +8,065.
-
-A leak with a flat overnight and a 400x swing between busy and idle is **per
-operation, not per unit time**. It tracks agent and subagent teardown — the same
-family as the bun `server.stop()` without `true` finding of 2026-08-30. The
-steepest run coincides exactly with the 33-idle-builders window. **Capping
-fan-out is therefore a real mitigation here, not just a token-budget measure.**
-
-**The watcher fired at 11:43 PT and told nobody — for the second outage running.**
-`socket-watch.sh` crossed WARN at pcbcount 120,318, **8h26m before the wall**, and
-wrote **1,901 non-OK rows** to its CSV. The 09-04 entry already named this exact
-failure and the alerter that was built in response posts to a board row, which is
-a surface nobody opens under load. **An alert that lands somewhere with no reader
-is the same as no alert**, and this is now three instances of that pattern on this
-machine (health checker, socket-watch 09-04, socket-watch 09-09).
-
-- **The delivery path must reach a human or a session that is awake**, not a row.
-- **Do not route the alert through the network it is warning about.** By CRITICAL
-  the machine cannot open a socket, so a board post is guaranteed to fail exactly
-  when it matters. WARN is the only window where remote delivery still works.
-
-**Reading the aftermath correctly:** as ENOBUFS sets in, enumerable sockets *fall*
-(391 → 75) while pcbcount stays pinned. That collapse is processes failing to open
-sockets — a symptom. Do not read the shrinking holder list as the leak draining.
-
-## Squash-Merge Makes Git Ancestry Lie To A Branch-Cleanup Pass (2026-09-09)
-
-`git branch --merged` and three-dot diffs are the obvious way to find branches
-safe to delete, and **in a squash-merging repo they cannot tell a merged branch
-from an abandoned one.** A squash lands as one new commit with no ancestry link
-to the branch, so the branch reads as unmerged forever. Both surfaces answer
-confidently, which is what makes this dangerous rather than merely wrong —
-there is no error and no empty result to prompt a second look.
-
-**Ask the forge, not the graph:** `gh pr list --state all --head <branch>`, and
-delete only on `MERGED`. A branch with no PR, or a closed-unmerged one, goes on
-a list for a human — deletion is the one irreversible move in a cleanup pass.
-
-**Measure the hazard before deciding anything — one command.** Compare
-`git branch --merged origin/main | wc -l` against the total branch count. Measured
-across four repos on one evening: **5 of 158**, **13 of 64**, **18 of 63**, and in
-the fourth, **0 of the 10 forge-MERGED branches were ancestors of the base at all**
-(`git merge-base --is-ancestor`). That turns "does ancestry work here" from a claim
-into a number, and it costs nothing.
-
-**`git branch -d` is NOT a safety net in a squash-merging repo — it is noise at a
-100% false-positive rate on exactly the branches that matter.** `-d` refuses a
-squash-merged branch for the same missing-ancestry reason, with the identical
-message it gives genuinely unmerged work. So the refusal carries no information
-where you need it most, and it fails in the *unsafe* direction: not by deleting
-too much, but by making you believe you verified something you did not. A brief
-that says "treat every `-d` refusal as leave-for-a-human" would have left 153 of
-158 branches undone while reading as caution.
-
-A flat "never `-D`" was filed here earlier the same day, relayed to three repos,
-and stalled the pass in two of them before an owning agent measured it and pushed
-back. **The rule that holds: `-D` only on a branch the forge returned MERGED,
-`-d` for anything else, and a `-d` refusal on a non-MERGED branch still means
-hands off.**
-
-**The real second net is a manifest, and it works regardless of merge strategy.**
-Dump every branch name and tip SHA before touching anything; any deletion then
-restores with `git branch <name> <sha>`. Independently, GitHub keeps the tip of a
-MERGED PR's branch and offers *Restore branch* on the PR page — so a forge-verified
-deletion already has two recovery paths that do not depend on ancestry being
-honest.
-
-**The general form, and the part worth carrying out of git entirely: "prefer the
-safe flag" and "prefer the safe check" can come apart.** `-d` is the safe-LOOKING
-flag, but it is keyed on the same ancestry the forge lookup exists to replace — so
-under squash-merge the two safeguards are one safeguard wearing two hats, and
-stacking them buys nothing while reading as defence in depth. Before calling two
-checks redundant protection, ask what each one reads. If it is the same source,
-you have one check and a false sense of two.
-
-**Check before assuming it does not apply.** `gh repo view <repo> --json
-squashMergeAllowed` settles it in one call. Squash was enabled on every personal
-repo checked here, so the safe default is to assume ancestry is unreliable.
-
-**The stash is shared across worktrees.** Tidying a dirty worktree by stashing it
-pushes onto a stack other sessions are using — a helpful-direction mistake that a
-subagent sweeping many worktrees will reach for. List dirty worktrees for a human
-instead; do not commit and do not stash.
-
-Found by the owning agent during a fleet-wide cleanup of every repo over 25
-branches or worktrees, and relayed to the other passes before they hit it.
-
-## A Clean-Worktree Check Must Be Self-Tested Before Its Clean Result Is Trusted (2026-09-09)
-
-During a fleet-wide worktree cleanup, an agent's first survey loop reported
-**0 dirty across all 37 worktrees.** It was false. The agent caught it only by
-running the check against a worktree it already knew was dirty; the corrected
-run found 8, two of them carrying 9 modified files.
-
-**Clean is the failure mode's disguise.** A broken check and a genuinely tidy
-repo produce byte-identical output, so nothing about the result invites a second
-look — and the consequence of believing it is deleting the one copy of somebody's
-work. Compare an error, which announces itself.
-
-- **Dirty a scratch file in one worktree and confirm the check sees it**, before
-  any clean reading is allowed to authorize a deletion. If the check cannot
-  detect a known-dirty worktree, none of its clean readings mean anything.
-- **The rule generalizes to any check whose safe answer is silence** — a leak
-  gate that finds nothing, a health probe that reports green, a lint pass with no
-  findings. A zero result is a claim about the checker as much as the subject.
-- This is the same family as the killer item on panes and process tables: an
-  external surface reporting healthy is not evidence of health.
-
-Worth pairing with [squash-merge makes ancestry lie]: that one gets the *branch*
-classification wrong, this one gets the *worktree* exclusion wrong, and a sweep
-needs both nets because they fail independently.
-
-## The Second Outage That Night Was Swap, Not Sockets — And RSS Fell While It Happened (2026-09-09)
-
-Two hard outages, ninety minutes apart, with **different causes**. Diagnosing the
-second as a recurrence of the first would have been wrong, and the metric that
-looked most like an answer was pointing the wrong way.
-
-**The 20:09 outage was the socket-PCB leak** (`pcbcount` 162,199 against 75
-enumerable sockets). **The 22:24 outage was not:** `pcbcount` was 5,260 at the
-last pre-reboot sample, nowhere near the ~162,200 wall. It was memory.
-
-`~/Library/Logs/fleet-guard.log`, two-minute cadence:
-
-```
-21:46 OK       swap  0.0GB · free 50% · load 0.23/core · 14 sessions (2.82GB)
-21:48 CRITICAL swap 13.05GB · free 33% · load 1.30/core · 14 sessions (1.55GB)
-22:00 CRITICAL swap 40.92GB · free 33% · load 30.95/core · 15 sessions (2.13GB)
-22:05 CRITICAL swap 40.98GB · free 34% · load 26.49/core ·  0 sessions (0.0GB)
-```
-
-Zero to 41GB of swap on a 16GB machine in **fourteen minutes**. The fleet's last
-successful command ran at 22:02:07 and `socket-watch` — a 15-second cadence — went
-silent at 22:02:31 and stayed silent for 22 minutes. `last` marks the session
-`crash`, there is no `shutdown time` for 22:24, and `log show` returns **zero**
-entries for the window because logd's in-memory buffer died with the machine.
-
-**The trap: `claude_gb` FELL as the crisis deepened — 3.6 → 2.82 → 1.55GB.** It is
-a sum of RSS, and RSS counts *resident* pages, so it drops as a process is paged
-out. The number that looks like "how much memory are the sessions using" is
-**anti-correlated with the failure it is supposed to detect**. Read literally it
-says the sessions got smaller while the machine died of their memory.
-
-- **The metric that keeps rising is `Anonymous pages` + the compressor**
-  (`vm_stat`). That is the population that *can* be swapped, and it does not fall
-  when pages move to swap — which is the whole point.
-- **Watch free space on the BOOT disk too.** Swapfiles are written there. The
-  daily IO report had the volume at **14.95GB free** hours before a 41GB swap
-  demand; that is a second wall standing right behind the first, and nothing was
-  watching it.
-
-**Nothing on the machine recorded a single per-process memory number in that
-window, so the culprit cannot be named from any log.** Not `fleet-guard` (five
-aggregate numbers, no breakdown), not `socket-watch` (sockets only), not the
-healthcheck (hourly, and it never ran again). The best per-process evidence that
-exists is a spindump from the *earlier* reboot — `spindump -i` on the
-`.shutdownStall` in `/Library/Logs/DiagnosticReports/` decodes it, and it showed
-168 processes totalling **10.9GB of footprint**: 6.2GB of claude sessions, 2.9GB
-spread across ~40 `bun` MCP children, and a second user account's fleet holding
-2.6GB of it. That is the shape of a machine already at its ceiling before
-anything went wrong.
-
-**The fix is an attribution line, and it has to be written before the notify.**
-`fleet_guard.py` now logs `HOLDERS <name> <GB> x<count>` ranked by RSS on any
-non-ok band. RSS understates a swapped process, so it is a ranking and not an
-accounting — but a ranking is exactly what was missing, and it is worth
-remembering that the first measurement after adding it showed **38 `bun`
-processes against 8 claude sessions**.
-
-**The general form: before trusting a resource metric in a crisis, ask which
-direction it moves as the crisis deepens.** A gauge that falls under load reads
-as reassurance at precisely the moment it should be alarming, and it will be the
-last thing anyone suspects.
+## A Plugin MCP Server's `process.cwd()` Is The Plugin's Directory — Two Plugins, One Root Cause (2026-09-08)
+
+Found twice in one day, in unrelated plugins, both times presenting as something else.
+
+- **The Sentry channel** computed each subscriber's address as `computeStableId(process.cwd())`, so every
+  subscription was filed under the plugin's own directory hash. Events "matched" and reached nobody.
+- **The GitHub channel** resolves `watch_repo("auto")` against `process.cwd()` (`server.ts:191`), and
+  auto-watches `detectRepo(process.cwd())` at startup (`server.ts:315`). So `auto` can only ever find the
+  channel's own repo — and every session's watch list arrives pre-populated with it, which is what made
+  "all nine sessions attached" look like coverage when nobody was subscribed to anything.
+
+**The launcher is usually the reason, and it is deliberate.** `bin/github-channel-mcp.sh:114` `cd`s to the
+plugin directory so bun's module resolution and `.env` loading "behave the same regardless of the session's
+cwd". That is a good reason to change the cwd and a fatal one to then read it as the caller's location.
+`claude-hive-mcp` uses the identical `process.cwd()` line and works only because it happens to be launched
+project-scoped — so the correct-looking code is not evidence the pattern is safe.
+
+**What to check when a per-session feature in a plugin MCP server misbehaves:**
+
+- Grep the server for `process.cwd()` before anything else. If the feature is per-session and the value is
+  per-plugin, that is the bug, whatever the symptom looks like.
+- Read the launcher script for a `cd`. The fix is usually to capture `$PWD` into an env var *before* it,
+  and have the server prefer that.
+- **The tell is a success-shaped reply.** `Already watching <the plugin's own repo>` and a subscription
+  logged as `matched` are both indistinguishable from working, which is why both defects survived weeks.
+  Confirm with the list-back call (`list_watched`), never the write's own return value.
+
+A tool argument that overrides the bad default — `watch_repo`'s `cwd` — makes the feature work today and
+does not fix it, because nothing makes a caller pass it.
+
+## A Row's Reviews List Is A Different Surface From Its Threads (2026-09-09)
+
+`list_threads` on `task:<id>` returns only comment threads. **A review item's answer — the actual decision, in
+the user's own words — lives on the task's `reviews` field, reachable through
+`list_tasks(fields:["id","title","status","reviews"])`.** The two surfaces do not cross-reference each other.
+
+The cost: a peer relayed a ruling from the user on a row. I ran `list_threads`, saw only my comment and the
+peer's, and publicly told the peer the ruling "is not on this row" and that I would not record it as the user's
+decision. It was on the row — a review item answered by the user, timestamped nineteen minutes earlier. The peer
+was accurate and I had to withdraw on the same thread.
+
+**Reading one surface and finding nothing is not evidence.** The relayed-approval rule says to verify rather than
+trust a peer's "the user approved this"; verifying means checking every surface an answer can land on, and
+concluding absence from one of them is a stronger claim than the evidence supports. Say "I did not find it in the
+threads" — never "it is not on this row".
+
+`list_tasks` trims rows hard by default, so pass `fields` explicitly and include `reviews`; without it the field
+is absent from the response and looks like an empty answer rather than an unrequested one.

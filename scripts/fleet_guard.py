@@ -55,6 +55,24 @@ SWAP_GB = (6.0, 12.0)          # healthcheck goes RED at 8.0
 FREE_PCT = (25, 12)            # healthcheck goes RED under 15
 LOAD_PER_CORE = (1.2, 3.0)     # healthcheck goes RED over 1.5
 ORPHAN_WORKERS = (4, 10)       # PPID-1 test workers: a leak, not a run
+BOOT_FREE_GB = (25.0, 10.0)    # swapfiles live on the boot disk; see below
+ANON_GB = (10.0, 13.0)         # anonymous+compressed demand on a 16GB machine
+
+# Why anonymous pages and free boot disk are here, and RSS is not enough
+# --------------------------------------------------------------------
+# On 2026-09-09 the machine went from swap 0GB to 41GB in fourteen minutes and
+# had to be power-cycled. Nothing in this file could say what took the memory,
+# and the one number that looked like it should have -- `claude_gb`, the summed
+# RSS of the claude sessions -- FELL from 3.6GB to 1.55GB while it happened.
+# That is not noise. RSS counts resident pages, so it drops as the crisis
+# deepens and the pages move to swap: the metric is anti-correlated with the
+# thing it appears to measure, and reading it as "the sessions were small"
+# is the trap.
+#
+# `Anonymous pages` + the compressor is the population that CAN go to swap, so
+# it keeps rising while RSS falls. Free boot-disk space matters because the
+# swapfiles are written there: 41GB of swap on a volume with tens of GB free is
+# a second wall behind the first one, and nothing was watching it either.
 
 RENOTIFY_CRITICAL_SEC = 30 * 60
 
@@ -171,6 +189,29 @@ def read_metrics():
     m["claude_sessions"] = sessions
     m["claude_gb"] = round(rss_total / 1024 / 1024, 2)
 
+    # Anonymous + compressed pages: the population that can be swapped, and the
+    # one number that keeps RISING through a swap event while every RSS falls.
+    raw = sysctl("vm.pagesize") or ""
+    hit = re.search(r"(\d+)", raw)
+    pagesize = int(hit.group(1)) if hit else 16384
+    out, _ = sh("/usr/bin/vm_stat")
+    pages = {}
+    for line in out.splitlines():
+        hit = re.match(r'"?([^":]+)"?:\s+(\d+)', line.strip())
+        if hit:
+            pages[hit.group(1).strip().lower()] = int(hit.group(2))
+    anon = pages.get("anonymous pages", 0)
+    comp = pages.get("pages occupied by compressor", 0)
+    m["anon_gb"] = round(anon * pagesize / 1024 ** 3, 2) if anon else None
+    m["compressed_gb"] = round(comp * pagesize / 1024 ** 3, 2) if comp else None
+
+    # Free space on the BOOT disk, which is where the swapfiles are written.
+    try:
+        st = os.statvfs(STATE_DIR)
+        m["boot_free_gb"] = round(st.f_bavail * st.f_frsize / 1024 ** 3, 2)
+    except OSError:
+        m["boot_free_gb"] = None
+
     # Age of the hourly healthcheck's last completed run.
     #
     # A job that does not run cannot report that it did not run. That is not a
@@ -188,12 +229,49 @@ def read_metrics():
     return m
 
 
+def top_holders(limit=8):
+    """Who is holding the memory, by process name, largest first.
+
+    Runs only when the band is not ok, because it is the postmortem that was
+    missing: on 2026-09-09 the swap went to 41GB and no instrument anywhere
+    recorded a single per-process number, so the culprit could not be named
+    afterwards from any log on the machine.
+
+    RSS understates a swapped process, so this is a ranking, not an accounting
+    -- the total will not reconcile with `anon_gb`. A ranking is still the
+    thing that was missing: it names the shape.
+    """
+    out, rc = sh("/bin/ps -axo rss=,comm=", timeout=15)
+    if rc != 0:
+        return "ps failed"
+    agg = {}
+    for line in out.splitlines():
+        parts = line.split(None, 1)
+        if len(parts) < 2:
+            continue
+        try:
+            rss = int(parts[0])
+        except ValueError:
+            continue
+        name = parts[1].strip().rsplit("/", 1)[-1]
+        cur = agg.get(name, [0, 0])
+        cur[0] += rss
+        cur[1] += 1
+        agg[name] = cur
+    ranked = sorted(agg.items(), key=lambda kv: -kv[1][0])[:limit]
+    return " · ".join(f"{n} {v[0] / 1024 / 1024:.1f}GB x{v[1]}"
+                      for n, v in ranked if v[0] > 100 * 1024)
+
+
 def grade(m):
     bands = {
         "swap": band(m["swap_gb"], *SWAP_GB),
         "memory": band(m["free_pct"], *FREE_PCT, higher_is_worse=False),
         "load": band(m["load_per_core"], *LOAD_PER_CORE),
         "orphan test workers": band(m["orphan_workers"], *ORPHAN_WORKERS),
+        "anon+compressed": band(m["anon_gb"], *ANON_GB),
+        "boot disk free": band(m["boot_free_gb"], *BOOT_FREE_GB,
+                               higher_is_worse=False),
         "healthcheck freshness": band(m["healthcheck_age_min"],
                                       *HEALTHCHECK_STALE_MIN),
     }
@@ -342,12 +420,22 @@ def main():
     down = [n for n, s in loops.items() if s not in ("up", "revived")]
 
     stamp = time.strftime("%Y-%m-%dT%H:%M:%S")
-    detail = (f"swap {m['swap_gb']}GB · free {m['free_pct']}% · "
+    detail = (f"swap {m['swap_gb']}GB · anon+comp {m['anon_gb']}/"
+              f"{m['compressed_gb']}GB · free {m['free_pct']}% · "
+              f"boot disk {m['boot_free_gb']}GB free · "
               f"load {m['load_per_core']}/core · orphan workers "
               f"{m['orphan_workers']} ({m['orphan_worker_gb']}GB) · "
-              f"{m['claude_sessions']} sessions ({m['claude_gb']}GB) · "
+              f"{m['claude_sessions']} sessions ({m['claude_gb']}GB rss) · "
               f"healthcheck {m['healthcheck_age_min']}m old")
     print(f"[{stamp}] {worst.upper()} {detail} · loops {loops}")
+
+    # The attribution line. Only on a bad band, and written BEFORE any notify
+    # so it survives a machine that wedges before the next run.
+    holders = ""
+    if worst in ("warn", "critical"):
+        holders = top_holders()
+        print(f"[{stamp}] HOLDERS {holders}")
+        sys.stdout.flush()
 
     state = load_state()
     prev = state.get("band", "ok")
@@ -385,6 +473,7 @@ def main():
         "band": worst,
         "bands": bands,
         "metrics": m,
+        "holders": holders,
         "loops": loops,
         "loops_down": down,
         "revived": revived,

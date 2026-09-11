@@ -53,6 +53,19 @@ When a launchd job genuinely must touch the secondary volume (e.g. the plugin ca
 - Periodic audit: `python3 scripts/scrub-check.py --scan-all-tracked` scans every tracked file (not just the diff).
 - Extending: edit `~/.config/team-lead/scrub-denylist.txt` (one pattern per line, plain string or `/regex/`).
 
+## Did a channel event reach the session?
+
+When someone says a session never saw a comment, a hive message or a Sentry event, trace it before you answer:
+
+```
+python3 scripts/channel_delivery_trace.py --cwd ~/dev/<project> --match <text from the event> [--since 2026-09-10T06:00]
+```
+
+It reads the four records a delivery leaves (the MCP server log, the session transcript, the broker table, a control message) and prints one of three verdicts: the event was taken into a turn, it reached the queue and was not taken into a turn, or no record of it was found in that window.
+
+- **Match on the payload, not on `source=`.** Bridges that route through the hive arrive as `source="claude-hive"`.
+- **A missing broker row inside 24h means the recipient acked it.** Rows are deleted on ack, so an absent row is not a lost message.
+
 ## Fleet guard — the minutes-scale half
 
 `scripts/fleet_guard.py` runs under launchd (`com.fryanpan.fleet-guard`) **every 120 seconds**, silent unless a band changes. It reads swap, free memory, load per core, orphaned test workers and the resident set of the claude process group — all via `sysctl` and `ps`, nothing on the secondary volume.

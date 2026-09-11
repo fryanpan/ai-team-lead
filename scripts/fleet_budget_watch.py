@@ -561,26 +561,78 @@ def _runway_hours(used, pph, tokens_per_hour=None):
     return (100 - used) / pph
 
 
+HISTORY_KEEP = 24     # readings kept per pool; three passes a day covers a week
+
+
+def _readings(e):
+    """Every recorded all-models reading of one pool, oldest first.
+
+    Ledgers written before the history existed hold only the latest reading,
+    so fall back to the entry itself.
+    """
+    out = []
+    for r in (e.get("history") or [e]):
+        at, used = _parse_dt(r.get("read_at")), r.get("all_models")
+        if at is not None and used is not None:
+            out.append((at, float(used), r.get("resets") or ""))
+    return sorted(out)
+
+
 def observed_points_per_hour(ledger, active, account_since, now):
-    """Quota points/hour, measured off the active pool's own meter.
+    """Quota points/hour, measured off one pool's own meter.
 
     This is deliberately NOT derived from tokens. A token->point constant has
     to be fitted and goes stale; the meter is the thing that actually stops
-    work, and `account_since` tells us exactly how long the fleet has been
-    spending this pool. 38% over 17.2h is a measured rate spanning a full
-    overnight -- far steadier than the current 5h window, which on a quiet
-    morning reads a third of the sustained rate and projects a runway three
-    times too long.
+    work. A rate spanning a full overnight is far steadier than the current 5h
+    window, which on a quiet morning reads a third of the sustained rate and
+    projects a runway three times too long.
+
+    The rate is points GAINED over the stint, never `used / hours`. That
+    shortcut assumes the pool stood at 0% when the fleet arrived, which is only
+    true straight after a reset. Worked example: a pool entered at 59% that
+    reads 90% after 17.8h has gained 31 points, ~1.7/h; `used / hours` says
+    5.05/h and projects a wall roughly three times too early. So the base is,
+    in order of preference:
+
+      1. two readings inside the stint at least 2h apart -- no assumptions;
+      2. the last same-week reading from BEFORE the stint, taken to hold
+         until the fleet arrived (an idle pool does not climb);
+      3. zero, only when the pool's week began inside the 24h before the
+         stint, or a reset is known to have landed since the last reading;
+      4. otherwise unknowable -- return nothing rather than a number.
+
+    The end of the base is the last READING, not `now`: a stale reading
+    divided by a growing clock understates the rate.
     """
     e = (ledger or {}).get(active) or {}
-    used = e.get("all_models")
     since = _parse_dt(account_since) if account_since else None
-    if used is None or not since:
+    rs = _readings(e)
+    if not rs or since is None:
         return None, None
-    hours = (now - since).total_seconds() / 3600.0
-    if hours < 2 or used <= 0:
+    end_at, end_used, week = rs[-1]
+    same = [r for r in rs if r[2] == week]
+    before = [r for r in same if r[0] <= since]
+    inside = [r for r in same if r[0] > since]
+    week_start = _parse_dt(week)
+    if week_start is not None:
+        week_start -= datetime.timedelta(days=7)
+    reset_seen = any(r[2] != week and _parse_dt(r[2]) is not None
+                     and _parse_dt(r[2]) <= since for r in rs)
+    two_h = datetime.timedelta(hours=2)
+    if len(inside) >= 2 and inside[-1][0] - inside[0][0] >= two_h:
+        base_at, base_used = inside[0][0], inside[0][1]
+    elif before:
+        base_at, base_used = since, before[-1][1]
+    elif reset_seen or (week_start is not None
+                        and week_start >= since - datetime.timedelta(hours=24)):
+        base_at, base_used = since, 0.0
+    else:
+        return None, None       # re-entered mid-week, entry level never read
+    hours = (end_at - base_at).total_seconds() / 3600.0
+    gained = end_used - base_used
+    if hours < 2 or gained <= 0:
         return None, None       # too short a base to extrapolate from
-    return used / hours, hours
+    return gained / hours, hours
 
 
 def carried_rate(ledger, active, since_map, now):
@@ -1306,6 +1358,13 @@ def main():
         if SESSION_PCT is not None:
             e["session_pct"] = SESSION_PCT
             e["session_read_at"] = now.astimezone().isoformat(timespec="seconds")
+        if METER_ALL is not None:
+            # The rate needs the level the pool stood at when a stint began,
+            # and the latest reading alone overwrites exactly that.
+            hist = list(e.get("history") or [])
+            hist.append({"read_at": e["read_at"], "all_models": METER_ALL,
+                         "resets": e.get("resets", "")})
+            e["history"] = hist[-HISTORY_KEEP:]
         ledger[RECORD_METER] = e
 
     cutoff, window_end, basis = session_window(now, anchor_for(ledger, acct))

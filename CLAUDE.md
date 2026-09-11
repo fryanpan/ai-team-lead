@@ -52,4 +52,4 @@ Gitignored and symlinked into worktrees by `./scripts/setup-private.sh`: `regist
 ## Read on demand — NOT loaded into context
 
 - **`docs/process/learnings.md`** — searchable archive of past failures. Grep it when you are about to debug, deploy, or trust a surface: an MCP server looks broken, a plugin update seems not to have landed, a check reports clean, a launchd job fails, a peer looks blocked, you are about to delete or overwrite something. Anything that must fire *without* a lookup belongs in a rule or the killer item above, not in here.
-- **`docs/process/fleet-ops.md`** — the health checker, the `/opt/fleet` deploy root and the launchd sandbox rules, and the pre-push leak gate. Read it before editing any of those.
+- **`docs/process/fleet-ops.md`** — the health checker, the `/opt/fleet` deploy root and the launchd sandbox rules, the pre-push leak gate, and how to trace whether a channel event reached a session. Read it before editing any of those, or before saying a session never got a message.

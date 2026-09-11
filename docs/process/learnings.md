@@ -3035,3 +3035,21 @@ threads" — never "it is not on this row".
 
 `list_tasks` trims rows hard by default, so pass `fields` explicitly and include `reviews`; without it the field
 is absent from the response and looks like an empty answer rather than an unrequested one.
+
+## The Mac Losing Its Network Was A Kernel Socket Leak From Bun Connecting To "localhost" (2026-09-11)
+
+The machine lost all networking on 2026-09-04 and again on 2026-09-10, and each time only a reboot fixed it. The
+cause was a leak of kernel TCP control blocks. **`sysctl net.inet.tcp.pcbcount` climbed past ~162k while `netstat`
+showed only about 230 connections.** The leaked blocks belong to no live socket, so a per-process `lsof` count
+will never name the culprit.
+
+- **The mechanism:** Bun 1.3.10 resolves `localhost` to both `::1` and `127.0.0.1`, connects to both at once and
+  closes the loser. About 12% of the losers are still in `SYN_SENT` when closed, and on Darwin 25.2 each of those
+  leaks one block. That comes to roughly +126 per 1,000 connections. A literal `127.0.0.1` or `::1` leaks nothing,
+  and so does Python, which tries one address at a time.
+- **The volume came from test suites:** a server test suite that dials `localhost` added about +480 blocks per
+  run. The climb showed up as step hours that tracked builder verify runs, not as a smooth rate.
+- **The fix is the address, not the runtime:** Bun code, including tests, dials `127.0.0.1`. The fleet's broker
+  and channel clients already did, and that is why they were clean.
+- **Watch it:** `~/Library/Logs/socket-watch.csv` logs the count every ~15s. Read the hourly deltas rather than
+  the current value. The growth is lumpy, and a flat minute says nothing about the next hour.

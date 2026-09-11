@@ -1085,14 +1085,16 @@ def _latest_trend_entry(text):
     a ``~`` before the time when the minute was approximate. Returns None when
     the log has no dated entry at all.
     """
-    # Accept the backticked form AND the bullet/bold form. They have both been
+    # Accept the backticked form, the bullet/bold form, AND the bare one-line
+    # form the token-watch skill itself prescribes (`date time PT · pool · ...`).
+    # The first two have both been
     # written by hand for months, and the parser only ever read the first --
     # so on 2026-09-07 two live readings sat in the file while this check
     # reported "no reading has been recorded". A staleness check that a format
     # slip can blind is worse than no check: it reports the loop dead when the
     # loop ran, and the operator goes looking for a cron that is fine.
     pat = re.compile(
-        r"^(?:`|- \*\*)(\d{4}-\d{2}-\d{2})\s+~?(\d{1,2}):(\d{2})\s*PT",
+        r"^(?:`|- \*\*)?(\d{4}-\d{2}-\d{2})\s+~?(\d{1,2}):(\d{2})\s*PT",
         re.M)
     best = None
     for m in pat.finditer(text):

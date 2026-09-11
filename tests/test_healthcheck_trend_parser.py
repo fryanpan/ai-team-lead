@@ -47,3 +47,13 @@ def test_no_dated_entry_returns_none():
 def test_a_date_mid_line_is_not_an_entry():
     """Only a line that STARTS an entry counts, or prose would fake freshness."""
     assert fh._latest_trend_entry("we compared it against 2026-09-07 18:42 PT numbers") is None
+
+
+BARE = "2026-09-10 23:51 PT · pool A · 1% (Fable 0%) · 3.5% week elapsed · FLUSH"
+
+
+def test_reads_the_bare_one_line_form():
+    """The token-watch skill's own output shape: `date time PT · pool · ...` with
+    no prefix. Eight such lines sat in the log on 2026-09-11 while the check
+    reported the newest reading as 40h old."""
+    assert fh._latest_trend_entry(BARE).strftime("%Y-%m-%d %H:%M") == "2026-09-10 23:51"

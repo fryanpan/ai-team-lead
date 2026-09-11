@@ -119,6 +119,30 @@ is where it was one tool call ago, and on this machine that bet loses.
 
 ## Verification
 
+**A check whose success value cannot tell "looked and found nothing" from "could not look" will eventually be
+trusted for the wrong one.** This is the most general form of a failure the fleet has now hit from three
+different directions in a week, and it is worth carrying past the specific tools involved:
+
+- A **leak gate whose API key was exhausted** returned the same silent zero as a clean scan. A real person's
+  name reached a public repo's main branch through it. The scan never ran.
+- A **leak gate scanning the wrong diff range** reported clean on content it had never read, while blocking
+  pushes on content it should not have been reading at all.
+- A **repo-watch subscription dropped by a restart** left the broker reporting green with the session deaf to
+  every CI result, review request and merge.
+
+In each case the instrument's output was indistinguishable between working and not working, so the only
+available reading was the optimistic one.
+
+- **Design the three states, not two.** Passed, failed, and *could not run* — with the third loud. "Could not
+  run" collapsing into "passed" is the bug; it is not a graceful degradation, it is a silent one.
+- **Say which it was in the output**, every time, including the boring case. A line saying the scan ran is
+  what makes its absence meaningful.
+- **When you verify a check, verify it can still fail.** Mutate something it should catch and confirm it does.
+  A check that has not been proven to fail this week is a check with no evidence it is looking.
+- **Fail-open is sometimes the right call — fail-open and SILENT never is.** A gate people cannot tell is down
+  is worse than one that is honestly off, because it is trusted.
+
+
 - **Never mark a UI task complete because the code is written.** State what you verified and what you could not.
 - **For a deploy changing user-facing UI**, run `/ux-review` before shipping. Skip only for purely back-end work.
 - **Validate on target what tests miss.** Report back if verification on target was not done.

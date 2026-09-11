@@ -89,6 +89,28 @@ Standalone deliverables go where the project's `CLAUDE.md` says (`docs_destinati
 
 ## Implementation
 
+**Killer item — every file write takes an ABSOLUTE path. Your working directory is not stable.** The harness
+reassigns a session's working directory without warning, including *into another agent's worktree*, mid-task.
+Measured 2026-09-10: three builders in one repo were each told their cwd had changed — two into
+`.claude/worktrees/screenshare-audio`, one into `stall-verdict` — with nothing they did to cause it. One then
+ran an edit with a relative path and **wrote into a different agent's tree**. It was caught only because that
+builder ran `git status` afterwards, diffed to confirm the file carried only its own change, moved the patch
+to its own worktree and restored the other with `git checkout --`.
+
+Corroborated independently from the team-lead session the same day: a `cd` in one Bash call does not survive
+to the next, which returns `Shell cwd was reset to <session root>`. So a relative path is a bet that your cwd
+is where it was one tool call ago, and on this machine that bet loses.
+
+- **The older rule — `git -C <absolute path>` for every git command — is now too narrow.** It covers git and
+  leaves every `python3`, `sed`, heredoc and editor write uncovered, which is where the real damage lands.
+  Git at least refuses to operate on the wrong repo; a file write does not.
+- **The failure is silent and it lands in someone else's work.** No error, no warning, and the damage is a
+  clean edit to a file in a tree you were never working in — indistinguishable from that agent having made it.
+- **A lead briefing a builder gives it its worktree as an absolute path**, and says plainly that relative
+  paths are unsafe here. Do not assume the builder will infer it from being spawned there.
+- **After any write you did not fully path, run `git status` before moving on.** That is the check that caught
+  this one, and it is cheap next to reconstructing whose edit is whose.
+
 - Read existing files before writing; write tests alongside code, not after.
 - Test key interfaces, nontrivial logic and data transformations. Skip pass-throughs, constants and third-party behaviour.
 - Run all tests before asking for help.

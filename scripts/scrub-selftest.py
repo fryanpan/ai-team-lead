@@ -66,8 +66,36 @@ DENYLIST = (
 failures: list[str] = []
 
 
-def run(paths: list[str], registry: str | None, denylist: str | None, cwd: str | None = None, **env_extra):
+def clean_git_env() -> dict[str, str]:
+    """The environment minus every variable that redirects git at a repo.
+
+    This suite runs from `.githooks/pre-push`, where git has exported GIT_DIR
+    (and friends) pointing at the repo being pushed. Inheriting that, a
+    `git init` in a temp directory does not initialize the temp directory —
+    it re-initializes the repo GIT_DIR names, and when GIT_DIR is a linked
+    worktree's gitdir it writes `core.bare = true` into the SHARED config,
+    i.e. the primary checkout's. That checkout then refuses `git status`,
+    `git pull`, and every worktree command with "this operation must be run
+    in a work tree".
+
+    It cost weeks of intermittent breakage that looked like a Claude Code
+    worktree bug, because it only ever happened on a push and the config
+    change carried no author. Strip the variables instead of guessing which
+    ones matter: the list git exports to hooks is not a contract.
+    """
     env = dict(os.environ)
+    for key in list(env):
+        if key.startswith("GIT_"):
+            del env[key]
+    return env
+
+
+def run(paths: list[str], registry: str | None, denylist: str | None, cwd: str | None = None, **env_extra):
+    # clean_git_env(), not os.environ: run from the hook, git has exported
+    # GIT_DIR pointing at the repo being pushed, and the cases below pass
+    # cwd=<fixture repo>. Inheriting it, the scanner's own git calls would
+    # resolve against the real repo while cwd claimed the fixture.
+    env = clean_git_env()
     env.pop("SCRUB_SKIP", None)
     env.pop("SCRUB_REQUIRE_SOURCES", None)
     # Always set both, so the real machine config can never leak into a case.
@@ -90,7 +118,7 @@ def make_repo_with_registry(path: str, project: str) -> None:
     """
     os.makedirs(path, exist_ok=True)
     subprocess.run(["git", "init", "-q"], cwd=path, check=True,
-                   capture_output=True)
+                   capture_output=True, env=clean_git_env())
     with open(os.path.join(path, "registry.yaml"), "w") as f:
         f.write(f"projects:\n  {project}:\n    path: ~/dev/{project}\n")
 
@@ -103,6 +131,84 @@ def expect(label: str, got: int, want: int, out: str = "") -> None:
         if out.strip():
             print("        " + out.strip().replace("\n", "\n        "))
         failures.append(label)
+
+
+def check_git_env_isolation() -> None:
+    """`git init` in a fixture must not reach the repo being pushed.
+
+    This suite runs from `.githooks/pre-push`, and git exports GIT_DIR (plus
+    friends) into every hook subprocess. A `git init` that inherits that
+    environment does NOT initialize the directory you passed as cwd — it
+    re-initializes the repo GIT_DIR names, and because the cwd isn't that
+    repo's worktree it records `core.bare = true`. The real checkout then
+    refuses `git status`, `git pull`, and every worktree command with "this
+    operation must be run in a work tree", which is how a self-test blew up
+    the repo it was defending, once per push, for weeks.
+
+    The shape matters, and getting it wrong makes this test vacuous: GIT_DIR
+    naming a plain repo's `.git` is harmless — `git init` just reinitializes
+    it and leaves core.bare alone. It is GIT_DIR naming a LINKED WORKTREE's
+    gitdir that writes `core.bare = true`, into the shared config, i.e. the
+    primary checkout's. Every agent in this repo pushes from a worktree, so
+    that is the shape that actually happens.
+
+    The victim is a throwaway repo, not the real one — but it stands in the
+    same relation, so this catches the bug without breaking anything.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        victim = os.path.join(tmp, "victim")
+        os.makedirs(victim)
+        # This suite's OWN setup has to be isolated too — run from the hook,
+        # an inherited GIT_DIR would build the fixture inside the real repo.
+        clean = clean_git_env()
+        # Identity via -c, not env: clean_git_env strips GIT_AUTHOR_* and
+        # GIT_COMMITTER_* along with everything else, and a CI runner has no
+        # global user.email — so a bare `git commit` here exits 128 on every
+        # machine that isn't a developer laptop. (This suite has now shipped
+        # twice with a case that only ran on mine.)
+        ident = ["-c", "user.email=selftest@example.invalid", "-c", "user.name=Scrub Selftest"]
+        subprocess.run(["git", "init", "-q"], cwd=victim, check=True,
+                       capture_output=True, env=clean)
+        subprocess.run(["git", *ident, "commit", "-q", "--allow-empty", "-m", "seed"],
+                       cwd=victim, check=True, capture_output=True, env=clean)
+        worktree = os.path.join(tmp, "victim-wt")
+        subprocess.run(["git", "worktree", "add", "-q", worktree, "-b", "probe"],
+                       cwd=victim, check=True, capture_output=True, env=clean)
+        # What git exports to a hook run from that worktree. Ask git rather
+        # than building the path: the gitdir is named after the worktree
+        # DIRECTORY, not the branch, and a hand-built path that doesn't exist
+        # makes this whole case pass vacuously.
+        hook_git_dir = subprocess.run(
+            ["git", "rev-parse", "--absolute-git-dir"],
+            cwd=worktree, capture_output=True, text=True, check=True, env=clean,
+        ).stdout.strip()
+        expect("git-env isolation: the worktree gitdir resolves",
+               0 if os.path.isdir(hook_git_dir) else 1, 0, hook_git_dir)
+
+        def bare_flag() -> str:
+            r = subprocess.run(
+                ["git", "config", "--file", os.path.join(victim, ".git", "config"), "core.bare"],
+                capture_output=True, text=True,
+            )
+            return r.stdout.strip()
+
+        # Positive control: the victim is a normal, non-bare repo right now, so
+        # "still false" below is a claim about the fixture call rather than
+        # about a flag that was never set.
+        expect("git-env isolation: victim starts non-bare", 0 if bare_flag() == "false" else 1, 0,
+               f"core.bare={bare_flag()!r}")
+
+        prior = dict(os.environ)
+        os.environ["GIT_DIR"] = hook_git_dir
+        try:
+            make_repo_with_registry(os.path.join(tmp, "fixture"), "some-project")
+        finally:
+            os.environ.clear()
+            os.environ.update(prior)
+
+        expect("git-env isolation: fixture init leaves the outer repo alone",
+               0 if bare_flag() == "false" else 1, 0,
+               f"core.bare={bare_flag()!r} — GIT_DIR leaked into the fixture's git init")
 
 
 def check_decision_table() -> None:
@@ -141,7 +247,122 @@ def check_decision_table() -> None:
                f"got {got!r}, wanted {want!r}")
 
 
+def check_prepush_range() -> list[str]:
+    """The hook must scan what the push ADDS, not what separates two tips.
+
+    `A..B` on a branch that is BEHIND its base also carries the inverse of every
+    commit the base has and the branch lacks — the base's newer content arrives
+    as `-` lines and the content it replaced comes back as `+`. The scanner then
+    judges text this push does not introduce and that is already public on the
+    base, and blocks. `A...B` diffs from the merge base and is exactly the
+    branch's own additions.
+
+    This drives the REAL hook with a recorder in place of scrub-check.py, so it
+    fails if the hook's range changes back — reimplementing the range here would
+    pass while the hook stayed broken. The assertion is on content, not on
+    whether the string has three dots: a planted marker that exists only on the
+    base must not appear in the range the hook chose.
+    """
+    failures: list[str] = []
+    marker = "zephyr-base-only-marker"
+    hook = os.path.join(os.path.dirname(HERE), ".githooks", "pre-push")
+    if not os.path.isfile(hook):
+        return failures  # peer repo without the hook — nothing to assert
+
+    with tempfile.TemporaryDirectory() as tmp:
+        origin = os.path.join(tmp, "origin.git")
+        work = os.path.join(tmp, "work")
+        # Every git call here gets clean_git_env(). Run from the hook, an
+        # inherited GIT_DIR sends `init`, `config`, `add -A`, `commit` and
+        # `checkout` at the REAL repo while cwd names the fixture: measured,
+        # it set the shared config's identity to this fixture's, committed a
+        # tree deleting most of the repo onto the branch being pushed, moved
+        # local main, and tried `push origin main` against the real remote.
+        clean = clean_git_env()
+        g = lambda *a, **kw: subprocess.run(  # noqa: E731
+            ["git", *a], cwd=kw.pop("cwd", work), capture_output=True, text=True,
+            env=clean, **kw)
+
+        subprocess.run(["git", "init", "--bare", "-b", "main", origin],
+                       capture_output=True, check=True, env=clean)
+        subprocess.run(["git", "clone", origin, work], capture_output=True, check=True,
+                       env=clean)
+        g("config", "user.email", "selftest@example.invalid")
+        g("config", "user.name", "Selftest")
+
+        os.makedirs(os.path.join(work, "scripts"), exist_ok=True)
+        recorder = os.path.join(work, "scripts", "scrub-check.py")
+        record = os.path.join(tmp, "range.txt")
+        with open(recorder, "w") as f:
+            f.write(
+                "#!/usr/bin/env python3\n"
+                "import sys\n"
+                "a = sys.argv[1:]\n"
+                "r = a[a.index('--diff-range') + 1] if '--diff-range' in a else ''\n"
+                f"open({record!r}, 'w').write(r)\n"
+                "sys.exit(0)\n"
+            )
+
+        # The marker has to sit on a file the base MODIFIES, not on one the base
+        # adds. A base-only NEW file shows up two-dot as a deletion, which the
+        # scanner already ignores; the case that actually bit is a base-side
+        # EDIT, where the branch's older version of the line resurfaces as a `+`
+        # and reads to the scanner as content this push introduces.
+        seed = os.path.join(work, "seed.md")
+        with open(seed, "w") as f:
+            f.write(f"{marker}\n")
+        g("add", "-A"); g("commit", "-m", "seed"); g("push", "-u", "origin", "main")
+
+        # The branch forks HERE, carrying the marker but never touching that line.
+        g("checkout", "-b", "feature")
+        with open(os.path.join(work, "branch.md"), "w") as f:
+            f.write("the branch's own addition\n")
+        g("add", "-A"); g("commit", "-m", "branch work")
+
+        # Base edits the marker line away. The branch still has the old text, so
+        # a two-dot range re-adds it.
+        g("checkout", "main")
+        with open(seed, "w") as f:
+            f.write("the base replaced that line\n")
+        g("add", "-A"); g("commit", "-m", "base moves on"); g("push", "origin", "main")
+        g("fetch", "origin")
+        g("checkout", "feature")
+
+        sha = g("rev-parse", "feature").stdout.strip()
+        zero = "0" * 40
+        proc = subprocess.run(
+            ["bash", hook],
+            cwd=work, capture_output=True, text=True,
+            input=f"refs/heads/feature {sha} refs/heads/feature {zero}\n",
+            env={**clean_git_env(), "SCRUB_SKIP_HAIKU": "1"},
+        )
+        if not os.path.exists(record):
+            failures.append("pre-push range: hook never invoked the scanner")
+            print(f"  FAIL  pre-push range: scanner not invoked\n{proc.stderr}")
+            return failures
+
+        with open(record) as f:
+            chosen = f.read().strip()
+        scanned = g("diff", chosen).stdout
+        added = "".join(l for l in scanned.splitlines(keepends=True) if l.startswith("+"))
+
+        if marker in added:
+            failures.append("pre-push range: scans the base's own content")
+            print(f"  FAIL  pre-push range scans base-only content (range: {chosen})")
+        else:
+            print(f"  ok    pre-push range excludes base-only content ({chosen})")
+
+        if "the branch's own addition" not in added:
+            failures.append("pre-push range: misses the branch's additions")
+            print(f"  FAIL  pre-push range misses the branch's own additions ({chosen})")
+        else:
+            print("  ok    pre-push range still carries the branch's additions")
+
+    return failures
+
+
 def main() -> int:
+    check_git_env_isolation()
     check_decision_table()
     with tempfile.TemporaryDirectory() as tmp:
         registry = os.path.join(tmp, "registry.yaml")
@@ -278,6 +499,8 @@ def main() -> int:
         # paths that were never theirs.
         r = run([clean], absent, absent, cwd=local_repo)
         expect("a clone with no fleet config still pushes (local registry present)", r.returncode, 0, r.stderr)
+
+    failures.extend(check_prepush_range())
 
     if failures:
         print(f"\n{len(failures)} self-test failure(s): {', '.join(failures)}")

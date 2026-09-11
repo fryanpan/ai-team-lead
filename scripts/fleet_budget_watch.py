@@ -497,6 +497,328 @@ def meter_age_hours(entry, now):
     return (now - t).total_seconds() / 3600.0
 
 
+# --- Estate view -------------------------------------------------------------
+# A single-pool report cannot answer "how am I trending" on a machine that
+# rotates between three weekly pools. The user, 2026-09-09: the watch "still
+# doesn't take multiple account tokens into account."
+#
+# Two facts make the other pools readable without a live /usage on each:
+#   1. An IDLE pool's meter can only RISE until its reset -- never fall. So a
+#      stale reading on an idle pool is a FLOOR, and "remaining" derived from
+#      it is a CEILING. That is a usable bound, unlike an unlabelled number.
+#   2. A reading taken while the pool was still ACTIVE kept climbing after it.
+#      Such a figure is an under-read, and saying so is the difference between
+#      "personal is at 80%" and "personal is at 80% or worse, probably spent."
+TOKENS_PER_POINT = argval("--tokens-per-point", 26_000_000, int)
+
+
+def _parse_dt(v):
+    try:
+        t = datetime.datetime.fromisoformat(v)
+    except (TypeError, ValueError):
+        return None
+    return t.astimezone() if t.tzinfo else t.astimezone()
+
+
+def estate_rows(ledger, active, now):
+    """One row per pool: used, remaining, reset, and how much to trust it."""
+    rows = []
+    for k in pools_by_next_reset(ledger):
+        e = ledger[k]
+        reset = _parse_dt(e.get("resets"))
+        read_at = _parse_dt(e.get("read_at"))
+        used = e.get("all_models")
+        age = meter_age_hours(e, now)
+        is_active = (k == active)
+        if reset and now >= reset:
+            quality, used_eff = "RESET since read - unknown, assume ~fresh", None
+        elif is_active:
+            quality = ("live" if (age or 0) < 1
+                       else f"active pool, {age:.1f}h old - UNDER-READ, still burning")
+            used_eff = used
+        else:
+            quality = f"idle since read, {age:.1f}h - a FLOOR, not a figure"
+            used_eff = used
+        rows.append(dict(pool=k, used=used_eff, fable=e.get("fable"),
+                         reset=reset, quality=quality, active=is_active,
+                         hours_to_reset=((reset - now).total_seconds() / 3600.0
+                                         if reset else None)))
+    return rows
+
+
+def _runway_hours(used, pph, tokens_per_hour=None):
+    """Hours of fleet work left in a pool, from a MEASURED points/hour rate.
+
+    There is deliberately no token-based fallback. Deriving runway from the
+    current 5h window divides by a number that is near zero on a fresh window
+    -- right after a rotation that produced runways of 5.3 BILLION hours and
+    then an OverflowError formatting the exhaustion date. A rotation is
+    exactly when this panel matters, so the honest answer when there is no
+    measured base is "not yet", not a fabricated one.
+    """
+    if used is None or not pph:
+        return None
+    return (100 - used) / pph
+
+
+HISTORY_KEEP = 24     # readings kept per pool; three passes a day covers a week
+
+
+def _readings(e):
+    """Every recorded all-models reading of one pool, oldest first.
+
+    Ledgers written before the history existed hold only the latest reading,
+    so fall back to the entry itself.
+    """
+    out = []
+    for r in (e.get("history") or [e]):
+        at, used = _parse_dt(r.get("read_at")), r.get("all_models")
+        if at is not None and used is not None:
+            out.append((at, float(used), r.get("resets") or ""))
+    return sorted(out)
+
+
+def observed_points_per_hour(ledger, active, account_since, now):
+    """Quota points/hour, measured off one pool's own meter.
+
+    This is deliberately NOT derived from tokens. A token->point constant has
+    to be fitted and goes stale; the meter is the thing that actually stops
+    work. A rate spanning a full overnight is far steadier than the current 5h
+    window, which on a quiet morning reads a third of the sustained rate and
+    projects a runway three times too long.
+
+    The rate is points GAINED over the stint, never `used / hours`. That
+    shortcut assumes the pool stood at 0% when the fleet arrived, which is only
+    true straight after a reset. Worked example: a pool entered at 59% that
+    reads 90% after 17.8h has gained 31 points, ~1.7/h; `used / hours` says
+    5.05/h and projects a wall roughly three times too early. So the base is,
+    in order of preference:
+
+      1. two readings inside the stint at least 2h apart -- no assumptions;
+      2. the last same-week reading from BEFORE the stint, taken to hold
+         until the fleet arrived (an idle pool does not climb);
+      3. zero, only when the pool's week began inside the 24h before the
+         stint, or a reset is known to have landed since the last reading;
+      4. otherwise unknowable -- return nothing rather than a number.
+
+    The end of the base is the last READING, not `now`: a stale reading
+    divided by a growing clock understates the rate.
+    """
+    e = (ledger or {}).get(active) or {}
+    since = _parse_dt(account_since) if account_since else None
+    rs = _readings(e)
+    if not rs or since is None:
+        return None, None
+    end_at, end_used, week = rs[-1]
+    same = [r for r in rs if r[2] == week]
+    before = [r for r in same if r[0] <= since]
+    inside = [r for r in same if r[0] > since]
+    week_start = _parse_dt(week)
+    if week_start is not None:
+        week_start -= datetime.timedelta(days=7)
+    reset_seen = any(r[2] != week and _parse_dt(r[2]) is not None
+                     and _parse_dt(r[2]) <= since for r in rs)
+    two_h = datetime.timedelta(hours=2)
+    if len(inside) >= 2 and inside[-1][0] - inside[0][0] >= two_h:
+        base_at, base_used = inside[0][0], inside[0][1]
+    elif before:
+        base_at, base_used = since, before[-1][1]
+    elif reset_seen or (week_start is not None
+                        and week_start >= since - datetime.timedelta(hours=24)):
+        base_at, base_used = since, 0.0
+    else:
+        return None, None       # re-entered mid-week, entry level never read
+    hours = (end_at - base_at).total_seconds() / 3600.0
+    gained = end_used - base_used
+    if hours < 2 or gained <= 0:
+        return None, None       # too short a base to extrapolate from
+    return gained / hours, hours
+
+
+def carried_rate(ledger, active, since_map, now):
+    """Best measured rate from a pool we are NOT on any more.
+
+    Burn rate is a property of the fleet, not of the pool it bills. For the
+    first couple of hours after a rotation the new pool has no base of its
+    own, and that is precisely when someone asks how long the new pool lasts.
+    Carry the most recent measurable rate forward and SAY it is carried.
+    """
+    best = None
+    for k in (ledger or {}):
+        if k == active:
+            continue
+        pph, base_h = observed_points_per_hour(
+            ledger, k, (since_map or {}).get(k), now)
+        if pph and (best is None or base_h > best[1]):
+            best = (pph, base_h, k)
+    return best
+
+
+def print_estate(ledger, active, now, tokens_per_hour, account_since=None,
+                 since_map=None):
+    rows = estate_rows(ledger, active, now)
+    if not rows:
+        return
+    pph, base_h = observed_points_per_hour(ledger, active, account_since, now)
+    carried_from = None
+    if not pph:
+        best = carried_rate(ledger, active, since_map, now)
+        if best:
+            pph, base_h, carried_from = best
+    print("\nESTATE - every weekly pool, blended meter (the binding one):\n")
+    print(f"  {'POOL':<24}{'USED':>6}{'LEFT':>6}{'FABLE':>7}  "
+          f"{'RESETS':<17}{'RUNWAY':>9}  TRUST")
+    for r in rows:
+        used = "?" if r["used"] is None else f"{r['used']:.0f}%"
+        left = "?" if r["used"] is None else f"{100 - r['used']:.0f}%"
+        fable = "?" if r["fable"] is None else f"{r['fable']:.0f}%"
+        reset = r["reset"].strftime("%a %m-%d %H:%M") if r["reset"] else "?"
+        runway_h = _runway_hours(r["used"], pph, tokens_per_hour)
+        runway = f"~{runway_h:.0f}h" if runway_h is not None else "?"
+        mark = " <- ACTIVE" if r["active"] else ""
+        print(f"  {r['pool']:<24}{used:>6}{left:>6}{fable:>7}  "
+              f"{reset:<17}{runway:>9}  {r['quality']}{mark}")
+    if pph and carried_from:
+        print(f"\n  rate: {pph:.2f} quota points/h, CARRIED OVER from "
+              f"{carried_from} (measured there over {base_h:.1f}h). This pool "
+              f"has no base of its own yet -- burn rate is a property of the "
+              f"fleet, not of the pool it bills, so this is the best estimate "
+              f"until the new pool has ~2h of its own.")
+    elif pph:
+        print(f"\n  rate: {pph:.2f} quota points/h, MEASURED off the active "
+              f"pool's own meter over {base_h:.1f}h (spans the overnight). "
+              f"Runway = points left / this rate.")
+    else:
+        print("\n  rate: NOT MEASURABLE yet -- no pool has a 2h base. Runway "
+              "is blank on purpose; the 5h window is not a substitute (it "
+              "reads near zero on a fresh window and projects centuries).")
+    # The finding this panel exists to produce: does the active pool outlast
+    # the next reset, or is there a gap where no pool has room?
+    act = next((r for r in rows if r["active"]), None)
+    nxt = min((r for r in rows if not r["active"] and r["hours_to_reset"]
+               and r["hours_to_reset"] > 0),
+              key=lambda r: r["hours_to_reset"], default=None)
+    if act and act["used"] is not None and nxt:
+        act_h = _runway_hours(act["used"], pph, tokens_per_hour)
+        if act_h is None:
+            return
+        gap = nxt["hours_to_reset"] - act_h
+        # `now` is UTC-aware; the reset column is rendered local. Printing this
+        # one in UTC put the exhaustion 7h after a reset it actually precedes.
+        when = ((now + datetime.timedelta(hours=act_h))
+                .astimezone().strftime("%a %m-%d %H:%M %Z"))
+        if gap > 0:
+            print(f"  ** GAP: active pool exhausts ~{when}, {gap:.1f}h BEFORE "
+                  f"{nxt['pool']} resets. Bridge it or slow down. **")
+        else:
+            print(f"  handoff OK: active pool reaches ~{when}, "
+                  f"{-gap:.1f}h past {nxt['pool']}'s reset.")
+
+
+def _mem_to_mb(tok):
+    """Parse a `top` MEM/CMPRS cell ('4073M', '1.2G', '512K', '0B')."""
+    tok = (tok or "").strip().rstrip("+-")
+    if not tok or tok[-1] not in "BKMGT":
+        return None
+    try:
+        n = float(tok[:-1])
+    except ValueError:
+        return None
+    return n * {"B": 1 / 1048576, "K": 1 / 1024, "M": 1, "G": 1024,
+                "T": 1048576}[tok[-1]]
+
+
+def machine_memory(big_mb=1024):
+    """Resident + COMPRESSED footprint, read from `top`, never from ps RSS.
+
+    `ps` RSS counts only pages resident in physical memory. macOS compresses
+    an idle process's pages, so the processes that hurt a thrashing machine
+    most are exactly the ones RSS renders invisible: two Gradle daemons
+    holding 6 GB read as 0.09 GB and got reported as harmless (2026-09-09).
+    There is no ps column for compressed footprint at all.
+    """
+    out = {"procs": [], "swap_used_gb": None, "swap_total_gb": None,
+           "compressor_gb": None, "free_pct": None}
+    try:
+        raw = subprocess.run(
+            ["top", "-l", "1", "-o", "mem", "-n", "25",
+             "-stats", "pid,ppid,command,mem,cmprs"],
+            capture_output=True, text=True, timeout=30).stdout
+    except (OSError, subprocess.SubprocessError):
+        return out
+    for line in raw.splitlines():
+        f = line.split()
+        if len(f) < 5 or not f[0].isdigit():
+            continue
+        mem = _mem_to_mb(f[-2])
+        cmprs = _mem_to_mb(f[-1])
+        if mem is None:
+            continue
+        out["procs"].append({"pid": f[0], "ppid": f[1],
+                             "cmd": " ".join(f[2:-2]),
+                             "mem_mb": mem, "cmprs_mb": cmprs or 0.0})
+    try:
+        sw = subprocess.run(["sysctl", "-n", "vm.swapusage"],
+                            capture_output=True, text=True, timeout=10).stdout
+        for key, dest in (("total", "swap_total_gb"), ("used", "swap_used_gb")):
+            m = re.search(key + r" = ([\d.]+)M", sw)
+            if m:
+                out[dest] = float(m.group(1)) / 1024
+        # Swap used/total is NOT a pressure signal: macOS sizes the swapfile
+        # to demand, so the ratio sits near 100% on a perfectly healthy Mac.
+        # Free percentage is the one that means something.
+        mp = subprocess.run(["memory_pressure"], capture_output=True,
+                            text=True, timeout=20).stdout
+        m = re.search(r"free percentage:\s+(\d+)%", mp)
+        if m:
+            out["free_pct"] = int(m.group(1))
+        vm = subprocess.run(["vm_stat"], capture_output=True, text=True,
+                            timeout=10).stdout
+        m = re.search(r"Pages occupied by compressor:\s+(\d+)", vm)
+        if m:
+            out["compressor_gb"] = int(m.group(1)) * 16384 / 1073741824
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return out
+
+
+def print_memory(big_mb=1024):
+    """The half of the bill that is not tokens. Nothing else watches this."""
+    info = machine_memory(big_mb)
+    if not info["procs"]:
+        return
+    pressure = []
+    if info["free_pct"] is not None and info["free_pct"] < 15:
+        pressure.append(f"only {info['free_pct']}% of memory free")
+    if info["compressor_gb"] and info["compressor_gb"] > 4:
+        pressure.append(f"compressor {info['compressor_gb']:.1f} GB "
+                        f"(swap {info['swap_used_gb']:.1f} GB used)"
+                        if info["swap_used_gb"] else
+                        f"compressor {info['compressor_gb']:.1f} GB")
+    # A claude session is expected to be large; a build daemon that outlived
+    # its build is not, and it is the one nobody owns.
+    strays = [p for p in info["procs"]
+              if p["mem_mb"] >= big_mb and "/bin/claude" not in p["cmd"]]
+    if not pressure and not strays:
+        return
+    print("\nMACHINE MEMORY (top, includes COMPRESSED - ps rss cannot see it):")
+    if pressure:
+        print("  under pressure: " + " * ".join(pressure))
+    for p in strays[:6]:
+        share = (f", {p['cmprs_mb']/p['mem_mb']*100:.0f}% compressed"
+                 if p["mem_mb"] else "")
+        orph = " ORPHANED(ppid 1)" if p["ppid"] == "1" else ""
+        print(f"  {p['mem_mb']/1024:5.2f} GB  pid {p['pid']:<7}"
+              f"{p['cmd'][:26]:<26}{share}{orph}")
+    if strays:
+        print("  ^ non-claude and >= %.0f GB. This is a ONE-SAMPLE reading: it "
+              "says how big, never whether it is idle or safe to kill. A "
+              "multi-module Gradle assemble sits at 0%% CPU between tasks and "
+              "read as idle twice on 2026-09-09 while mid-build. Ask the "
+              "owning agent, or read the process's own log, before acting."
+              % (big_mb / 1024))
+
+
 def pools_by_next_reset(ledger):
     """Account keys ordered by which pool resets soonest.
 
@@ -1036,6 +1358,13 @@ def main():
         if SESSION_PCT is not None:
             e["session_pct"] = SESSION_PCT
             e["session_read_at"] = now.astimezone().isoformat(timespec="seconds")
+        if METER_ALL is not None:
+            # The rate needs the level the pool stood at when a stint began,
+            # and the latest reading alone overwrites exactly that.
+            hist = list(e.get("history") or [])
+            hist.append({"read_at": e["read_at"], "all_models": METER_ALL,
+                         "resets": e.get("resets", "")})
+            e["history"] = hist[-HISTORY_KEEP:]
         ledger[RECORD_METER] = e
 
     cutoff, window_end, basis = session_window(now, anchor_for(ledger, acct))
@@ -1348,14 +1677,11 @@ def main():
               + ("  ** SWITCHED since the last run — the series is broken, do "
                  "not compare across it **" if switched else ""))
         if ledger:
-            print("\nmeters (hand-entered; a reading is worth what its age says):")
-            for k in pools_by_next_reset(ledger):
-                e = ledger[k]
-                age = meter_age_hours(e, now)
-                age_s = f"{age:.1f}h old" if age is not None else "never read"
-                print(f"  {k:<28} all {e.get('all_models','?')}% · "
-                      f"Fable {e.get('fable','?')}% · resets "
-                      f"{e.get('resets','?')} · {age_s}")
+            print_estate(ledger, acct, now,
+                         fleet / WINDOW_H if WINDOW_H else 0,
+                         (out.get('account_since') or {}).get(acct),
+                         since_map=out.get('account_since'))
+        print_memory()
         # Context sizes, always printed. Burn is turns x context and the
         # table above only shows turns; a reader who cannot see the multiplier
         # cannot tell an expensive fleet from a busy one.

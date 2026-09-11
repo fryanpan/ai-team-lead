@@ -40,13 +40,27 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   # Skip deletes
   [ "$local_sha" = "$ZERO_SHA" ] && continue
 
+  # Three dots, not two, and the difference is the whole correctness of this
+  # gate. `A..B` asks "what separates these two tips", which on a branch that
+  # is BEHIND its base also includes the INVERSE of every commit the base has
+  # and the branch lacks: the base's newer content shows up as `-` lines and
+  # the older content it replaced comes back as `+` lines. The scanner then
+  # reads content this push does not introduce — content that is already
+  # public on the base — and blocks on it. `A...B` diffs from the merge base,
+  # so it is exactly what the branch adds, which is what "about to become
+  # public" means.
+  #
+  # Measured 2026-09-10: a branch three commits behind main scanned as 3 files
+  # / 29 insertions / 161 deletions two-dot, against 6 files / 63 insertions /
+  # 4 deletions three-dot. The semantic pass flagged a path in a file the
+  # branch never touched, and two pushes were blocked on it.
   if [ "$remote_sha" = "$ZERO_SHA" ]; then
     # New branch — diff against the remote's default branch.
     default_branch="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')"
     default_branch="${default_branch:-main}"
-    range="origin/${default_branch}..${local_sha}"
+    range="origin/${default_branch}...${local_sha}"
   else
-    range="${remote_sha}..${local_sha}"
+    range="${remote_sha}...${local_sha}"
   fi
 
   if ! python3 "$script" --diff-range "$range"; then

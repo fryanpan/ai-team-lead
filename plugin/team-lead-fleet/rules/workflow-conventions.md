@@ -21,6 +21,31 @@ appliesTo: main
 
 A project with public APIs or a mature schema moves contract changes into the hard-to-reverse column; note it in its own `workflow-conventions.md`.
 
+### Over $50 of API or eval spend needs explicit approval first (2026-09-09)
+
+Set fleet-wide after an eval run cost several times what anyone expected, because
+nobody had costed it before starting it. Metered API spend is the blind spot: it
+is invisible to the subscription quota meters, so nothing else in the fleet
+catches it.
+
+- **Estimate the spend BEFORE you run it, not after.** The failure was not an
+  expensive eval; it was an eval whose cost nobody put a number on until the bill
+  existed. A run you cannot cost is a run you file rather than start.
+- **Over $50 → file a review item and wait.** Hard to reverse in the way that
+  matters: the money is gone the moment the job runs, and no amount of good
+  output un-spends it.
+- **CI that calls a paid model: $1/day, and once daily beats per-push.** A job
+  that cannot fit the cap under continuous triggers drops to a daily schedule
+  rather than asking for more budget. Put a hard cap in the script that aborts
+  past the line and prints its estimate.
+- **This is separate from the weekly quota.** Subscription tokens are what
+  `token-control.md` governs; this is metered **API** spend, which the quota
+  meters do not show at all. A pass reading "weekly non-binding" says nothing
+  about it.
+- **It binds recurring jobs hardest.** A one-off you notice; a nightly eval at a
+  few dollars a run is what reaches $50 while nobody is looking. Cost it per run,
+  multiply by the schedule, file it if the month clears $50.
+
 ## Turn efficiency
 
 Turn count is what the weekly meter weights most heavily. Beyond the harness's own batching advice:
@@ -41,6 +66,22 @@ The arithmetic is simple and unforgiving: burn is **turns × context size**, and
 - **`budget-watch` may send you a `HOLD SUBAGENT FAN-OUT` message. Comply immediately and keep working.** It is not a stop: run your own loop, serialize what you would have parallelized. It lifts itself and tells you when it does. Ignoring it is choosing to block every session on the machine, including your own.
 - **Context size is the other half, and it only ever grows.** `/clear` at a real task boundary, `/compact` mid-task. A session left running for a day pays its whole context on every turn it takes, including the ones that do nothing.
 
+### Restarting a session that has builders: find the BRANCH, not the dirty worktree
+
+A builder warned of an incoming restart **commits but does not push**. So after the cycle its work exists as an
+unpushed local branch, and the instinct — sweep the worktrees for dirty state and see which one is live — is
+not merely slow, it points away from the answer. Measured 2026-09-10: sixteen worktrees in one repo were
+dirty, nearly all long abandoned, and the live builder's was **not among them precisely because it had
+committed**. Dirty state finds the builders that lost work; the one that checkpointed correctly is invisible
+to it.
+
+- **`git for-each-ref --sort=-committerdate refs/heads | head` names it in one call.** Recency of commit is
+  the signal, and it survives the restart that destroyed every other trace.
+- **The lead pushes the branch before briefing a replacement.** The builder is gone and cannot; an unpushed
+  branch is one `git worktree remove` away from being nothing, and the replacement cannot see it at all.
+- **Brief the replacement from the task, not from a reconstruction.** What the dead builder held was context,
+  not commits — that is the part the restart actually took, and it does not come back by staring at the diff.
+
 ## Planning
 
 Plans go to `docs/product/plans/<prefix>-plan.md`, `<prefix>` being the ticket or sprint number — ask if unclear. A plan in `.claude/plans/` gets persisted with `/persist-plan`. It carries measurable outcomes, the alternatives you rejected and why, the design, and the execution and testing strategy. Diagrams are mermaid.
@@ -49,6 +90,28 @@ Standalone deliverables go where the project's `CLAUDE.md` says (`docs_destinati
 
 ## Implementation
 
+**Killer item — every file write takes an ABSOLUTE path. Your working directory is not stable.** The harness
+reassigns a session's working directory without warning, including *into another agent's worktree*, mid-task.
+Measured 2026-09-10: three builders in one repo were each told their cwd had changed — two into
+`.claude/worktrees/screenshare-audio`, one into `stall-verdict` — with nothing they did to cause it. One then
+ran an edit with a relative path and **wrote into a different agent's tree**. It was caught only because that
+builder ran `git status` afterwards, diffed to confirm the file carried only its own change, moved the patch
+to its own worktree and restored the other with `git checkout --`.
+
+Corroborated independently from the team-lead session the same day: a `cd` in one Bash call does not survive
+to the next, which returns `Shell cwd was reset to <session root>`. So a relative path is a bet that your cwd
+is where it was one tool call ago, and on this machine that bet loses.
+
+- **The older rule — `git -C <absolute path>` for every git command — is now too narrow.** It covers git and
+  leaves every `python3`, `sed`, heredoc and editor write uncovered, which is where the real damage lands.
+  Git at least refuses to operate on the wrong repo; a file write does not.
+- **The failure is silent and it lands in someone else's work.** No error, no warning, and the damage is a
+  clean edit to a file in a tree you were never working in — indistinguishable from that agent having made it.
+- **A lead briefing a builder gives it its worktree as an absolute path**, and says plainly that relative
+  paths are unsafe here. Do not assume the builder will infer it from being spawned there.
+- **After any write you did not fully path, run `git status` before moving on.** That is the check that caught
+  this one, and it is cheap next to reconstructing whose edit is whose.
+
 - Read existing files before writing; write tests alongside code, not after.
 - Test key interfaces, nontrivial logic and data transformations. Skip pass-throughs, constants and third-party behaviour.
 - Run all tests before asking for help.
@@ -56,6 +119,30 @@ Standalone deliverables go where the project's `CLAUDE.md` says (`docs_destinati
 - After tests pass, run a code review and fix what it finds before handing over.
 
 ## Verification
+
+**A check whose success value cannot tell "looked and found nothing" from "could not look" will eventually be
+trusted for the wrong one.** This is the most general form of a failure the fleet has now hit from three
+different directions in a week, and it is worth carrying past the specific tools involved:
+
+- A **leak gate whose API key was exhausted** returned the same silent zero as a clean scan. A real person's
+  name reached a public repo's main branch through it. The scan never ran.
+- A **leak gate scanning the wrong diff range** reported clean on content it had never read, while blocking
+  pushes on content it should not have been reading at all.
+- A **repo-watch subscription dropped by a restart** left the broker reporting green with the session deaf to
+  every CI result, review request and merge.
+
+In each case the instrument's output was indistinguishable between working and not working, so the only
+available reading was the optimistic one.
+
+- **Design the three states, not two.** Passed, failed, and *could not run* — with the third loud. "Could not
+  run" collapsing into "passed" is the bug; it is not a graceful degradation, it is a silent one.
+- **Say which it was in the output**, every time, including the boring case. A line saying the scan ran is
+  what makes its absence meaningful.
+- **When you verify a check, verify it can still fail.** Mutate something it should catch and confirm it does.
+  A check that has not been proven to fail this week is a check with no evidence it is looking.
+- **Fail-open is sometimes the right call — fail-open and SILENT never is.** A gate people cannot tell is down
+  is worse than one that is honestly off, because it is trusted.
+
 
 - **Never mark a UI task complete because the code is written.** State what you verified and what you could not.
 - **For a deploy changing user-facing UI**, run `/ux-review` before shipping. Skip only for purely back-end work.

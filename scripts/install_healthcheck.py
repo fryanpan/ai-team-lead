@@ -19,6 +19,7 @@ Usage:
     python3 scripts/install_healthcheck.py --no-agent # deploy config only
 """
 
+import hashlib
 import json
 import os
 import plistlib
@@ -365,6 +366,25 @@ def registry_sessions():
     return out
 
 
+def registry_stable_ids():
+    """The stable id each registered project's sessions register under.
+
+    sha256 of the PHYSICAL path, truncated to 12 hex -- the same derivation the
+    hive uses. The symlinked spelling is deliberately excluded: a row filed under
+    it is exactly the undeliverable case the subscription check exists to catch.
+    """
+    if not os.path.exists(REGISTRY):
+        return []
+    ids = set()
+    with open(REGISTRY) as f:
+        for line in f:
+            m = re.match(r"^    path:\s*(.+?)\s*$", line)
+            if m:
+                real = os.path.realpath(os.path.expanduser(m.group(1).strip('"\'')))
+                ids.add(hashlib.sha256(real.encode()).hexdigest()[:12])
+    return sorted(ids)
+
+
 def plugin_version_checks():
     """One staleness check per directory-source plugin.
 
@@ -467,6 +487,11 @@ def main():
     plugins = plugin_version_checks()
     checks.extend(sessions)
     checks.extend(plugins)
+    known = registry_stable_ids()
+    checks.append({"type": "subscription_targets", "name": "sentry subscriptions",
+                   "db": "~/.sentry-channel.db", "table": "subscriptions",
+                   "column": "peer_stable_id", "label_column": "project_slug",
+                   "known_ids": known})
     print(f"  {len(BASE_CHECKS)} infra + {len(sessions)} session "
           f"+ {len(plugins)} plugin checks")
 

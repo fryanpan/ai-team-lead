@@ -1534,6 +1534,70 @@ def check_load(spec):
     return True, f"{spec['name']}: {per_core:.2f} per core"
 
 
+def check_subscription_targets(spec):
+    """Every persisted channel subscription must be addressed to someone who can
+    receive it.
+
+    A bridge that persists subscriptions keys each row on a stable id,
+    sha256(git root)[:12], computed from the PHYSICAL path. A row filed from a
+    throwaway directory, or under a symlinked spelling, has an id no session
+    will ever register. The receiver then logs "webhook matched" whether or not
+    anyone got the event, so one live subscriber and one black hole look the
+    same as two live subscribers.
+
+    Known ids are baked in at install time from the registry (this checker runs
+    under launchd, which cannot read the registry's volume), and the live peer
+    list is added on top. Liveness only ever KEEPS a row: most peers are
+    correctly down, and their subscriptions are legitimate.
+
+    Three states. A database that cannot be opened is "could not look", never a
+    pass. A hive that cannot be reached is said out loud, because rows owned by
+    live-but-unregistered sessions (worktrees) then read as stray.
+    """
+    import sqlite3
+    import urllib.request
+
+    name = spec["name"]
+    db = os.path.expanduser(spec["db"])
+    if not os.path.exists(db):
+        return False, f"{name}: COULD NOT LOOK -- {db} does not exist"
+    try:
+        # Read-only first. A WAL database whose -shm file is missing cannot be
+        # opened read-only (sqlite has to create the -shm), so fall back to a
+        # normal connection -- this function only ever runs a SELECT.
+        try:
+            con = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=5)
+            con.execute("SELECT 1 FROM sqlite_master LIMIT 1")
+        except sqlite3.OperationalError:
+            con = sqlite3.connect(db, timeout=5)
+        rows = con.execute(
+            f"SELECT {spec['column']}, {spec['label_column']} FROM {spec['table']}"
+        ).fetchall()
+        con.close()
+    except Exception as e:
+        return False, f"{name}: COULD NOT LOOK at {db} ({e})"
+
+    known = set(spec.get("known_ids", []))
+    hive_note = ""
+    try:
+        req = urllib.request.Request(
+            spec.get("hive_url", "http://127.0.0.1:7900") + "/list-peers",
+            data=b'{"scope":"machine"}',
+            headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=3) as r:
+            known |= {p["stable_id"] for p in json.load(r)}
+    except Exception as e:
+        hive_note = f" (claude-hive unreachable: {e}; live worktree sessions may read as stray)"
+
+    stray = sorted({(sid, label) for sid, label in rows if sid not in known})
+    if stray:
+        listed = ", ".join(f"{label} -> {sid}" for sid, label in stray)
+        return False, (f"{name}: {len(stray)} undeliverable subscription(s), "
+                       f"no registered project or live session holds the id: "
+                       f"{listed}{hive_note}")
+    return True, f"{name}: all {len(rows)} rows deliverable{hive_note}"
+
+
 CHECKS = {
     "launchd": check_launchd,
     "launchd_ran": check_launchd_ran,
@@ -1555,6 +1619,7 @@ CHECKS = {
     "free_memory": check_free_memory,
     "swap": check_swap,
     "load": check_load,
+    "subscription_targets": check_subscription_targets,
 }
 
 

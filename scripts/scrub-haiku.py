@@ -18,12 +18,38 @@ Exit codes:
      doesn't break pushes; the regex check still ran)
 
 Bypass entirely with SCRUB_SKIP=1. Skip just Haiku with SCRUB_SKIP_HAIKU=1.
+
+Spend accounting
+----------------
+Every call this script makes costs money on a metered API key, and that spend
+is invisible to the subscription quota meters — nothing else in the fleet sees
+it. On 2026-09-11 roughly $55-60 went through this key in a day without anyone
+noticing until the bill did, so each invocation now records what it cost and
+refuses to start once the day's total crosses a cap.
+
+  SCRUB_HAIKU_DAILY_USD   the cap, default 1.00 (the fleet rule for CI calling
+                          a paid model)
+  SCRUB_HAIKU_SPEND_LOG   where the ledger lives, default
+                          ~/.local/state/scrub-haiku/spend.jsonl
+  SCRUB_HAIKU_BUDGET_BLOCK=1
+                          make a budget abort block the push. Default is
+                          non-blocking, matching this layer's existing
+                          fail-open behaviour — but never silently: a skipped
+                          scan prints a banner, because a scan that did not run
+                          reporting the same quiet nothing as a clean one is the
+                          exact bug that let a real name reach a public repo.
+
+The ledger deliberately lives OUTSIDE any repo. It records diff ranges and
+timestamps, and this gate exists to keep exactly that sort of thing out of a
+public checkout.
 """
 
 from __future__ import annotations
 
+import datetime
 import json
 import os
+import pathlib
 import subprocess
 import sys
 import urllib.error
@@ -31,6 +57,11 @@ import urllib.request
 from typing import Optional
 
 MODEL = "claude-haiku-4-5-20251001"
+# Haiku 4.5 published rates, USD per million tokens. These are for the estimate
+# in the ledger; the invoice is the Anthropic Console's number, not this one.
+PRICE_IN_PER_MTOK = 1.00
+PRICE_OUT_PER_MTOK = 5.00
+DEFAULT_DAILY_USD = 1.00
 # Where the key actually lives on this machine. `security add-generic-password
 # -a "$USER" -s scrub-haiku-api-key -w` (omit the value; it prompts, so the key
 # stays out of shell history).
@@ -122,6 +153,97 @@ def read_keychain(service: str) -> Optional[str]:
     return proc.stdout.strip() or None
 
 
+def spend_log_path() -> pathlib.Path:
+    """The ledger. Outside any repo, and shared across every repo the gate runs in.
+
+    Shared on purpose: the cap is a property of the KEY, not of a checkout. This
+    gate runs in two repos and eight worktrees of one of them, and a per-repo
+    ledger would let each of them spend the full cap independently — ten times
+    the budget, with every individual log looking obedient.
+    """
+    override = os.environ.get("SCRUB_HAIKU_SPEND_LOG")
+    if override:
+        return pathlib.Path(override).expanduser()
+    return pathlib.Path.home() / ".local" / "state" / "scrub-haiku" / "spend.jsonl"
+
+
+def estimate_usd(input_tokens: int, output_tokens: int) -> float:
+    return (input_tokens / 1_000_000 * PRICE_IN_PER_MTOK
+            + output_tokens / 1_000_000 * PRICE_OUT_PER_MTOK)
+
+
+def spent_today() -> tuple[float, int, Optional[str]]:
+    """Today's spend so far: (usd, calls, error).
+
+    Three states, not two. A missing ledger is a genuine zero — first run on
+    this machine. An unreadable or corrupt one is NOT zero, and returns an error
+    string instead, because "I could not look" reported as "$0.00 spent" is how
+    a budget check becomes decorative. The caller must say which it got.
+    """
+    path = spend_log_path()
+    if not path.exists():
+        return 0.0, 0, None
+
+    today = datetime.datetime.now().astimezone().strftime("%Y-%m-%d")
+    usd = 0.0
+    calls = 0
+    try:
+        with path.open("r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    # One bad line is not a reason to distrust the whole ledger,
+                    # but it is a reason not to claim a precise total.
+                    continue
+                if entry.get("date") != today:
+                    continue
+                usd += float(entry.get("estimated_usd") or 0.0)
+                calls += 1
+    except OSError as e:
+        return 0.0, 0, str(e)
+
+    return usd, calls, None
+
+
+def record_spend(entry: dict) -> Optional[str]:
+    """Append one line to the ledger. Returns an error string on failure.
+
+    A failure here must never block a push — but it must be reported, or the
+    ledger silently stops growing and the cap silently stops binding.
+    """
+    path = spend_log_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(entry, sort_keys=True) + "\n")
+        try:
+            path.chmod(0o600)
+        except OSError:
+            pass
+    except OSError as e:
+        return str(e)
+    return None
+
+
+def daily_cap_usd() -> float:
+    raw = os.environ.get("SCRUB_HAIKU_DAILY_USD")
+    if not raw:
+        return DEFAULT_DAILY_USD
+    try:
+        return float(raw)
+    except ValueError:
+        print(
+            f"[scrub-haiku] SCRUB_HAIKU_DAILY_USD={raw!r} is not a number — "
+            f"using the default ${DEFAULT_DAILY_USD:.2f}.",
+            file=sys.stderr,
+        )
+        return DEFAULT_DAILY_USD
+
+
 def repo_author() -> Optional[str]:
     """The name this repo's commits are signed with.
 
@@ -170,7 +292,7 @@ def build_system_prompt() -> str:
     )
 
 
-def call_haiku(diff_content: str) -> int:
+def call_haiku(diff_content: str, range_spec: str = "-") -> int:
     # Keychain first, then the env vars. SCRUB_HAIKU_API_KEY is preferred over
     # ANTHROPIC_API_KEY so this layer can use a key separate from
     # general-purpose Anthropic usage (better audit + isolated billing); the
@@ -219,24 +341,67 @@ def call_haiku(diff_content: str) -> int:
         print(f"[scrub-haiku] API call failed: {e}", file=sys.stderr)
         return 2
 
+    # The call happened, so it is billable whatever the verdict turns out to be.
+    # Record it before interpreting the response — an unparseable answer costs
+    # exactly as much as a clean one, and a ledger that only counts successes
+    # under-reports precisely when something is going wrong.
+    usage = data.get("usage") or {}
+    in_tok = int(usage.get("input_tokens") or 0)
+    out_tok = int(usage.get("output_tokens") or 0)
+    usd = estimate_usd(in_tok, out_tok)
+
     content = data.get("content", [])
+    text = content[0].get("text", "").strip() if content else ""
+
     if not content:
-        print("[scrub-haiku] empty response from Haiku.", file=sys.stderr)
-        return 2
+        verdict, rc = "error-empty-response", 2
+    elif "VERDICT: CLEAN" in text:
+        verdict, rc = "clean", 0
+    elif "VERDICT: LEAKS_FOUND" in text:
+        verdict, rc = "leaks-found", 1
+    else:
+        verdict, rc = "error-unexpected-shape", 2
 
-    text = content[0].get("text", "").strip()
+    now = datetime.datetime.now().astimezone()
+    log_err = record_spend({
+        "ts": now.isoformat(timespec="seconds"),
+        "date": now.strftime("%Y-%m-%d"),
+        "repo": os.path.basename(os.getcwd()),
+        "range": range_spec,
+        "model": MODEL,
+        "diff_chars": len(diff_content),
+        "input_tokens": in_tok,
+        "output_tokens": out_tok,
+        "estimated_usd": round(usd, 6),
+        "verdict": verdict,
+    })
 
-    if "VERDICT: CLEAN" in text:
-        return 0
-    if "VERDICT: LEAKS_FOUND" in text:
+    prior_usd, prior_calls, _ = spent_today()
+    print(
+        f"[scrub-haiku] scan RAN — {verdict}; {in_tok} in / {out_tok} out tokens, "
+        f"~${usd:.4f}. Today: ~${prior_usd:.4f} over {prior_calls} call(s), "
+        f"cap ${daily_cap_usd():.2f}.",
+        file=sys.stderr,
+    )
+    if log_err:
+        print(
+            f"[scrub-haiku] WARNING: could not write the spend ledger "
+            f"({spend_log_path()}): {log_err}. The daily cap is NOT binding "
+            f"until this is fixed.",
+            file=sys.stderr,
+        )
+
+    if rc == 1:
         print("[scrub-haiku] Haiku flagged leaks:", file=sys.stderr)
         for line in text.split("\n"):
             print(f"  {line}", file=sys.stderr)
-        return 1
+    elif verdict == "error-empty-response":
+        print("[scrub-haiku] empty response from Haiku.", file=sys.stderr)
+    elif verdict == "error-unexpected-shape":
+        print("[scrub-haiku] unexpected response shape from Haiku:", file=sys.stderr)
+        print(text, file=sys.stderr)
 
-    print("[scrub-haiku] unexpected response shape from Haiku:", file=sys.stderr)
-    print(text, file=sys.stderr)
-    return 2
+    return rc
 
 
 def get_diff(range_spec: str) -> str:
@@ -262,12 +427,24 @@ def main() -> int:
         print(__doc__)
         return 0
 
+    if "--spend-report" in args:
+        usd, calls, err = spent_today()
+        if err:
+            print(f"[scrub-haiku] COULD NOT READ the spend ledger: {err}")
+            return 2
+        print(f"[scrub-haiku] ledger: {spend_log_path()}")
+        print(f"[scrub-haiku] today: ~${usd:.4f} over {calls} call(s), "
+              f"cap ${daily_cap_usd():.2f}")
+        return 0
+
+    range_spec = "-"
     if "--diff-range" in args:
         idx = args.index("--diff-range")
         if idx + 1 >= len(args):
             print("[scrub-haiku] --diff-range needs a value", file=sys.stderr)
             return 2
-        diff = get_diff(args[idx + 1])
+        range_spec = args[idx + 1]
+        diff = get_diff(range_spec)
     else:
         diff = sys.stdin.read()
 
@@ -281,11 +458,39 @@ def main() -> int:
             file=sys.stderr,
         )
 
-    rc = call_haiku(diff)
+    # Budget gate, checked BEFORE spending anything.
+    cap = daily_cap_usd()
+    spent, calls, ledger_err = spent_today()
+    if ledger_err:
+        print(
+            f"[scrub-haiku] WARNING: could not read the spend ledger "
+            f"({spend_log_path()}): {ledger_err}. Proceeding WITHOUT a budget "
+            f"check — this is not a $0.00 reading, it is an absent one.",
+            file=sys.stderr,
+        )
+    elif spent >= cap:
+        blocking = os.environ.get("SCRUB_HAIKU_BUDGET_BLOCK") == "1"
+        print("", file=sys.stderr)
+        print("=" * 72, file=sys.stderr)
+        print("[scrub-haiku] SCAN DID NOT RUN — daily budget reached.", file=sys.stderr)
+        print(f"  spent today : ~${spent:.4f} over {calls} call(s)", file=sys.stderr)
+        print(f"  daily cap   : ${cap:.2f}  (SCRUB_HAIKU_DAILY_USD)", file=sys.stderr)
+        print(f"  ledger      : {spend_log_path()}", file=sys.stderr)
+        print("", file=sys.stderr)
+        print("  This diff was NOT scanned by Haiku. The regex check still ran,", file=sys.stderr)
+        print("  but the context-aware pass is the one that catches names the", file=sys.stderr)
+        print("  patterns do not know about. Raise the cap for this push with", file=sys.stderr)
+        print("  SCRUB_HAIKU_DAILY_USD=<n>, or review the diff yourself.", file=sys.stderr)
+        print("=" * 72, file=sys.stderr)
+        print("", file=sys.stderr)
+        return 1 if blocking else 0
+
+    rc = call_haiku(diff, range_spec)
     if rc == 2:
         # Setup / API error — don't block the push. Regex check already passed.
         print(
-            "[scrub-haiku] Haiku check unavailable; relying on regex check only.",
+            "[scrub-haiku] SCAN DID NOT RUN — Haiku check unavailable; "
+            "relying on regex check only. This is not a clean verdict.",
             file=sys.stderr,
         )
         return 0

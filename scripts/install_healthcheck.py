@@ -89,14 +89,14 @@ GUARD_INTERVAL = 120
 # liveness check called green on -- see the module docstring in the checker.
 BASE_CHECKS = [
     # --- daemons that must be up and owned by launchd (not by a session) ---
-    {"type": "launchd", "label": "***REMOVED***"},
+    ***REMOVED***
     ***REMOVED***
     # Both spellings, per the fleet rename rule: the job is live under either
     # during the transition and pinning to one produces a false RED.
     ***REMOVED***
                                  ***REMOVED***
     ***REMOVED***
-    {"type": "launchd", "label": "***REMOVED***"},
+    ***REMOVED***
 
     # --- the scheduled half: these have no PID between runs, so check_launchd
     #     would be red at every quiet moment. What they owe us is proof they
@@ -117,7 +117,7 @@ BASE_CHECKS = [
 
     # --- exactly one listener per port: two in different address families
     #     both bind successfully and silently steal each other's traffic ---
-    {"type": "port", "port": 8791, "name": "notion receiver"},
+    ***REMOVED***
     {"type": "port", "port": 8787, "name": "live-feedback"},
     ***REMOVED***
     ***REMOVED***
@@ -125,7 +125,7 @@ BASE_CHECKS = [
     # --- end-to-end paths. The tunnel probe is the only check that proves a
     #     webhook can actually reach the daemon; a local port proves nothing
     #     about what the public hostname routes to. ---
-    {"type": "http", "name": "notion tunnel", "expect": '"status":"ok"',
+    {"type": "http", "name": "notion tunnel", "skip": "notion bridge retired 2026-09-12", "expect": '"status":"ok"',
      ***REMOVED***
     # An expect marker, because without one this passed on ANY non-empty body
     # -- a wrong service on the port, an error page, or a stale static response
@@ -179,7 +179,7 @@ BASE_CHECKS = [
     # http check below instead, which a wedged process fails and an idle one
     # passes; the port check alone would not, since a hung process keeps its
     # socket.
-    {"type": "log_errors", "name": "notion receiver", "max": 3,
+    {"type": "log_errors", "name": "notion receiver", "max": 3, "skip": "notion bridge retired 2026-09-12",
      ***REMOVED***
      "pattern": r'"level":\s*"error"', "window_minutes": 90,
      "max_error_streak": 6},
@@ -188,7 +188,7 @@ BASE_CHECKS = [
     # was down, answered this URL, and the check went GREEN -- a port that
     # replies is not the daemon that is supposed to reply. Notion comments were
     # dropped for an unknown stretch behind a green check.
-    {"type": "http", "name": "notion receiver", "expect": '"status":"ok"',
+    {"type": "http", "name": "notion receiver", "skip": "notion bridge retired 2026-09-12", "expect": '"status":"ok"',
      ***REMOVED***
     # `ignore` covers the broker start race, and nothing else. Every session's
     # MCP server tries to start a broker if one is not already up; when one is,

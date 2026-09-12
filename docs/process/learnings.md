@@ -123,7 +123,8 @@ were idle. So the processes doing the most damage to a thrashing machine are
 exactly the ones RSS renders invisible — an idle hog reads as ~50 MB.
 
 - **For "why is this machine slow", use `top -l 1 -stats pid,ppid,mem,cmprs`**,
-  not `ps rss`. `ps` has no column for compressed footprint at all.
+  not `ps rss`. `ps` has no column for compressed footprint at all. **MEM is the
+  total and CMPRS is part of it** — never add them (see the attribution entry below).
 - **The symptom is systematic, not random.** RSS undercounts idle processes
   specifically, and idle-but-huge is the whole profile of a stale daemon.
 - **Check `PhysMem`/compressor and swap first**: 15G used / 452M unused with
@@ -3053,3 +3054,144 @@ will never name the culprit.
   and channel clients already did, and that is why they were clean.
 - **Watch it:** `~/Library/Logs/socket-watch.csv` logs the count every ~15s. Read the hourly deltas rather than
   the current value. The growth is lumpy, and a flat minute says nothing about the next hour.
+
+## Respawning A Session Kills Its In-Process Teammates, And I Did Not Know That (2026-09-12)
+
+Reported by the Workspaces lead after this morning's fleet restart: *"a fleet respawn of a
+session KILLS that session's in-process teammates. Mine were all killed when you restarted
+me — worktrees and committed work survived, running builders did not. You believed they
+were separate processes; they are not."*
+
+Correct, and it follows from how the Agent tool works: a subagent runs **in-process** to the
+session that dispatched it. It is not a separate `claude` binary with its own PID, so it
+cannot outlive its parent. `respawn.py` kills the parent; every builder that session was
+running dies in the same instant, mid-turn, with no chance to checkpoint.
+
+**Why this was invisible from the team-lead side.** Everything durable survives — the
+worktree is on disk, committed work is in the branch, the board row still says in-progress.
+The only thing lost is the part that never had a file: the builder's context, its half-done
+edit, its in-flight reasoning. So the fleet comes back looking healthy and the cost lands
+entirely inside a peer's session, where the restarter cannot see it.
+
+- **Warn before a restart, and say what specifically to checkpoint.** "Restarting you in N
+  minutes" is not enough if the peer reads it as "save your own work" — its builders are the
+  part that dies, and they are the part it may not think of as its own.
+- **The lead pushes its builders' branches first.** A builder warned of a restart commits but
+  does not push; after the restart it is gone and cannot. Pairs with the existing rule in
+  `workflow-conventions.md` about finding the BRANCH rather than the dirty worktree.
+- **`--mode running` and `--mode all` both do this to every peer they touch.** A fleet-wide
+  respawn is therefore not a cheap operation, and "the fleet was idle" is a judgement about
+  the sessions, not about their subagents.
+- **This is a cost, not a reason never to restart.** It is a reason to ask first and to
+  sequence — restart the peers with nothing running, and give the ones holding builders a
+  window.
+
+Provenance: peer report, corroborated by the in-process design of the Agent tool rather than
+by my own measurement. I have not reproduced the kill directly.
+
+## `etime` Is Measured From Now, So A Reconstructed Start Time Lands Early (2026-09-12)
+
+Asked to prove that two peers filed tasks *after* a fleet restart, I reconstructed the
+restart wave from `ps -o etime=` — elapsed time per process — and put it at ~04:28 PDT.
+The actual wave, from `ps -o lstart=`, was **04:42:28–04:43:25**. Fourteen minutes early.
+
+That gap decided the answer. A peer's task created at **04:37:18** reads as nine minutes
+*after* a 04:28 restart and six minutes *before* a 04:43 one. Same task, same evidence,
+opposite verdict — and the wrong one would have been sent to another agent as proof that
+its fix had taken.
+
+**Why `etime` drifts specifically when you are reasoning.** It is an interval from now, not
+a timestamp, so converting it to a wall-clock start requires knowing what "now" was at the
+instant the command ran. Between running `ps` and doing the subtraction there is a tool
+round-trip, a model turn, and often several minutes of thinking. You then subtract a
+correct interval from a stale "now" and land early by however long you took. The longer you
+deliberate, the wronger the number gets — which is the opposite of how care usually works.
+
+- **`lstart` for any question with the word "before" or "after" in it.** It is an absolute
+  timestamp the kernel recorded; nothing about your reasoning speed can move it.
+- **`etime` is fine for "how long has this been up"** — a duration question, answered by a
+  duration. The failure is only in converting one to the other.
+- **Beware that a plausible reconstruction reads as measurement.** "~04:28, from elapsed
+  time" looks like a fact and is really an inference with your own latency baked in. The
+  fix costs one flag.
+- **Same family as the rest of this file:** an instrument whose output cannot distinguish
+  the case you care about. `etime` cannot tell you when something started; it can only tell
+  you how long ago, which is not the same question once you stop to think.
+
+Prompted by the Workspaces lead after the near-miss: *"elapsed time is measured from now and
+drifts with every minute you spend reasoning… You caught it; the next session will not."*
+
+## Per-Process Memory Attribution On macOS: `top` MEM Is The Footprint, And CMPRS Is Already Inside It (2026-09-12)
+
+Eleven days of `fleet-guard` samples showed the mini in a degraded state **39.7% of
+the time** (2,764 WARN + 434 CRITICAL of 8,055), with swap peaking at **40.98 GB on a
+16 GB machine**. Nothing on the machine could say what took it — which sat directly in
+front of a ~$2,700 hardware decision.
+
+**The trap, which `fleet_guard.py`'s own header already documents: RSS is
+anti-correlated with a memory crisis.** RSS counts *resident* pages, so it FALLS as
+pages move to swap. During the 2026-09-09 incident the summed claude RSS dropped from
+3.6 GB to 1.55 GB while swap climbed to 41 GB. Reading a low RSS at CRITICAL as "the
+sessions were small" is backwards, and it is an easy mistake to make because the
+number looks like exactly the number you want.
+
+**The two dedicated tools refused from inside a sandboxed agent** — each refused a
+plain claude pid owned by the same user:
+
+```
+$ footprint -p <pid>   → "Unable to find pid ... (try as root?)"
+$ vmmap --summary <pid> → "you do not have appropriate privileges ... try `sudo`"
+```
+
+**The same day, `vmmap --summary <pid>` worked on same-user pids from an ordinary
+shell.** So they are unavailable under a sandbox or launchd, not root-only everywhere.
+Use `vmmap` by hand to check a number; keep `top` in anything that runs unattended.
+
+**What works everywhere is `top`:**
+
+```bash
+top -l 1 -n 200 -o mem -stats pid,command,mem,cmprs
+```
+
+**`MEM` is the physical footprint, and it already includes compressed pages.
+`CMPRS` is the part of MEM that is compressed — a subset, never an addend.** Verified
+on twelve processes: MEM matched `vmmap --summary`'s "Physical footprint" to within
+0.5 MB every time (MEM 58M, CMPRS 49M, footprint 58.2M). MEM keeps RISING while RSS
+falls, because it still counts the pages that left under pressure; that is the
+population that can reach swap.
+
+**The first version of this entry and of the script summed MEM + CMPRS, and every
+figure built on it was overstated by the whole compressed total.** A 9.8 GB fleet was
+really ~5.2 GB; per-session MCP cost read ~466 MB against a real ~254 MB; the "25.9 GB
+of demand" snapshot was double-counted. It went into a hosting cost analysis before a
+`vmmap` cross-check caught it. **Before a memory figure drives a decision, check one
+process against `vmmap --summary`.**
+
+What survived the correction (MEM only, 2026-09-12 ~12:00 PT, 17.1 GB total): Chrome
+25%, claude sessions 21%, other 16%, bun MCP servers 14%, Loom 6%. The desktop is still
+about half of demand, and none of that moves to a cloud host.
+
+**Shared code is not in the footprint.** One session's `vmmap` showed ~155 MB of the
+binary's `__TEXT` resident but 0 dirty: file-backed, shared by every session on the
+same version. Activity Monitor's "Real Memory" (RSS) counts that 155 MB in every
+session AND omits compressed pages, so it is wrong in both directions for summing a
+fleet. Its "Memory" column is the footprint.
+
+- **`scripts/attribute_memory.py`** does this, with `--watch` / `--oneline` for a
+  series at the guard's 120-second cadence. It reports `COULD-NOT-SAMPLE` and exits 2
+  if `top` cannot be read — never a zero that reads as "nothing is using memory."
+- **Do not "improve" it by switching to `vmmap` or `footprint`.** Under launchd or
+  a sandbox they refuse, and the totals would silently read as zero. That is the
+  reason it reads `top`.
+- **`top`'s MEM column can be `1.2G`, `812M` or `44928K`** and a trailing `+`/`-`
+  appears on some rows. Parse the unit; a bare `float()` silently mis-scales by 1024×.
+
+## `respawn.py --only` Matches The Display Name Or Path, Not The tmux Session Name (2026-09-12)
+
+`--only peer-alpha` (the tmux session name) matched nothing, because the display name is
+`Peer Alpha` and the session lives in a worktree whose path has no `peer-alpha` in it. The run
+printed the usual `Done.` for the other two targets and never mentioned the one it skipped, so it
+read as a completed three-session respawn. Caught only by checking `session_created` afterwards.
+
+- **Use a path fragment for a worktree session** (`--only <worktree-dir>`), or the display name with spaces.
+- **Dry-run first when `--only` names more than one target** and count the `[only]` lines.

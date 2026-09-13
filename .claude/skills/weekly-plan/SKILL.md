@@ -22,7 +22,7 @@ Every goal has these parts. Lead every block with a **bold brief label**, and ke
 | Due | `- **Due**: <Day> YYYY-MM-DD` | its own bullet |
 | Lead | `- **Lead**: <agent> · <the user's role>` | its own bullet — separate from Due (different info type) |
 | Constraint | `- **Constraint:** <one line>` | **only when a real operating limit exists** (e.g. "agents draft, you send"). Not a place for context. |
-| Key stops | `- **Key stops**` then a **numbered** list, **at most 5** | each stop is `<when> — <what>`, plus one clause of why it has to happen then. These become the workspace tasks (step 9) and the user's Asana tasks (step 11). |
+| Key Outcomes | `- **Key Outcomes**` then a **numbered** list, **at most 5** | each outcome is `<when> — <what>`, plus one clause of why it has to happen then. **Label is `Key Outcomes`** (renamed from `Key stops` by the user, 2026-09-13). These become the workspace tasks (step 9) and the user's Asana tasks (step 11). |
 | Estimated hands-on hours | `- **Estimated hands-on hours:** <derivation>` | **only when the derivation is worth showing** — the baseline-without-agents figure and what his share of it is. Named by him on 2026-08-27; it was previously `Estimate basis`, which described the method rather than the number. The number itself still lives in the title. |
 
 ### There is no Value block — the title carries the value (set 2026-08-17, repeated 2026-08-27)
@@ -35,13 +35,13 @@ The user removed it as wasted space: *"Do you see what I wrote in the goal title
 - **The one exception is a brand-new goal** whose reasoning genuinely will not fit a title. He used exactly this on the goal he added himself, opening it with *"This item is new this week, so wanted to just be more clear about value."* One line, once, on its first week — then it folds into the title.
 - **Whatever the value is, it comes from the record, not from Monday-morning invention.** Carry it forward from the last plan that had the goal, or ask the owning agent. See `feedback_goal_value_is_world_value`.
 
-### Five key stops, and the detail lives in the owning agent's workspace (set 2026-08-17)
+### Five key outcomes, and the detail lives in the owning agent's workspace (set 2026-08-17)
 
 An eleven-item task list under one goal is a task board, not a goal. *"Ultimately, we should have one top level goal here managed in the Team Lead workspace, and then that should branch into multiple subgoals in the [owning agent's] workspace, but we don't need to manage them all the details here."*
 
-- **Ask the owning agent for the stops — don't compose them yourself.** It knows the real sequence and the real dates. Hand it the goal and the deadline; let it come back with ≤5 chunks and where it thinks the deadline is at risk.
-- **Date the stops backwards from the deadline, with any external party's turnaround carved out first.** Review time you don't control is the scarcest resource in the week; a plan dated forwards from what the fleet can finish silently spends it.
-- **Surface the decisions the owning agent needs from the user, at the top of the week rather than on the due date.** A stop that is serialized behind a ten-minute decision is a whole-week risk.
+- **Ask the owning agent for the key outcomes — don't compose them yourself.** It knows the real sequence and the real dates. Hand it the goal and the deadline; let it come back with ≤5 chunks and where it thinks the deadline is at risk.
+- **Date the outcomes backwards from the deadline, with any external party's turnaround carved out first.** Review time you don't control is the scarcest resource in the week; a plan dated forwards from what the fleet can finish silently spends it.
+- **Surface the decisions the owning agent needs from the user, at the top of the week rather than on the due date.** An outcome that is serialized behind a ten-minute decision is a whole-week risk.
 - **Link the owning agent's board rather than mirroring its tasks.** If a detail is not something the user acts on, it does not belong in his plan.
 
 ### Hard length limits — the doc gets leaner over the week, never denser (set 2026-08-17)
@@ -52,11 +52,11 @@ The user had to say this twice in one session, the second time watching it happe
 
 | Element | Limit |
 |---|---|
-| Whole goal body (everything under the `###` title) | **≤ 10 lines** — Due, Lead, an optional Constraint, the `Key stops` label, and at most 5 stops. **No other blocks.** |
-| A key stop | **one line, ≤ 25 words** — `<when> — <what>`, plus at most one short clause of why |
+| Whole goal body (everything under the `###` title) | **≤ 10 lines** — Due, Lead, an optional Constraint, the `Key Outcomes` label, and at most 5 outcomes. **No other blocks.** |
+| A key outcome | **one line, ≤ 25 words** — `<when> — <what>`, plus at most one short clause of why |
 | Constraint | **one line**, and only when a real operating limit exists |
 | Committed-vs-capacity header | **one or two sentences** — the totals and the single biggest structural risk |
-| Key stops per goal | **≤ 5** |
+| Key Outcomes per goal | **≤ 5** |
 
 **The failure mode is relaying, not writing.** Every over-long block in this doc came from a peer sending good analysis and it being pasted in. A peer's reasoning is for the thread; only its **conclusion** belongs in the plan. When an agent sends three paragraphs on why a date moved, the plan gets the moved date and the thread gets the paragraphs — never both.
 

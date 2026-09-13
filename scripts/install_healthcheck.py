@@ -90,7 +90,7 @@ GUARD_INTERVAL = 120
 # Log rotation. rotate_fleet_logs.py existed and was proven against a live
 # writer, but nothing ran it, so every log was back to growing without bound
 # the moment the manual run finished. A policy with no schedule is not a
-# policy. Daily, off-hours, keep 3 generations (Bryan's call, 2026-09-12).
+# policy. Daily, off-hours, keep 3 generations.
 ROTATE_LABEL = "com.fryanpan.fleet-log-rotate"
 ROTATE_PLIST = os.path.join(HOME, "Library", "LaunchAgents", f"{ROTATE_LABEL}.plist")
 ROTATE_DEST = os.path.join(STATE_DIR, "rotate_fleet_logs.py")

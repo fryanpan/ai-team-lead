@@ -31,6 +31,7 @@ import sys
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(REPO, "scripts", "fleet_healthcheck.py")
 GUARD_SRC = os.path.join(REPO, "scripts", "fleet_guard.py")
+ROTATE_SRC = os.path.join(REPO, "scripts", "rotate_fleet_logs.py")
 REGISTRY = os.path.join(REPO, "registry.yaml")
 
 HOME = os.path.expanduser("~")
@@ -86,6 +87,16 @@ GUARD_LABEL = "com.fryanpan.fleet-guard"
 GUARD_PLIST = os.path.join(HOME, "Library", "LaunchAgents", f"{GUARD_LABEL}.plist")
 GUARD_INTERVAL = 120
 
+# Log rotation. rotate_fleet_logs.py existed and was proven against a live
+# writer, but nothing ran it, so every log was back to growing without bound
+# the moment the manual run finished. A policy with no schedule is not a
+# policy. Daily, off-hours, keep 3 generations.
+ROTATE_LABEL = "com.fryanpan.fleet-log-rotate"
+ROTATE_PLIST = os.path.join(HOME, "Library", "LaunchAgents", f"{ROTATE_LABEL}.plist")
+ROTATE_DEST = os.path.join(STATE_DIR, "rotate_fleet_logs.py")
+ROTATE_HOUR, ROTATE_MINUTE = 4, 10
+ROTATE_KEEP = 3
+
 # Every check below asserts an END STATE. Each maps to a specific outage that a
 # liveness check called green on -- see the module docstring in the checker.
 BASE_CHECKS = [
@@ -115,6 +126,8 @@ BASE_CHECKS = [
 
     {"type": "launchd_ran", "label": "com.fryanpan.fleet-guard",
      "why": "nothing would notice a downed loop between hourly checks"},
+    {"type": "launchd_ran", "label": "com.fryanpan.fleet-log-rotate",
+     "why": "the logs would silently go back to growing without bound"},
 
     # --- exactly one listener per port: two in different address families
     #     both bind successfully and silently steal each other's traffic ---
@@ -469,6 +482,7 @@ def main():
 
     shutil.copy2(SRC, DEST)
     shutil.copy2(GUARD_SRC, GUARD_DEST)
+    shutil.copy2(ROTATE_SRC, ROTATE_DEST)
     os.chmod(DEST, 0o755)
     print(f"deployed checker -> {DEST}")
 
@@ -562,6 +576,30 @@ def main():
         print(f"guard bootstrap FAILED: {r.stderr.strip()}", file=sys.stderr)
         return 1
     print(f"scheduled {GUARD_LABEL} every {GUARD_INTERVAL}s")
+
+    rotate_plist = {
+        "Label": ROTATE_LABEL,
+        "ProgramArguments": ["/usr/bin/python3", ROTATE_DEST, "--apply",
+                             "--keep", str(ROTATE_KEEP)],
+        "StartCalendarInterval": [{"Hour": ROTATE_HOUR, "Minute": ROTATE_MINUTE}],
+        "StandardOutPath": os.path.join(HOME, "Library/Logs/fleet-log-rotate.log"),
+        "StandardErrorPath": os.path.join(HOME, "Library/Logs/fleet-log-rotate.log"),
+        "EnvironmentVariables": {
+            "HOME": HOME,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+        },
+    }
+    with open(ROTATE_PLIST, "wb") as f:
+        plistlib.dump(rotate_plist, f)
+    subprocess.run(["launchctl", "bootout", f"gui/{uid}/{ROTATE_LABEL}"],
+                   capture_output=True)
+    r = subprocess.run(["launchctl", "bootstrap", f"gui/{uid}", ROTATE_PLIST],
+                       capture_output=True, text=True)
+    if r.returncode:
+        print(f"rotate bootstrap FAILED: {r.stderr.strip()}", file=sys.stderr)
+        return 1
+    print(f"scheduled {ROTATE_LABEL} daily at "
+          f"{ROTATE_HOUR:02d}:{ROTATE_MINUTE:02d}, keep {ROTATE_KEEP}")
     return 0
 
 

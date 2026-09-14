@@ -402,18 +402,26 @@ def main() -> int:
         r = run([leaky], registry, denylist)
         expect("catches a private registry project name", r.returncode, 1, r.stderr)
 
-        r = run([denied], registry, denylist)
+        # The denylist is only enforced when the pushing repo is public, and
+        # "which repo" is resolved from cwd. Inherit the host's cwd and these
+        # cases pass in a public host and fail in a private one, so a copy of
+        # this gate blocks every push there. Run them outside any repo, where
+        # the visibility is unknown and unknown means enforce.
+        outside = os.path.join(tmp, "outside-any-repo")
+        os.makedirs(outside, exist_ok=True)
+
+        r = run([denied], registry, denylist, cwd=outside)
         expect("catches a denylist pattern", r.returncode, 1, r.stderr)
 
-        r = run([rx_both], registry, denylist)
+        r = run([rx_both], registry, denylist, cwd=outside)
         expect("catches a /regex/ denylist pattern", r.returncode, 1, r.stderr)
 
-        r = run([rx_open], registry, denylist)
+        r = run([rx_open], registry, denylist, cwd=outside)
         expect("catches a /regex denylist pattern", r.returncode, 1, r.stderr)
 
         # Negative control: without this the two above would also pass if the
         # parser degraded into matching everything.
-        r = run([rx_near], registry, denylist)
+        r = run([rx_near], registry, denylist, cwd=outside)
         expect("a /regex/ pattern still respects its word boundary", r.returncode, 0, r.stderr)
 
         # public: true must suppress. Without this the gate fires on nearly

@@ -25,6 +25,7 @@ Cross-project team-lead and management toolkit. Two roles: **Team Lead** handles
 - **Never edit files in other project repos.** Propose via `gh pr create --repo <repo>`, or delegate to the owning agent. The GitHub MCP is unreliable for private and new repos — use `gh`.
 - **Always read from the main worktree** at `~/dev/{project}`. Feature-branch worktrees may hold in-progress work.
 - **`ai-team-lead` is PUBLIC.** No project names in commit messages, PR descriptions, or code comments — use `registry: add new project`, never the name. PR descriptions cover what changed in *this* repo only.
+- **Never subscribe to another agent's board or docs.** No `attach_agent`, `watch_doc` or `subscribe: true` on anything outside the Team Lead board, and unwatch any that slip in (`list_watched_docs` shows them). Every event from another board costs a full-context turn and is never Team Lead's to answer. When you need something from another board, read it once (`get_doc`, `get_thread`, `list_tasks`) or message its lead. Bryan, 2026-09-14: *"You do not need to know immediately."*
 - **When creating or editing a skill**, follow `superpowers:writing-skills` plus `plugin/team-lead-fleet/rules/skill-authoring.md`.
 
 ## Agent lifecycle — lean fleet

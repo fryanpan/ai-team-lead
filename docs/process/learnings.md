@@ -3195,3 +3195,21 @@ read as a completed three-session respawn. Caught only by checking `session_crea
 
 - **Use a path fragment for a worktree session** (`--only <worktree-dir>`), or the display name with spaces.
 - **Dry-run first when `--only` names more than one target** and count the `[only]` lines.
+
+## `delete_blocks_in_range` deletes the whole LIST, not the list items (2026-09-13)
+
+A goal's bullets (Due, Lead, Value, Constraint, Key Outcomes and their children) are ONE top-level list block. Passing two nested bullets as `startFind`/`endFind` deleted the entire goal body, not the two lines. It was restored from a copy read minutes earlier. For a line inside a list, use `find_and_replace` on the text, or re-insert the whole list. Read the file back after any block-level delete.
+
+## A research session stops searching at 200 web searches, and the cap is an env var (2026-09-13)
+
+- **Symptom:** a peer's research workflows silently lose web search mid-run ("200/200"), and later topics fall back to sources the model already knows.
+- **Fix:** `CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION` (confirmed present in the Claude Code binary). Put it under `env` in that project's untracked `.claude/settings.local.json`, then cycle the one session with `respawn.py --mode running --only <name> --execute`. `--continue` keeps its context.
+- **Verify from inside:** have the peer `echo` the variable in Bash. A process-table grep proves nothing, because settings env is applied inside the process.
+
+## Counting activity from `~/.claude/projects` transcripts overcounts (2026-09-14)
+
+A scan of transcript dirs reported 6–18 active projects a week. A peer's re-check filtered it to 7–13. Three causes:
+
+- **One session appears in several project dirs.** A session that works in scratchpad subfolders gets a transcript copy under each folder's encoded path. Dedupe by session id, not by directory.
+- **Reading only a line's first few KB loses its timestamp.** On large assistant lines the timestamp comes after the body, so a fixed-size read drops them. Parse the whole line.
+- **Cron-prompt turns are not work, and the live store ages out.** Exclude scheduled-prompt turns. Don't read a missing early month as zero.

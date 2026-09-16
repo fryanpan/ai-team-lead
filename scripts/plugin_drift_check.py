@@ -343,6 +343,23 @@ def ref_tree(plugin_dir, ref):
         pass
 
 
+def ref_manifest_version(plugin_dir, ref):
+    """The plugin version as of `ref`, or None if it cannot be read.
+
+    The working tree's manifest is NOT what ships. A clone can sit many commits
+    behind its own origin/main — checked out at an old release, or just never
+    pulled — and reading the version from disk then reports the checkout's age
+    as though it were the deployed state. Read it from the ref being compared.
+    """
+    try:
+        root = sh(["git", "rev-parse", "--show-toplevel"], cwd=plugin_dir).strip()
+        rel = os.path.relpath(
+            os.path.join(plugin_dir, ".claude-plugin", "plugin.json"), root)
+        return json.loads(sh(["git", "show", f"{ref}:{rel}"], cwd=plugin_dir)).get("version")
+    except Exception:
+        return None
+
+
 def check_plugin(marketplace, plugin, plugin_dir, manifest_ver, quiet, ref=None):
     """Returns 0 ok / 1 drift / 2 cannot check. Prints its own findings."""
     label = f"{plugin}@{marketplace}"
@@ -359,6 +376,15 @@ def check_plugin(marketplace, plugin, plugin_dir, manifest_ver, quiet, ref=None)
 
     problems = []
 
+    repo_files = None
+    if ref:
+        repo_files, _ = ref_tree(plugin_dir, ref)
+        if repo_files is None:
+            print(f"[drift] {label}: CANNOT CHECK — {plugin_dir} has no readable "
+                  f"{ref}. Fetch the repo, then re-run.")
+            return 2
+        manifest_ver = ref_manifest_version(plugin_dir, ref) or manifest_ver
+
     if manifest_ver and installed_ver and manifest_ver != installed_ver:
         if semver_key(installed_ver) > semver_key(manifest_ver):
             print(f"[drift] {label}: CANNOT CHECK — the installed copy is "
@@ -371,23 +397,7 @@ def check_plugin(marketplace, plugin, plugin_dir, manifest_ver, quiet, ref=None)
             f"VERSION MISMATCH — repo says {manifest_ver}, installed is {installed_ver}")
 
     cache_files = tree(cache)
-    if ref:
-        repo_files, ref_root = ref_tree(plugin_dir, ref)
-        if repo_files is None:
-            print(f"[drift] {label}: CANNOT CHECK — {plugin_dir} has no readable "
-                  f"{ref}. Fetch the repo, then re-run.")
-            return 2
-        # A manifest version read from the working tree is not what ships.
-        try:
-            manifest_ver = json.loads(sh(
-                ["git", "show", f"{ref}:" + os.path.relpath(
-                    os.path.join(plugin_dir, ".claude-plugin", "plugin.json"),
-                    sh(["git", "rev-parse", "--show-toplevel"],
-                       cwd=plugin_dir).strip())],
-                cwd=plugin_dir)).get("version") or manifest_ver
-        except Exception:
-            pass
-    else:
+    if repo_files is None:
         repo_files = tree(plugin_dir)
     changed = sorted(k for k in repo_files.keys() & cache_files.keys()
                      if repo_files[k] != cache_files[k])

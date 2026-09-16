@@ -680,7 +680,7 @@ def metered_spend_line(days=30, fleet_match="fleet"):
     Workspace-level, not per-key. Per-key dollars do not exist in the Admin
     API -- the usage report gives per-key tokens with no money, the cost report
     gives money grouped only by workspace or description. Bryan chose this
-    surface on 2026-09-16 (task t-DZaQZejwJ-lQ).
+    surface on 2026-09-16.
     """
     try:
         import fleet_spend_monitor as fsm

@@ -44,6 +44,21 @@ Every peer watching a doc receives the same `thread.created` event, and each one
 - **That is not a pause.** Pick up the next task immediately — you are leaving a row open, not waiting on an answer.
 - **A thread he resolved is not an artifact that is ready.** Resolving is the cheapest signal a person can send — one click, no content — and he often keeps editing for an hour afterwards. Read the file before you report the state. Measured 2026-09-04: this produced two wrong "ready to send" claims in one day.
 
+## An answer that defers without a date leaves nothing behind
+
+An ask answered with "snooze until next Tuesday", "wait a week", "defer for a month", "we can defer" or
+"not until signed" is closed as far as the answerer is concerned, and still sits in `todo` looking live.
+Nothing brings it back. Measured 2026-09-16 on one board: **five in a row, none with a date armed**, the
+oldest four days past the day it named.
+
+- **When an answer defers, arm the schedule in the same turn.** The answer is not complete until the row
+  has a date on it; treat a dateless deferral the way you would treat a task with no owner.
+- **Where the answer names no date, say so on the row.** A derived date is fine — a derived date recorded
+  as the user's is not. Write what they said and what you inferred from it as two separate facts. On that
+  same board a reasonable Dec 1 stood where the user had named nothing, and was reported upward as his.
+- **This is the mirror of "an answer closes an item and the new wait lands nowhere."** Both come from
+  treating the reply as the end of the exchange. Ask what the row is waiting for now, every time.
+
 ## A workspace URL is not a durable address
 
 **The review URL embeds a workspace id that changes when the workspace is recreated.** Every link written against the old one dies silently — no error, no redirect, dead for you as well as the reader.
@@ -56,3 +71,41 @@ Every peer watching a doc receives the same `thread.created` event, and each one
 **Anything matching on the channel source must accept `source="live-feedback"` AND `source="claude-workspaces"`.** A session emits the new string only once restarted onto the new bundle, so respawned and un-respawned peers coexist. A matcher keyed to one spelling goes silently deaf to half the fleet, indistinguishable from nobody having commented. **Match on the presence of `doc_id` / `thread_id` instead** where you can; those did not change.
 
 Same for anything else keyed to the old name: tool prefix `mcp__plugin_claude-workspaces_claude-workspaces__*`, skills `claude-workspaces:*`, install key `claude-workspaces@claude-workspaces`. Env vars gain `CW_*`; old `FEEDBACK_*` / `LF_*` spellings are permanently dual-read.
+
+## An ask written as prose is invisible to every queue
+
+A question you write into a doc's **body** is not an item. It does not reach `needs:`, the idle nudge or the
+stalled nudge — not because a filter is wrong, but because there is nothing filed for them to return. The doc
+looks answered, the row looks healthy, and the question sits in prose the user has already scrolled past.
+
+Measured 2026-09-16 on one board: a question put into a review doc's body on 09-04 went **12 days unread**,
+and the email it was gating was still unsent when the audit found it. The same sweep found the sibling case —
+a comment on a row carrying a `schedule` field, invisible for the same reason from the other direction.
+
+- **If you need an answer, file a review item.** Prose is for the deliverable; the queue is for the ask. A
+  paragraph beginning "should we…" inside a doc body is the failure, however clearly it is written.
+- **A doc the user has already reviewed is the worst place to add a question.** Resolution is the signal they
+  have stopped reading; anything added after it needs its own item to be seen at all.
+- **Check both directions when you audit.** "What am I waiting on from them" is the easy half. "What did they
+  ask me that I never closed" is the half that ages invisibly, and neither detector covers it.
+
+**Three kinds of row are invisible to every status-keyed detector**, and they share one cause — the detector
+keys on the row's state, and none of these states is "has an unanswered question":
+
+1. **A row carrying a `schedule` field.** `keep-moving.ts` buckets it as `scheduled-rule` *before* any ask
+   branch, so `blocked-on-owner-unfiled` is unreachable for it. Correct for dispatch, wrong for asks.
+2. **A row already marked done.** The user uses closed rows for follow-ups, and a comment on one is as
+   unreachable as a comment on a rule.
+3. **A question written as prose**, per above — nothing is filed, so there is nothing to return.
+
+**Enumerate them from the plugin's own on-disk index rather than by sweeping the board.** Each doc has
+`~/Library/Application Support/claude-workspaces/data/task:<taskId>.index.json` carrying
+`threads: {open, total}` and `lastThreadActivityAt`. Filter to rows with an open thread and you pay
+`list_threads` only on those — one board went 25 rows to 4. Three things to get right:
+
+- **`lastThreadActivityAt` is epoch milliseconds**, not an ISO string, and it is absent on rows that never
+  had a thread.
+- **The index carries no status, no schedule and a placeholder title.** Join against your own board's task
+  list; the directory is machine-wide, so an unjoined sweep reads other boards' rows.
+- **Quiet time is not unanswered time.** The timestamp moves for an agent reply too, so it ranks candidates;
+  reading the last comment's author is still what identifies an ask.

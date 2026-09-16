@@ -13,6 +13,12 @@ Two resolution modes exist on this machine at once:
 - **Source-resolved** — the session runs the plugin straight out of the repo checkout. An edit is live at that session's next SessionStart. No version bump, no `claude plugin update`.
 - **Cache-resolved** — the session runs a version-keyed copy under `~/.claude/plugins/cache/`. `claude plugin update` skips that copy when the version is unchanged, so edits reach it only after a version bump.
 
+## Settled 2026-09-15: the fleet is cache-resolved, uniformly
+
+The marketplace moved from the local directory `~/dev/ai-team-lead/plugin` to the GitHub repo `fryanpan/ai-team-lead`. There is no source-resolved path any more — every session reads a version-keyed copy under `~/.claude/plugins/cache/`, so **a version bump is always required** and an edit in the working tree reaches nobody until it is merged to `main` and pulled.
+
+The probe below is kept because it is the way to confirm what a peer actually loaded, and because a peer can still be running an older cached version. But its two-modes framing is history: the answer to "which mode" is now always cache-resolved.
+
 ## The rule
 
 **Determine resolution mode before you decide what shipping requires — and confirm delivery from a peer's own injected context, never from the repo.**

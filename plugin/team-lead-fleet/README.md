@@ -22,8 +22,15 @@ Each project picks ONE ship skill via a line in its `CLAUDE.md`:
 - `team-lead-fleet:writing-editor` — an **on-demand** fresh context for an involved document (long, external-facing, or written at the tail of an already-loaded session). Not a mandatory handoff: routine docs get written inline, because `communication.md` travels with every agent. Dispatch this when a doc is worth its own clean context. Plugin agents are namespaced — the `subagent_type` is `team-lead-fleet:writing-editor`, not `writing-editor`.
 - `team-lead-fleet:writing-reviewer` — an **on-demand** harsh reader-simulator. Given a drafted doc plus its audience and purpose, it reads *as that reader* (stating the knowledge model it assumes), then reports comprehension gaps and whether the doc satisfies its stated purpose — what works and what doesn't, ranked, with a blunt verdict. Fresh context on purpose: it can't have the writer's curse of knowledge. `writing-editor` requests it for involved docs; any caller can too.
 
-### Output style (forced for every session with the plugin enabled)
-- `output-styles/plain.md` → `team-lead-fleet:Plain` — the built-in `Concise` style plus the anti-mannered-prose definition from the Fable 5.1 prompting guide and eight one-line checks drawn from `communication.md`. `force-for-plugin: true` makes it the active style everywhere the plugin is enabled, which is why no per-project `outputStyle` setting is needed — and also why `/output-style` cannot override it. Drop that one frontmatter line to make it selectable instead of forced.
+### Output style (selectable — set it in user settings)
+- `output-styles/plain.md` → `team-lead-fleet:Plain` — the built-in `Concise` style plus the anti-mannered-prose definition from the Fable 5.1 prompting guide and eight one-line checks drawn from `communication.md`. It is **not** forced: turn it on once, user-wide, and every session that does not override it picks it up.
+
+```jsonc
+// ~/.claude/settings.json
+{ "outputStyle": "team-lead-fleet:Plain" }
+```
+
+  A project's own `.claude/settings.local.json` wins over that, so clear or update any `outputStyle` key there. `/output-style` writes to that local file, which is why picking a style in one session does not leak to the others.
 
 ### Rules (alwaysApply — injected at SessionStart via hook)
 - `claude-hive-peer.md` — peer protocol (set_summary, list_peers, send_message via to_stable_id, /compact after task close)
@@ -46,7 +53,14 @@ Each project picks ONE ship skill via a line in its `CLAUDE.md`:
 }
 ```
 
-The marketplace lives at `~/dev/ai-team-lead/plugin/.claude-plugin/marketplace.json`. Each peer needs the marketplace registered once (Claude Code remembers it across sessions).
+The marketplace is the GitHub repo itself — `.claude-plugin/marketplace.json` at the root of `fryanpan/ai-team-lead`. Register it once per machine:
+
+```bash
+claude plugin marketplace add fryanpan/ai-team-lead
+claude plugin install team-lead-fleet@team-lead-fleet
+```
+
+It used to be the local directory `~/dev/ai-team-lead/plugin`, which meant every session read whatever branch that checkout happened to be on. A feature branch in the team-lead's own repo silently changed what the whole fleet loaded.
 
 ### Repos where you can't commit the enable
 
@@ -75,7 +89,12 @@ Worth stating plainly: this is per-machine and per-clone, so it doesn't survive 
 
 ## Updating
 
-Skills + rules update on the next session start (hook re-reads files). For a running session, `/reload-plugins` picks up the latest.
+Every session now reads a version-keyed copy under `~/.claude/plugins/cache/`, so a change reaches the fleet in four steps and skipping any one of them is a silent no-op:
+
+1. Bump the version in **both** `plugin/team-lead-fleet/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`.
+2. Merge to `main` and push. `claude plugin update` keys on the version, not the content.
+3. `claude plugin marketplace update team-lead-fleet && claude plugin update team-lead-fleet@team-lead-fleet`.
+4. Restart each session, or `/clear` or `/compact` it. A session reads the cache at startup.
 
 ## Project-specific overrides
 
@@ -83,4 +102,4 @@ Project-specific skills/rules stay in the project's own `.claude/skills/` and `.
 
 ## Source of truth
 
-Plugin source lives in `~/dev/ai-team-lead/plugin/team-lead-fleet/`. Changes there propagate fleet-wide on next session start — no PRs per project.
+Plugin source lives in `~/dev/ai-team-lead/plugin/team-lead-fleet/` and ships through `main` on GitHub. Editing the working tree changes nothing for the fleet until the four steps under **Updating** run — which is the point: the fleet follows `main`, not whatever the team-lead is mid-edit on.

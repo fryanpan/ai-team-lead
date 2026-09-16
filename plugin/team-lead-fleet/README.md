@@ -22,6 +22,9 @@ Each project picks ONE ship skill via a line in its `CLAUDE.md`:
 - `team-lead-fleet:writing-editor` — an **on-demand** fresh context for an involved document (long, external-facing, or written at the tail of an already-loaded session). Not a mandatory handoff: routine docs get written inline, because `communication.md` travels with every agent. Dispatch this when a doc is worth its own clean context. Plugin agents are namespaced — the `subagent_type` is `team-lead-fleet:writing-editor`, not `writing-editor`.
 - `team-lead-fleet:writing-reviewer` — an **on-demand** harsh reader-simulator. Given a drafted doc plus its audience and purpose, it reads *as that reader* (stating the knowledge model it assumes), then reports comprehension gaps and whether the doc satisfies its stated purpose — what works and what doesn't, ranked, with a blunt verdict. Fresh context on purpose: it can't have the writer's curse of knowledge. `writing-editor` requests it for involved docs; any caller can too.
 
+### Output style (forced for every session with the plugin enabled)
+- `output-styles/plain.md` → `team-lead-fleet:Plain` — the built-in `Concise` style plus the anti-mannered-prose definition from the Fable 5.1 prompting guide and eight one-line checks drawn from `communication.md`. `force-for-plugin: true` makes it the active style everywhere the plugin is enabled, which is why no per-project `outputStyle` setting is needed — and also why `/output-style` cannot override it. Drop that one frontmatter line to make it selectable instead of forced.
+
 ### Rules (alwaysApply — injected at SessionStart via hook)
 - `claude-hive-peer.md` — peer protocol (set_summary, list_peers, send_message via to_stable_id, /compact after task close)
 - `communication.md` — the overriding standard for anything written for a reader (chat, docs, comments, email): pin the exact audience & purpose, size length and format to them, be honest about measured vs. inferred vs. assumed.

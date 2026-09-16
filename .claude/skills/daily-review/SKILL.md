@@ -1,6 +1,6 @@
 ---
 name: daily-review
-description: Status pass — where are we, what's next. Trigger when the user asks for "daily review", "what to work on", "what to focus on", "where are we", or any near-equivalent. ALSO runs automatically every morning before the user wakes (team-lead daily cron) to produce the day's status + hit list and sync the user's Asana task list. Reviews peer transcripts + hive messages + open PRs + the weekly plan, asks each agent for context where needed, then writes a prioritized review doc to `.claude/reviews/YYYY-MM-DD.md` under live-feedback.
+description: Status pass — where are we, what's next. Trigger when the user asks for "daily review", "what to work on", "what to focus on", "where are we", or any near-equivalent. ALSO runs automatically every morning before the user wakes (team-lead daily cron) to produce the day's status + hit list. Reviews peer transcripts + hive messages + open PRs + the weekly plan, asks each agent for context where needed, then writes a prioritized review doc to `.claude/reviews/YYYY-MM-DD.md` under live-feedback.
 user-invocable: true
 ---
 
@@ -8,7 +8,7 @@ user-invocable: true
 
 The intra-day "where are we, what's next" pass. Pulls signal from across the fleet, asks agents for clarification where the transcript isn't enough, and writes a single dated file under live-feedback so the user can comment/edit on it from anywhere.
 
-**Output:** `.claude/reviews/YYYY-MM-DD.md` (gitignored). One file per day. Brought under live-feedback via `create_review_doc` so the user can leave anchored comments and edit inline. On the automated morning run, the output also includes the user's Asana task list synced to today's hit list (see `## Automated morning run`).
+**Output:** `.claude/reviews/YYYY-MM-DD.md` (gitignored). One file per day. Brought under live-feedback via `create_review_doc` so the user can leave anchored comments and edit inline.
 
 ## Triggers
 
@@ -28,15 +28,10 @@ Each morning the team-lead's daily cron runs this skill automatically so the use
 
 1. **Frame the output as a status + today's hit list** — the doc leads with where things stand after overnight, then the 2–4 things worth doing *today* (drawn from the committed weekly goals + whatever is newly unblocked or now needs the user).
    - **Order the hit list by goal priority, always.** Set by him on 2026-08-27, after he reordered it himself: *"Hit list should always be in order of goal priority."* Not by size, not by what is quickest, not by the order you discovered them. If your order and the plan's goal numbering disagree, that is a signal the numbering is stale — say so rather than silently picking one.
-2. **Sync the user's Asana so today's tasks match today's hit list.** Asana is the user's primary task surface (populated by `weekly-plan`).
-   - Mark done any task whose work actually shipped overnight (peer summary / merged PR confirms it) via `asana_update_task completed=true`.
-   - Make sure today's hit-list items are the tasks dated today; **shift other tasks for the week to later days** as needed so today isn't overloaded (respect the weekly Capacity block — don't cram).
-   - Add any newly-surfaced must-do that needs the user: short imperative name, dated today, 1-line note + link. Keep the day's list short and doable.
-   - **Leave alone:** family/others' tasks (shared volunteer and family projects) and the user's Medical self-care items.
-   - Asana reference: workspace `ASANA_WORKSPACE_GID` · project "Bryan's Projects" `ASANA_PROJECT_GID` · Bryan (assignee) `ASANA_ASSIGNEE_GID` · non-premium → use `asana_get_tasks`, not `search_tasks`.
+2. **Do NOT touch Asana.** Removed 2026-09-16 on the user's instruction: *"Stop the Asana syncs. It's duplicating stuff that's on the workspaces."* The workspace boards and his Home review queue are the task surface; a mirrored Asana list was a second copy of the same asks, and two surfaces meant two places for the same thing to go stale. Do not create, re-date, complete or reword Asana tasks, and do not read Asana to build the hit list — take it from the weekly plan and the boards.
 3. **Send one morning push** — `PushNotification`: `"Good morning — today: <2–4 hit-list items>."` Nothing else unless something genuinely can't wait (then flag it in the push).
 
-Keep it cheap and otherwise silent. The review doc + the synced Asana list ARE the morning communication — don't also message the user separately. Still surface the review URL first (step 6) in-session for when the user checks.
+Keep it cheap and otherwise silent. The review doc IS the morning communication — don't also message the user separately. Still surface the review URL first (step 6) in-session for when the user checks.
 
 ## Say it out loud when the week is going off track (set 2026-08-17)
 

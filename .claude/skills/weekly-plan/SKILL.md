@@ -22,7 +22,7 @@ Every goal has these parts. Lead every block with a **bold brief label**, and ke
 | Due | `- **Due**: <Day> YYYY-MM-DD` | its own bullet |
 | Lead | `- **Lead**: <agent> · <the user's role>` | its own bullet — separate from Due (different info type) |
 | Constraint | `- **Constraint:** <one line>` | **only when a real operating limit exists** (e.g. "agents draft, you send"). Not a place for context. |
-| Key Outcomes | `- **Key Outcomes**` then a **numbered** list, **at most 5** | each outcome is `<when> — <what>`, plus one clause of why it has to happen then. **Label is `Key Outcomes`** (renamed from `Key stops` by the user, 2026-09-13). These become the workspace tasks (step 9) and the user's Asana tasks (step 11). |
+| Key Outcomes | `- **Key Outcomes**` then a **numbered** list, **at most 5** | each outcome is `<when> — <what>`, plus one clause of why it has to happen then. **Label is `Key Outcomes`** (renamed from `Key stops` by the user, 2026-09-13). These become the workspace tasks (step 9). |
 | Estimated hands-on hours | `- **Estimated hands-on hours:** <derivation>` | **only when the derivation is worth showing** — the baseline-without-agents figure and what his share of it is. Named by him on 2026-08-27; it was previously `Estimate basis`, which described the method rather than the number. The number itself still lives in the title. |
 
 ### There is no Value block — the title carries the value (set 2026-08-17, repeated 2026-08-27)
@@ -138,7 +138,6 @@ Mechanics:
    - List every goal whose sub-outcomes aren't all checked OR that's part of a multi-week sequence.
    - Seed them into a `## Candidate goals (carry-over)` section of the new doc, preserving title/due/estimate. Mark explicitly as `(carry-over)`.
    - **Check the carry-over against evidence, don't just re-list it.** A goal can look untouched on the page and have absorbed most of the week — see `## Reviewing why a week slipped` below.
-   - **Also review the user's current Asana task list** (Asana reference in step 11): incomplete tasks assigned to him are carry-over candidates too, and note the stragglers to clean up — complete what's actually done, defer/reschedule what's stale — once the new plan is set. Skip family/others' tasks and Medical self-care items.
 
 3. **Surface new candidate goals.**
    - Pull from: this week's open PRs across the fleet (`gh pr list` per repo), peer summaries (`list_peers` + recent transcripts), open tasks and decisions already on the workspace board, anything the user said this week that sounded like a commitment.
@@ -182,12 +181,7 @@ Mechanics:
     - Message each peer that leads a committed goal via claude-hive `send_message`: the goal, its due date, and its dependencies. Goal and context only — no prescriptive checklists, no "report back when done" (`feedback_delegating_to_peers`, `feedback_dont_wire_in_status_reports`).
     - Spin up any owning agent that isn't running; spin it back down when its task is done.
 
-11. **Refresh the user's own Asana day list.**
-    - **Asana remains the user's personal "what do I work on today" surface.** The workspace board carries the team's work; Asana carries his. Keep them from drifting — every Asana task should trace to a committed goal.
-    - For each ✅ goal, create short, doable Asana tasks: imperative name, assigned to the user, `due_on` a day that has capacity — spread across the week per the Capacity block, don't pile onto one day — and a 1-line note with the relevant link.
-    - **Reconcile, don't duplicate.** Update/complete tasks that already exist; delete tasks belonging to dropped goals; clean up the stragglers flagged in step 2.
-    - **Leave alone:** family/others' tasks (shared volunteer and family projects) and the user's Medical self-care items.
-    - **Asana reference:** workspace Octoturtle `ASANA_WORKSPACE_GID` · project "Bryan's Projects" `ASANA_PROJECT_GID` · Bryan (assignee) `ASANA_ASSIGNEE_GID`. Non-premium plan → use `asana_get_tasks` (`search_tasks` is gated). The `daily-review` skill keeps this list current each morning.
+11. **Do NOT mirror the plan into Asana.** Removed 2026-09-16 on the user's instruction: *"Stop the Asana syncs. It's duplicating stuff that's on the workspaces."* The committed goals go onto the workspace board (step 9) and anything needing him becomes a review item on his Home queue. That is the whole surface. Asana held a parallel copy of the same asks, which meant every change had two places to be made and one place to be forgotten.
 
 ## What to avoid
 
@@ -223,7 +217,7 @@ The bullets below are for reading its output, not for producing your own:
 Once the plan is set, this doc is the team's shared anchor for the week:
 - Team Lead is auto-subscribed from `create_review_doc` — the user's comments fire as channel events on the doc's threads.
 - The `daily-review` skill writes a fresh `.claude/reviews/YYYY-MM-DD.md` each day; it pulls the goal list from this doc to anchor priority order.
-- **The workspace board carries the team's tasks**; Asana carries the user's own day list. The `daily-review` skill re-syncs Asana every morning.
+- **The workspace board carries the tasks — the team's and his.** Anything needing him is a review item on his Home queue. There is no second task surface; see step 11.
 - Apply the user's comments with the live-feedback edit tools, never by writing the file.
 - When a goal completes, check off all its sub-outcomes and move it to a `## Done` section at the bottom.
 - When a goal slips, update the due date in place and note why in one line.

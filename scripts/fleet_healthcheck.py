@@ -1093,8 +1093,17 @@ def _latest_trend_entry(text):
     # reported "no reading has been recorded". A staleness check that a format
     # slip can blind is worse than no check: it reports the loop dead when the
     # loop ran, and the operator goes looking for a cron that is fine.
+    #
+    # It then happened AGAIN on 2026-09-16, with a third spelling: a plain
+    # bullet, `- 2026-09-15 18:37 PT · ...`, with no bold. The old pattern
+    # accepted the bolded bullet `- **` but not the bare `- `, so two readings
+    # from the 13:07 and 18:07 runs were invisible and the check went RED
+    # naming an 08:40 reading that was simply the newest one it could parse.
+    # The lesson the first fix missed: the prefix is incidental to the entry,
+    # so match the DATE and let anything precede it, rather than enumerating
+    # the bullet styles someone might have used.
     pat = re.compile(
-        r"^(?:`|- \*\*)?(\d{4}-\d{2}-\d{2})\s+~?(\d{1,2}):(\d{2})\s*PT",
+        r"^(?:`|- (?:\*\*)?)?(\d{4}-\d{2}-\d{2})\s+~?(\d{1,2}):(\d{2})\s*PT",
         re.M)
     best = None
     for m in pat.finditer(text):

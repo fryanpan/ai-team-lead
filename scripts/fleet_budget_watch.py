@@ -628,6 +628,21 @@ def observed_points_per_hour(ledger, active, account_since, now):
         base_at, base_used = since, 0.0
     else:
         return None, None       # re-entered mid-week, entry level never read
+    # Clamp the base to this week's reset boundary. `since` is when the fleet
+    # ARRIVED on the pool and can predate the reset, because a pool is not
+    # rotated off every week -- so branches 2 and 3 above can hand back a base
+    # older than the window being measured. A span that crosses a reset
+    # averages a post-reset zero into the rate and dilutes it.
+    #
+    # Measured 2026-09-16: 161.8h of span reported against a week window that
+    # had existed for 54.8h. The rate came back 0.38 pts/h against a real 1.13,
+    # and the runway 99h against a real ~29h -- an error in the optimistic
+    # direction, on the number that decides whether to rotate.
+    #
+    # Raising the base to the boundary is exact rather than an assumption: the
+    # meter reads 0 at the reset by definition.
+    if week_start is not None and base_at < week_start:
+        base_at, base_used = week_start, 0.0
     hours = (end_at - base_at).total_seconds() / 3600.0
     gained = end_used - base_used
     if hours < 2 or gained <= 0:
@@ -652,6 +667,52 @@ def carried_rate(ledger, active, since_map, now):
         if pph and (best is None or base_h > best[1]):
             best = (pph, base_h, k)
     return best
+
+
+def metered_spend_line(days=30, fleet_match="fleet"):
+    """Real charged dollars for the fleet workspace, for the estate panel.
+
+    Returns a rendered line. NEVER returns a dollar figure it did not measure:
+    every failure path comes back as an explicit "COULD NOT LOOK", because a
+    spend check that fails quiet is indistinguishable from a free month, and
+    the optimistic reading is the one that gets believed.
+
+    Workspace-level, not per-key. Per-key dollars do not exist in the Admin
+    API -- the usage report gives per-key tokens with no money, the cost report
+    gives money grouped only by workspace or description. Bryan chose this
+    surface on 2026-09-16.
+    """
+    try:
+        import fleet_spend_monitor as fsm
+    except Exception as exc:
+        return ("  metered API spend: COULD NOT LOOK -- fleet_spend_monitor "
+                f"did not import ({exc.__class__.__name__}). Not $0.00.")
+    end = datetime.datetime.now(datetime.timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0) + datetime.timedelta(days=1)
+    start = end - datetime.timedelta(days=days)
+    try:
+        key = fsm.read_admin_key()
+        names = fsm.workspace_names(key)
+        totals = fsm.cost_by_workspace(key, start, end)
+    except fsm.CouldNotLook as exc:
+        return (f"  metered API spend: COULD NOT LOOK -- {exc} "
+                "This is NOT a zero; nothing was measured.")
+    except Exception as exc:
+        return ("  metered API spend: COULD NOT LOOK -- unexpected "
+                f"{exc.__class__.__name__}: {exc}. Not $0.00.")
+    total = 0.0
+    fleet = 0.0
+    for wid, dollars in totals.items():
+        label = "(default workspace)" if wid is None else names.get(wid, wid)
+        total += dollars
+        if fsm.matches_fleet_workspace(label, fleet_match):
+            fleet += dollars
+    cap = getattr(fsm, "DEFAULT_MONTH_USD", 50.0)
+    flag = "  ** OVER THE $%.0f LINE **" % cap if total > cap else ""
+    return (f"  metered API spend, last {days}d: {fsm.money(fleet)} fleet "
+            f"workspace / {fsm.money(total)} org (cap {fsm.money(cap)}).{flag}\n"
+            "  ^ real charged dollars, workspace-level. Separate from the "
+            "quota meters above, which never show metered API spend at all.")
 
 
 def print_estate(ledger, active, now, tokens_per_hour, account_since=None,
@@ -692,6 +753,8 @@ def print_estate(ledger, active, now, tokens_per_hour, account_since=None,
         print("\n  rate: NOT MEASURABLE yet -- no pool has a 2h base. Runway "
               "is blank on purpose; the 5h window is not a substitute (it "
               "reads near zero on a fresh window and projects centuries).")
+    print()
+    print(metered_spend_line())
     # The finding this panel exists to produce: does the active pool outlast
     # the next reset, or is there a gap where no pool has room?
     act = next((r for r in rows if r["active"]), None)

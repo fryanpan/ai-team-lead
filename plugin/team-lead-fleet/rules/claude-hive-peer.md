@@ -18,6 +18,42 @@ appliesTo: main
    2026-09-08 from two different session cwds. Confirm with `list_watched` that your project repo is
    actually in the list; the reply alone does not tell you.
 
+## Address a peer by its stable_id, never by a name you inferred
+
+***REMOVED***
+***REMOVED***
+***REMOVED***
+
+***REMOVED***
+***REMOVED***
+***REMOVED***
+***REMOVED***
+***REMOVED***
+
+- **Read the id from `list_peers` in THIS session.** Prefer `to_id` (the live session id) when you have it.
+***REMOVED***
+  ***REMOVED***
+  ***REMOVED***
+- **Before saying a peer ignored you, check you addressed it.** Same family as the pane-is-not-state rule:
+  an external surface reported success for something it never did.
+- **The same error wears other field names.** A board's owner is `leadAgentId` from `get_workspace` — not
+  an inference from the board's title. Measured the same night: a board whose title named one project was
+  led by a different agent that was alive and working it, and two sessions in a row inferred ownership from
+  the title instead of reading the field. That produced a duplicate session spawned onto someone else's
+  board. Whenever identity is available as a field, read the field; a name that looks like an id is a
+  coincidence you are choosing to trust.
+
+**A name can resolve to your OWN inbox, and the success line looks identical.** Measured 2026-09-16: a peer
+answering the team-lead addressed it by the name `team-lead` through the teammate channel. That session's own
+sender name is also `team-lead`, so the message resolved to itself. It was never delivered, nothing errored,
+and the peer only discovered it because it re-sent through `send_message` with a stable_id and compared. Any
+later message it addressed the same way would have vanished the same silent way.
+
+***REMOVED***
+  ***REMOVED***
+- **Never address a peer by a role word.** `team-lead`, `lead`, `builder` and the like are names something on
+  this machine is likely to answer to, including your own session.
+
 **A restart drops your repo watch, so "I watched it at startup" is only ever true of THIS session.** Measured
 2026-09-10 across an entire account rotation — five peers and the team-lead itself: every one came back with
 `list_watched` empty, including four that had verified watches before the cycle. Six for six is the whole

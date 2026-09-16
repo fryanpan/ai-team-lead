@@ -43,6 +43,7 @@ FALLBACK_ROOT = os.path.join(HOME, "Library", "Application Support", "team-lead"
 STATE_DIR = PREFERRED_ROOT if os.path.isdir(PREFERRED_ROOT) else FALLBACK_ROOT
 STATE = os.path.join(STATE_DIR, "guard-state.json")
 HEALTHCHECK_STATUS = os.path.join(STATE_DIR, "healthcheck-status.json")
+HISTORY = os.path.join(STATE_DIR, "guard-history.jsonl")
 
 # The healthcheck runs hourly. If its status file is older than this, a
 # scheduled cycle was missed -- which is exactly what happens when the
@@ -379,6 +380,40 @@ def save_state(state):
         print(f"  !! could not write state: {e}")
 
 
+def record_history(state):
+    """Append one snapshot to a durable log. Never fails the run.
+
+    `guard-state.json` is OVERWRITTEN every pass, so every number in it exists
+    for one interval and is then gone. That is fine for "is the machine sick
+    right now" and useless for the question actually being asked of it.
+
+    Bryan's hardware decision (2026-09-16) is explicitly gated on a WEEK of
+    measurements taken after the cheap fixes. Without this file that week does
+    not accumulate anywhere: the metrics get computed on schedule, overwritten
+    on schedule, and in seven days the decision would rest on whatever single
+    sample happened to be sitting in the state file -- which is how the last
+    hosting report ended up citing a 39.7%-degraded figure nobody could
+    reproduce. Same failure family as a check that cannot tell "looked and
+    found nothing" from "could not look": the instrument reads correctly and
+    retains nothing, and the absence is silent.
+
+    One flat line per run, append-only, no rotation here -- rotate_fleet_logs.py
+    owns that. Metrics only: no process names, no paths, nothing about what the
+    sessions were doing.
+    """
+    try:
+        row = {"at": state.get("checked_at"), "band": state.get("band")}
+        row.update(state.get("metrics") or {})
+        os.makedirs(STATE_DIR, exist_ok=True)
+        with open(HISTORY, "a") as f:
+            f.write(json.dumps(row) + "\n")
+    except Exception as e:
+        # Deliberately swallowed and SAID. A recorder that takes the guard down
+        # is worse than one that misses a sample, but a recorder that fails
+        # quietly leaves the same empty file as one that was never called.
+        print(f"  !! could not append history: {e}")
+
+
 def probe():
     """Report exactly what this process can and cannot do under launchd.
 
@@ -469,7 +504,7 @@ def main():
                f"restarted")
         fired = True
 
-    save_state({
+    snapshot = {
         "band": worst,
         "bands": bands,
         "metrics": m,
@@ -479,7 +514,9 @@ def main():
         "revived": revived,
         "checked_at": stamp,
         "notified_at": now if fired else last_notified,
-    })
+    }
+    save_state(snapshot)
+    record_history(snapshot)
     return 0
 
 

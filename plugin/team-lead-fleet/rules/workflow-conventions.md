@@ -143,6 +143,34 @@ available reading was the optimistic one.
 - **Fail-open is sometimes the right call — fail-open and SILENT never is.** A gate people cannot tell is down
   is worse than one that is honestly off, because it is trusted.
 
+### Check the provenance claim, not the value — it is cheap and it is usually the wrong one
+
+"Re-read your sources" is advice nobody sustains, because it has no trigger and no end. There is a much
+smaller target that catches the same errors: **every phrase asserting where something came from.** *He said*,
+*the source says*, *the catalogue lists*, *the dates he named*, *per the spec*. Each is a specific, checkable
+claim, and each takes one lookup to settle.
+
+Measured 2026-09-16, five boards audited their own already-admitted work and five found a live defect. The
+defects were **provenance claims, not value claims**: a fact that was true but taken from a superseded
+document; a date that was reasonable but attributed to the user, who had named none; an assertion that
+someone lacked a thing their own source describes them having. In each case the value survived review
+because it was plausible, and the attribution was never tested because nothing prompted anyone to test it.
+
+- **Write what was said and what you inferred from it as two separate facts.** A derived figure is fine; a
+  derived figure recorded as the user's is not, and the record cannot tell them apart later.
+- **A quality gate does not check this.** Gates test shape and specificity, and a confident attribution
+  satisfies both. Worse, a demand for specificity actively rewards inventing one.
+- **It propagates.** An unchecked attribution is repeated verbatim by whoever reads it next, including
+  upward to the user, who has no way to tell it from something they actually said.
+- **Check the figure's DEPENDENTS, not just its source.** A per-figure source check finds "a real number
+  with the wrong population" and completely misses "a real number three other sentences quietly rest on."
+  When a figure comes under dispute, grep the whole artifact for it before revising anything — one command.
+  Measured 2026-09-16: a draft's opening figure was under review while the same number stood unexamined in
+  two later paragraphs, one of them the passage the piece builds to. Correcting the opener alone would have
+  left it contradicting itself.
+- **Where a dependent sits in text the user approved, do not fix it on your own judgement.** Put the
+  dependency on the decision card so they rule on every instance at once, rather than discovering the
+  others after they have answered about the first.
 
 - **Never mark a UI task complete because the code is written.** State what you verified and what you could not.
 - **For a deploy changing user-facing UI**, run `/ux-review` before shipping. Skip only for purely back-end work.

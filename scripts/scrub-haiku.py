@@ -47,6 +47,7 @@ public checkout.
 from __future__ import annotations
 
 import datetime
+import base64
 import json
 import os
 import pathlib
@@ -66,6 +67,15 @@ DEFAULT_DAILY_USD = 1.00
 # -a "$USER" -s scrub-haiku-api-key -w` (omit the value; it prompts, so the key
 # stays out of shell history).
 KEYCHAIN_SERVICE = "scrub-haiku-api-key"
+
+# The fleet key, stored by the Workspaces secret card rather than by hand.
+# That store namespaces every name it is asked for under a fixed prefix and a
+# fixed account, and base64-encodes the value before it goes down
+# `security -i` — a raw read returns base64, not the key. Preferred over the
+# hand-written entry because real dollars only split by Console workspace,
+# and this key is the one billed to the `fleet` workspace.
+FLEET_KEYCHAIN_SERVICE = "claude-workspaces-secret.fleet-anthropic-api-key"
+FLEET_KEYCHAIN_ACCOUNT = "claude-workspaces"
 API_URL = "https://api.anthropic.com/v1/messages"
 API_TIMEOUT_SEC = 30
 # Approx chars-to-tokens (Anthropic English ~3.5 chars/token; be conservative at 4).
@@ -151,6 +161,78 @@ def read_keychain(service: str) -> Optional[str]:
     if proc.returncode != 0:
         return None
     return proc.stdout.strip() or None
+
+
+def usable_api_key(key: str) -> bool:
+    """Whether a string is shaped like a whole Anthropic API key.
+
+    This exists because a TRUNCATED key is the failure that actually happened:
+    the secret card cut every value at 96 characters, and the result decoded
+    cleanly, looked like a key, and earned a 401. A 401 reads as revoked, so
+    the gate would have reported "scan did not run" while the real cause was a
+    string that had simply been cut in half.
+
+    Deliberately a shape check and not a length equality. Pinning the exact
+    length of today's keys would turn a future format change into a gate that
+    refuses a perfectly good credential, which is the more expensive mistake —
+    a scrub layer must never be the reason a push dies. A truncation big enough
+    to matter is caught by the floor.
+    """
+    return key.startswith("sk-ant-") and len(key) >= 100
+
+
+def read_fleet_keychain() -> Optional[str]:
+    """Read the fleet key out of the Workspaces secret store.
+
+    Separate from `read_keychain` for two reasons, both of which silently
+    return the WRONG STRING rather than failing if they are got wrong: the
+    account is a fixed constant, not `$USER`, and the stored value is base64
+    so that a secret carrying a newline can go down `security -i` as one
+    command line. A raw read succeeds and hands back base64 that the API then
+    rejects as a bad key — which is a 401, not a "no key" skip, so it would
+    look like a revoked key rather than a decode nobody did.
+
+    Returns None (never raises) on anything at all: absent entry, locked
+    Keychain, non-Darwin, or a value that is not valid base64. Every one of
+    those means "fall through", because a scrub layer must never be the reason
+    a push dies.
+    """
+    try:
+        proc = subprocess.run(
+            ["security", "find-generic-password", "-a", FLEET_KEYCHAIN_ACCOUNT,
+             "-s", FLEET_KEYCHAIN_SERVICE, "-w"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    raw = proc.stdout.strip()
+    if not raw:
+        return None
+    try:
+        decoded = base64.b64decode(raw, validate=True).decode("utf-8").strip()
+    except (ValueError, UnicodeDecodeError):
+        return None
+    if not decoded:
+        return None
+    if not usable_api_key(decoded):
+        # Present but unusable. Say so — do NOT fall through quietly. A key
+        # that is there and wrong is a different state from no key at all: the
+        # API answers 401, which reads as revoked rather than as truncated,
+        # and the gate would report "scan did not run" with no hint why.
+        print(
+            f"[scrub-haiku] the fleet key in `{FLEET_KEYCHAIN_SERVICE}` is not a "
+            "usable Anthropic key — it is the wrong shape or too short to be "
+            "whole. Falling back to the hand-written key. Mint a fresh one and "
+            "re-save it on the secret card; the truncated value cannot be "
+            "repaired and the Console will not show the original again.",
+            file=sys.stderr,
+        )
+        return None
+    return decoded
 
 
 def spend_log_path() -> pathlib.Path:
@@ -298,14 +380,16 @@ def call_haiku(diff_content: str, range_spec: str = "-") -> int:
     # general-purpose Anthropic usage (better audit + isolated billing); the
     # env forms stay supported for CI and one-off runs.
     api_key = (
-        read_keychain(KEYCHAIN_SERVICE)
+        read_fleet_keychain()
+        or read_keychain(KEYCHAIN_SERVICE)
         or os.environ.get("SCRUB_HAIKU_API_KEY")
         or os.environ.get("ANTHROPIC_API_KEY")
     )
     if not api_key:
         print(
-            f"[scrub-haiku] no API key (Keychain `{KEYCHAIN_SERVICE}`, SCRUB_HAIKU_API_KEY, "
-            "or ANTHROPIC_API_KEY) — skipping Haiku check.",
+            f"[scrub-haiku] no API key (Keychain `{FLEET_KEYCHAIN_SERVICE}` or "
+            f"`{KEYCHAIN_SERVICE}`, SCRUB_HAIKU_API_KEY, or ANTHROPIC_API_KEY) "
+            "— skipping Haiku check.",
             file=sys.stderr,
         )
         return 2

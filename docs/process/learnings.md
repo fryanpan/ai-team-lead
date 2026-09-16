@@ -2,6 +2,44 @@
 
 Technical discoveries that should persist across sessions.
 
+## Copying a SQLite `.db` Is Not a Backup, and a Liveness-Keyed Migration Eats Idle Peers (2026-09-10)
+
+Two traps, both hit in the same ten minutes while redeploying a channel daemon, and both of the
+same shape: a step that reports success while doing nothing, or doing harm.
+
+**The backup captured nothing.** Standard practice before a schema migration is to copy the
+database first, so the `cp <db> <db>.bak` looked like diligence. The file it copied was **4KB and
+five months old**; a 251KB `-wal` sidecar held every row written since. SQLite in WAL mode leaves
+the main file frozen at the last checkpoint, so a copy of it is a copy of the database as it was,
+not as it is — and the copy is a perfectly valid database, so nothing complains. Reading it back
+returned `no such table`, which was the only reason this surfaced at all.
+
+- **Back up the `-wal` and `-shm` alongside the `.db`, or use `sqlite3 <db> ".backup"`**, which
+  checkpoints first. A bare `cp` of the `.db` is the failure, not the fallback.
+- **Verify a backup by reading from it**, before you rely on it. A file of plausible size proves
+  nothing; this one was implausible and still went unexamined until afterwards.
+
+**The migration would have deleted live state, and its dry run is the only reason it did not.**
+A one-off repair script existed to re-address rows whose ids were derived from the wrong path. Its
+dry run reported `keep: 4  remap: 0  drop: 4` — **nothing to repair, and half the table marked for
+deletion.** Every drop was classified `drop-no-session`: the id resolved to no *currently running*
+session.
+
+- **"No live session right now" is not "addressed to a directory no session can live in."** The
+  script's own docstring draws that distinction and its code does not; it asks the peer registry
+  who is up *at this instant* and treats absence as corruption.
+- **Under a lean-fleet policy this is maximally wrong.** Peers are deliberately spun down when
+  they have no live work, so the majority are offline at any moment, and the rows most likely to
+  be destroyed belong to the projects that are quietest — exactly the ones whose subscription is
+  the only thing that would ever wake them.
+- **A migration that decides from live process state is not a migration.** Its verdict changes
+  between two runs an hour apart with no change to the data. Key it on something durable — the
+  path resolving to a real directory, an id that is well-formed — and let a row for an idle peer
+  survive.
+- **Run the dry run and read it, even when the script is "a one-off nobody has to think about".**
+  Here it turned a routine step into a caught defect; run blind, it would have silently destroyed
+  four subscriptions including an experiment that had been deliberately armed.
+
 ## `vm_stat` Reports Pages, Not Bytes, and the Page Size Is Not 4 KB (2026-09-10)
 
 Two agents independently sized the machine's memory pressure during an account

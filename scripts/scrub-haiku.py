@@ -44,7 +44,7 @@ MAX_DIFF_CHARS = 80_000 * 4
 SYSTEM_PROMPT = """You are a sensitive-content scanner. You will be shown a git diff that's about to be pushed to a public GitHub repository. Your job is to spot anything that would leak private information once that push lands.
 
 **What counts as a leak (flag it):**
-- Real personal names (other than the repo's documented author / committer in standard metadata like LICENSE or package author tags)
+- Real personal names — but see the repo's own author below, who is never a leak here
 - Email addresses, phone numbers, postal addresses, SSNs, financial account numbers
 - Specific dollar amounts in personal context (taxes, donations, balances, salaries)
 - Tax-document names tied to a specific person (Form 8606, Schedule D, kiddie tax, IRA backdoor, capital loss carryover, etc.)
@@ -58,7 +58,11 @@ SYSTEM_PROMPT = """You are a sensitive-content scanner. You will be shown a git 
 
 **What does NOT count as a leak (don't flag):**
 - The repo's own name in self-references (a repo's README / CLAUDE.md / package metadata legitimately names itself)
-- The author/maintainer name in standard metadata fields
+- **The repo's own author, named in the AUTHOR line below, anywhere in the diff.**
+  Not only in metadata fields — in prose, in a learning that quotes them, in a
+  changelog. They own this repo, they sign every commit in it, and their name is
+  already throughout its published history. Flagging it blocks their own work on
+  their own public repo and teaches everyone to bypass the gate.
 - Public technical references (Anthropic, Claude, GitHub URLs to known public repos, well-known libraries)
 - Generic placeholders: <user>, <your-tailnet>, your-username/example, my-project, the user
 - Function/variable/class names, programming jargon, code comments about the code itself
@@ -77,8 +81,15 @@ VERDICT: CLEAN
 If leaks found:
 VERDICT: LEAKS_FOUND
 LEAKS:
-- <file>:<line> — <one-line description of leak>
-- <file>:<line> — <one-line description of leak>
+- <file> — "<the exact leaking text, copied verbatim from a + line>" — <what it leaks>
+- <file> — "<the exact leaking text, copied verbatim from a + line>" — <what it leaks>
+
+**Quote, do not cite a line number.** You are reading a diff, so you cannot know
+a file's real line numbers, and a number you invent sends the reader to a line
+that says something else — which reads as the gate hallucinating and gets it
+switched off. The quoted span is checkable: the reader greps for it and either
+finds it or knows you were wrong. If you cannot quote the text from a `+` line,
+you do not have a finding.
 
 Be conservative — when borderline, flag it. The human can override with SCRUB_SKIP=1 after reviewing your reasoning."""
 
@@ -111,6 +122,54 @@ def read_keychain(service: str) -> Optional[str]:
     return proc.stdout.strip() or None
 
 
+def repo_author() -> Optional[str]:
+    """The name this repo's commits are signed with.
+
+    Resolved at runtime, never written down here: this file is itself pushed to
+    the public repo, so hardcoding the maintainer's name would put it in the one
+    place the scanner exists to keep names out of. `git config user.name` is the
+    configured signer; the most frequent author in the log is the fallback for a
+    machine where that is unset.
+
+    Returns None on any failure — the scan then runs with no author exception,
+    which is the conservative direction.
+    """
+    try:
+        proc = subprocess.run(
+            ["git", "config", "user.name"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if proc.returncode == 0 and proc.stdout.strip():
+            return proc.stdout.strip()
+
+        proc = subprocess.run(
+            ["git", "log", "--format=%an", "-n", "200"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if proc.returncode != 0:
+            return None
+        names = [n for n in proc.stdout.split("\n") if n.strip()]
+        if not names:
+            return None
+        return max(set(names), key=names.count)
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def build_system_prompt() -> str:
+    """SYSTEM_PROMPT plus the AUTHOR line its exception refers to."""
+    author = repo_author()
+    if not author:
+        return SYSTEM_PROMPT + (
+            "\n\nAUTHOR: unknown — this repo's author could not be resolved, so "
+            "apply the personal-name rule with no author exception."
+        )
+    return SYSTEM_PROMPT + (
+        f"\n\nAUTHOR: {author} — the owner of this repo, who signs its commits. "
+        "Their name appearing in this diff is not a leak, wherever it appears."
+    )
+
+
 def call_haiku(diff_content: str) -> int:
     # Keychain first, then the env vars. SCRUB_HAIKU_API_KEY is preferred over
     # ANTHROPIC_API_KEY so this layer can use a key separate from
@@ -132,7 +191,7 @@ def call_haiku(diff_content: str) -> int:
     body = json.dumps({
         "model": MODEL,
         "max_tokens": 1024,
-        "system": SYSTEM_PROMPT,
+        "system": build_system_prompt(),
         "messages": [{
             "role": "user",
             "content": f"Scan this diff for leaks:\n\n```diff\n{diff_content}\n```",

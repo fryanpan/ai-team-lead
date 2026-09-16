@@ -3213,3 +3213,54 @@ A scan of transcript dirs reported 6–18 active projects a week. A peer's re-ch
 - **One session appears in several project dirs.** A session that works in scratchpad subfolders gets a transcript copy under each folder's encoded path. Dedupe by session id, not by directory.
 - **Reading only a line's first few KB loses its timestamp.** On large assistant lines the timestamp comes after the body, so a fixed-size read drops them. Parse the whole line.
 - **Cron-prompt turns are not work, and the live store ages out.** Exclude scheduled-prompt turns. Don't read a missing early month as zero.
+
+## `--headless=new` Chrome shows a Dock icon, and the FSEvents journal names the repo causing churn (2026-09-15)
+
+Bryan asked why a Chrome icon flickered in and out of his Dock all afternoon. Two techniques did the whole job.
+
+**Catching a short-lived process:** poll `ps -axo pid=,ppid=,command=` on a ~1.5s loop, diff the pid set against the previous snapshot, and walk the ppid chain for anything new. A process that lives two seconds never appears in a single `ps`, and the ancestry is the answer — here it went spawned-Chrome → `ui-shot.ts` → vitest → `bun run verify`.
+
+- **`--headless=new` is not invisible on macOS.** It runs the full `Google Chrome.app` binary, which creates a regular NSApplication and registers with the Dock for the process's lifetime. The old `--headless`, which did not, is gone from Chrome 153. There is no flag that suppresses it; the fix is `chrome-headless-shell`, a genuinely separate binary.
+- **A running app cannot be hidden from the Dock.** Turning off recents does not help, and `LSUIElement` means editing the app bundle. When the surface can't be hidden, say so and go after the cause.
+
+**Attributing filesystem churn:** `/Volumes/Data/.fseventsd/<hex-id>` journals are gzip, and `gzcat <f> | LC_ALL=C strings | LC_ALL=C grep '/'` yields the raw event paths. Collapse to `dev/<repo>` and count. `LC_ALL=C` is required on every stage — binary bytes make `sed` and `grep` fail with "illegal byte sequence".
+
+- **One sample attributes, two samples prove.** 98.3% of events from one repo at 16:38, 99.2% from the same repo seven hours earlier, is not a long tail.
+- **A peer declined the work as a "fleet-wide pattern."** The journal said otherwise and it took one command. Worktree counts across the fleet were 93, 12, 8, 8, then twos — and the two 93s were the same repo, because `~/dev/wt-https-tailnet` resolves to another repo's `.git`. **Resolve `git rev-parse --git-common-dir` before counting a directory as its own offender.**
+- **Measure before conceding a scope argument.** The peer took it immediately once the numbers existed; neither of us could have settled it by reasoning.
+
+## A check that names a remedy and stays red after you take it (2026-09-15)
+
+`plugin_drift_check.py` reported `CANNOT CHECK — the installed copy is 0.1.236
+but <clone>'s origin/main is only 0.1.226 … Fetch the repo, then re-run.`
+`origin/main` was already 0.1.236. The version came off the clone's **working
+tree**, which was 69 commits behind, because the version comparison ran before
+the code that re-reads the manifest from the ref.
+
+- **Fetching could not clear it, and the message said to fetch.** The stale
+  number was never coming from the ref, so fetch + re-run reproduces the
+  identical line. That is worse than a plain wrong answer: it spends the
+  reader's trust twice, and the second time teaches them to stop reading the
+  check.
+- **When a check prints an instruction, run the instruction and confirm the
+  check goes green.** An unverified remedy in an error string is a guess
+  published with authority.
+- **The correct comment was already three lines below the bug** — "a manifest
+  version read from the working tree is not what ships." A comment stating the
+  rule is not the rule being followed; grep for where the value is actually
+  read.
+
+### A fail-proof has to touch the copy the check reads
+
+Proving the same check could still fail, I appended a line to
+`~/.claude/plugins/cache/team-lead-fleet/team-lead-fleet/0.4.0/rules/communication.md`
+and the check reported OK. Correctly — `0.4.0` is an **orphaned** version
+directory that nothing loads. My glob had filtered on the string `orphaned` in
+the path, but the marker is a file named `.orphaned_at` *inside* the directory.
+
+- **Select the cache directory the way the tool does** — here,
+  `active_cache_dir()` — not by globbing and hoping. A version-keyed cache keeps
+  old directories around after every update.
+- **A mutation test that produces a pass is not evidence of a pass.** It is
+  first evidence you mutated the wrong thing. Confirm the probe landed before
+  you believe the verdict.

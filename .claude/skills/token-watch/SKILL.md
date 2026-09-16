@@ -49,9 +49,16 @@ pools with staggered resets.** Report the estate, then the one call.
    `cmd > f 2>&1; echo $?`. Piping to `tail` reports tail's status and reads as
    clean. `fleet_budget_watch.py` (the estate panel + the binding 5h window),
    `fleet_burn_report.py`, `fleet_context_report.py`, `plugin_drift_check.py`.
-5. **Append the one-line trend entry.** Tier 0 always, Tier 1 automatically,
+5. **Sweep oversized idle sessions** — `fleet_idle_restart.py --execute`. It
+   restarts at most one session per run, through `respawn.py`, and only one
+   that is over 600 MB of vmmap footprint, has written nothing for 45 minutes,
+   and has no unanswered tool call in its transcript. A session's footprint only
+   ever grows, so this is the lever that needs no code change and no hardware.
+   **Exit 2 means it could not look** — say which session and why, the same way
+   a missing health-check file is reported.
+6. **Append the one-line trend entry.** Tier 0 always, Tier 1 automatically,
    Tier 2 asks the user.
-6. **First run after a weekly reset:** also run the end-of-week retro from the
+7. **First run after a weekly reset:** also run the end-of-week retro from the
    contract.
 
 ## Reading the estate panel

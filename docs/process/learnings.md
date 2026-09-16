@@ -3264,3 +3264,42 @@ the path, but the marker is a file named `.orphaned_at` *inside* the directory.
 - **A mutation test that produces a pass is not evidence of a pass.** It is
   first evidence you mutated the wrong thing. Confirm the probe landed before
   you believe the verdict.
+
+## A board row carrying a `schedule` field is a RULE, not available work (2026-09-16)
+
+Reading another agent's board as a lead, three rows sat in `todo` on Research
+Notes' scheduled-pipelines goal and I told it to pick them up. That advice was
+actively harmful: every one of them carried a `schedule` field.
+
+A schedule rule row **stays in `todo` permanently by design** — the rule never
+changes status, its *instances* carry the work. So it is a permanent member of
+the ready set and reads as an idle task to anyone counting statuses.
+
+- **Running one directly publishes a duplicate** — a second daily digest, or a
+  re-pull of a source that is rate-limited behind an `exit 2` guard.
+- **Parking one is worse.** It silently turns the pipeline off, with a plausible
+  reason attached to the row so nobody re-opens it.
+- **The tell is the `schedule` field, not the title.** The body reads like
+  ordinary work either way; there is no wording that distinguishes them.
+- `ready-nudge.ts` and `stall-nudge.ts` were fixed to exclude these in plugin
+  0.1.187 (PR 796) — which is why they no longer appear in nudges, and why a
+  human or a lead reading the board *directly* is now the only reader still
+  seeing them as idle todos. The automated surface got fixed and the human one
+  did not.
+
+**Before telling any agent its board has idle work, check the `schedule` field
+on every row you are about to name.**
+
+## `declare_wait` caps at 8h, so an overnight wait cannot be armed (2026-09-16)
+
+A done-when line that only tomorrow's cron can settle needs a wait longer than
+`declare_wait` allows. The gap to an 06:47 run is ~18h; the cap is 8. The wait
+lapses overnight and the stall nudge fires again against a row where nothing is
+wrong — and the nudge's own text contradicts itself when it does, reporting the
+wait as invisible with no question filed and then "Not escalated while the wait
+stands" two clauses later, both off the same row at the same moment.
+
+**Do not resolve this by filing a question.** There is no person who can answer
+"did tomorrow's run name a new feed", and the card lands in Bryan's queue
+meaningless. Put the settling event and time in the row's status, say to
+re-declare rather than invent an ask, and treat the 8h ceiling as the bug.

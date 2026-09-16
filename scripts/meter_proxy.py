@@ -16,7 +16,7 @@ Reading those replaces an estimate with an observation, and gives a live meter
 without driving `/usage` in a tmux pane -- which is classifier-blocked and has
 defeated the token-watch three passes running.
 
-Authorised by Bryan on 2026-09-16, task t-Uo0035nyJG2b ("Build it"). He owns
+Authorised by Bryan on 2026-09-16 ("Build it"). He owns
 that decision because this touches his credentials and the fleet's
 connectivity; it was not set up on anyone's own initiative.
 

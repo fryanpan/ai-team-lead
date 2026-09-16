@@ -21,12 +21,28 @@ That failure has now happened three times:
     stopped shipping, so every session that resolved from cache failed to start
     the MCP server with a bare `ENOENT` and no other diagnostic.
 
+  * 2026-09-15 — the fleet plugin's marketplace moved from a local directory to
+    GitHub, and this checker dropped it from coverage without a word. It had
+    excluded GitHub sources on purpose, on the reasoning that their canonical
+    content is upstream. But the repo is checked out locally, so the comparison
+    was answerable all along, and a plugin that stops being mentioned reads
+    exactly like a plugin with no drift.
+
 The third one is why this script is no longer hardcoded to team-lead-fleet. The
 checker existed, was green, and ran three times a day — at ONE plugin, while a
 different plugin was three months stale. A check that only looks where you
-already looked is not a check.
+already looked is not a check. The fourth is the same lesson from the other
+side: silence is not a pass.
 
-WHAT IT CHECKS, per directory-source plugin
+WHAT IT CHECKS, per plugin
+
+For a directory-source marketplace the canonical content is the working tree.
+For a GitHub-source one it is origin/main in the local clone, because that is
+what `claude plugin update` will fetch — comparing the working tree there would
+report every edit in progress as drift and miss a commit that was never pushed.
+A GitHub marketplace with no local clone is reported as not checked, and does
+not fail the run: an upstream marketplace nobody here edits would otherwise be
+red on every run, and a line that is always red stops being read.
   1. Content — every file in the repo's plugin dir vs the installed copy.
   2. Version — the repo manifest version vs the installed version.
   3. Release lag — commits touching the plugin source since the version last
@@ -43,12 +59,13 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 
 CACHE_ROOT = os.path.expanduser("~/.claude/plugins/cache")
 CLAUDE_BIN = os.path.expanduser("~/.local/bin/claude")
 
 # Files that legitimately differ or don't travel with the plugin.
-SKIP_NAMES = {".DS_Store"}
+SKIP_NAMES = {".DS_Store", ".orphaned_at"}
 # Machine-local config and backups. These are gitignored by construction — a
 # `.env` holds the machine's own secrets and MUST NOT be committed — so the
 # remedy this checker prescribes ("commit, then update") can never apply to
@@ -59,7 +76,8 @@ SKIP_NAMES = {".DS_Store"}
 SKIP_PATTERNS = (".env", ".env.", ".bak-", ".backup")
 # Never walk these into a content comparison — they are build/VCS noise that the
 # installer does not copy, and including them produces permanent false drift.
-SKIP_DIRS = {".git", "node_modules", ".claude-worktrees", "__pycache__"}
+SKIP_DIRS = {".git", "node_modules", ".claude-worktrees", "__pycache__",
+             ".in_use", ".venv", "venv", "dist", "build"}
 
 
 def sh(args, cwd=None):
@@ -71,25 +89,67 @@ def sh(args, cwd=None):
         return ""
 
 
-def directory_marketplaces():
-    """[(marketplace_name, source_dir)] for Directory-source marketplaces.
+# Where clones live. Each entry is expanded and realpath'd, so "~/dev" already
+# covers the physical path it resolves to on a machine whose home is a firmlink
+# — do not add that resolved path as a second entry. This repo is public and the
+# pre-push leak gate rejects an absolute home path written out in full.
+DEV_ROOTS = (os.environ.get("FLEET_DEV_ROOT") or "~/dev",)
 
-    GitHub-source marketplaces are excluded on purpose: their canonical content
-    is upstream, not a local working tree, so "repo vs cache" is not a question
-    we can answer or act on locally.
+
+def local_checkout_for(repo_slug):
+    """A local clone whose origin is repo_slug, or None.
+
+    A GitHub-source marketplace's canonical content is a branch on GitHub, but
+    on this machine the same repo is usually checked out under ~/dev. When it
+    is, the check is answerable: compare the cache against that checkout's
+    origin/main. When it is not, say so rather than staying silent.
+    """
+    want = repo_slug.lower().removesuffix(".git")
+    for root in DEV_ROOTS:
+        root = os.path.realpath(os.path.expanduser(root))
+        if not os.path.isdir(root):
+            continue
+        for name in sorted(os.listdir(root)):
+            d = os.path.join(root, name)
+            if not os.path.isdir(os.path.join(d, ".git")):
+                continue
+            url = sh(["git", "remote", "get-url", "origin"], cwd=d).strip().lower()
+            if not url:
+                continue
+            url = url.removesuffix(".git")
+            if url.endswith(":" + want) or url.endswith("/" + want):
+                return os.path.realpath(d)
+    return None
+
+
+def marketplaces():
+    """[(name, source_dir_or_None, kind, detail)] for every configured marketplace.
+
+    kind is "directory" (canonical content is the working tree) or "github"
+    (canonical content is origin/main in the local clone, when there is one).
+    GitHub sources used to be dropped here entirely, which meant moving a
+    marketplace to GitHub silently removed it from drift coverage — the plugin
+    stopped being reported at all, which reads exactly like "no drift".
     """
     out = []
     text = sh([CLAUDE_BIN, "plugin", "marketplace", "list"])
     name = None
     for line in text.splitlines():
         s = line.strip()
-        m = re.match(r"^❯\s+(\S+)", s)
+        m = re.match(r"^\u276f\s+(\S+)", s)
         if m:
             name = m.group(1)
             continue
         m = re.match(r"^Source:\s+Directory\s+\((.+)\)\s*$", s)
         if m and name:
-            out.append((name, os.path.realpath(os.path.expanduser(m.group(1)))))
+            out.append((name, os.path.realpath(os.path.expanduser(m.group(1))),
+                        "directory", m.group(1)))
+            name = None
+            continue
+        m = re.match(r"^Source:\s+GitHub\s+\((.+)\)\s*$", s)
+        if m and name:
+            slug = m.group(1).strip()
+            out.append((name, local_checkout_for(slug), "github", slug))
             name = None
     return out
 
@@ -98,6 +158,19 @@ def marketplace_plugins(source_dir):
     """[(plugin_name, abs_plugin_source_dir, manifest_version)]"""
     mpath = os.path.join(source_dir, ".claude-plugin", "marketplace.json")
     if not os.path.isfile(mpath):
+        # A repo can BE a single plugin: .claude-plugin/plugin.json at the root
+        # and no marketplace manifest. Returning [] there reported "no readable
+        # marketplace.json", which is a cannot-check for a repo that is in fact
+        # perfectly checkable.
+        jpath = os.path.join(source_dir, ".claude-plugin", "plugin.json")
+        if os.path.isfile(jpath):
+            try:
+                man = json.load(open(jpath))
+            except Exception:
+                return []
+            if man.get("name"):
+                return [(man["name"], os.path.realpath(source_dir),
+                         man.get("version"))]
         return []
     try:
         data = json.load(open(mpath))
@@ -178,7 +251,7 @@ def tree(root):
     return out
 
 
-def release_lag(plugin_dir):
+def release_lag(plugin_dir, ref="HEAD"):
     """(n_commits, last_bump_subject) since plugin.json's version last changed.
 
     Catches the failure content-hashing cannot: a repo whose plugin has moved
@@ -193,12 +266,12 @@ def release_lag(plugin_dir):
     if not repo:
         return None, None
     rel = os.path.relpath(manifest, repo)
-    log = sh(["git", "log", "-1", "--format=%H%x00%s", "--", rel], cwd=repo).strip()
+    log = sh(["git", "log", "-1", "--format=%H%x00%s", ref, "--", rel], cwd=repo).strip()
     if not log:
         return None, None
     sha, _, subject = log.partition("\x00")
     rel_plugin = os.path.relpath(plugin_dir, repo)
-    count = sh(["git", "rev-list", "--count", f"{sha}..HEAD", "--", rel_plugin],
+    count = sh(["git", "rev-list", "--count", f"{sha}..{ref}", "--", rel_plugin],
                cwd=repo).strip()
     try:
         return int(count), subject
@@ -240,7 +313,37 @@ def fix_instructions(marketplace, plugin):
         marker. Do not select the cache dir by mtime."""
 
 
-def check_plugin(marketplace, plugin, plugin_dir, manifest_ver, quiet):
+def ref_tree(plugin_dir, ref):
+    """tree() of plugin_dir as it exists at `ref`, or None if that can't be read.
+
+    For a GitHub-source marketplace the fleet loads what is on the branch, not
+    what is in the working tree, so the working tree is the wrong thing to
+    compare against — it would report drift for every edit in progress and miss
+    an edit that was committed but never pushed.
+    """
+    repo = sh(["git", "rev-parse", "--show-toplevel"], cwd=plugin_dir).strip()
+    if not repo:
+        return None, None
+    rel = os.path.relpath(plugin_dir, repo)
+    tmp = tempfile.mkdtemp(prefix="drift-")
+    try:
+        proc = subprocess.run(["git", "archive", ref, rel], cwd=repo,
+                              capture_output=True)
+        if proc.returncode != 0 or not proc.stdout:
+            return None, None
+        tar = subprocess.run(["tar", "-x", "-C", tmp], input=proc.stdout,
+                             capture_output=True)
+        if tar.returncode != 0:
+            return None, None
+        root = os.path.join(tmp, rel)
+        if not os.path.isdir(root):
+            return None, None
+        return tree(root), root
+    finally:
+        pass
+
+
+def check_plugin(marketplace, plugin, plugin_dir, manifest_ver, quiet, ref=None):
     """Returns 0 ok / 1 drift / 2 cannot check. Prints its own findings."""
     label = f"{plugin}@{marketplace}"
 
@@ -257,10 +360,35 @@ def check_plugin(marketplace, plugin, plugin_dir, manifest_ver, quiet):
     problems = []
 
     if manifest_ver and installed_ver and manifest_ver != installed_ver:
+        if semver_key(installed_ver) > semver_key(manifest_ver):
+            print(f"[drift] {label}: CANNOT CHECK — the installed copy is "
+                  f"{installed_ver} but {plugin_dir}'s {ref or 'HEAD'} is only "
+                  f"{manifest_ver}. The local clone is behind what is deployed, so "
+                  f"a diff here would report the clone's staleness as drift. "
+                  f"Fetch the repo, then re-run.")
+            return 2
         problems.append(
             f"VERSION MISMATCH — repo says {manifest_ver}, installed is {installed_ver}")
 
-    repo_files, cache_files = tree(plugin_dir), tree(cache)
+    cache_files = tree(cache)
+    if ref:
+        repo_files, ref_root = ref_tree(plugin_dir, ref)
+        if repo_files is None:
+            print(f"[drift] {label}: CANNOT CHECK — {plugin_dir} has no readable "
+                  f"{ref}. Fetch the repo, then re-run.")
+            return 2
+        # A manifest version read from the working tree is not what ships.
+        try:
+            manifest_ver = json.loads(sh(
+                ["git", "show", f"{ref}:" + os.path.relpath(
+                    os.path.join(plugin_dir, ".claude-plugin", "plugin.json"),
+                    sh(["git", "rev-parse", "--show-toplevel"],
+                       cwd=plugin_dir).strip())],
+                cwd=plugin_dir)).get("version") or manifest_ver
+        except Exception:
+            pass
+    else:
+        repo_files = tree(plugin_dir)
     changed = sorted(k for k in repo_files.keys() & cache_files.keys()
                      if repo_files[k] != cache_files[k])
     only_repo = sorted(repo_files.keys() - cache_files.keys())
@@ -268,7 +396,7 @@ def check_plugin(marketplace, plugin, plugin_dir, manifest_ver, quiet):
     if changed or only_repo or only_cache:
         problems.append("CONTENT DIFFERS from the installed copy")
 
-    lag, bump_subject = release_lag(plugin_dir)
+    lag, bump_subject = release_lag(plugin_dir, ref or "HEAD")
     if lag:
         problems.append(
             f"RELEASE LAG — {lag} commit(s) touched this plugin since the version "
@@ -281,7 +409,7 @@ def check_plugin(marketplace, plugin, plugin_dir, manifest_ver, quiet):
         return 0
 
     print(f"[drift] {label}: NOT WHAT THE REPO HAS")
-    print(f"        source:    {plugin_dir}")
+    print(f"        source:    {plugin_dir}" + (f" @ {ref}" if ref else ""))
     print(f"        installed: {cache}")
     for p in problems:
         print(f"        ! {p}")
@@ -311,29 +439,40 @@ def check_plugin(marketplace, plugin, plugin_dir, manifest_ver, quiet):
 def main():
     quiet = "--quiet" in sys.argv
 
-    markets = directory_marketplaces()
+    markets = marketplaces()
     if not markets:
-        print("[drift] CANNOT CHECK: no directory-source marketplaces found "
+        print("[drift] CANNOT CHECK: no marketplaces found "
               f"(is {CLAUDE_BIN} present?)")
         return 2
 
     worst = 0
     checked = 0
-    for mname, mdir in markets:
+    for mname, mdir, kind, detail in markets:
+        if mdir is None:
+            # No local clone means no local copy of what the cache SHOULD hold.
+            # For an upstream marketplace nobody here edits that is the normal
+            # state, so say it plainly and do not fail the run — a line that is
+            # red on every run stops being read.
+            if not quiet:
+                print(f"[drift] {mname}: not checked — GitHub marketplace {detail} "
+                      f"has no local clone, so there is nothing to diff the cache "
+                      f"against. Clone it under ~/dev to bring it into coverage.")
+            continue
         plugins = marketplace_plugins(mdir)
         if not plugins:
             print(f"[drift] {mname}: CANNOT CHECK — no readable marketplace.json "
                   f"under {mdir}")
             worst = max(worst, 2)
             continue
+        ref = "origin/main" if kind == "github" else None
         for pname, pdir, ver in plugins:
-            rc = check_plugin(mname, pname, pdir, ver, quiet)
+            rc = check_plugin(mname, pname, pdir, ver, quiet, ref=ref)
             checked += 1
             # Drift (1) outranks can't-tell (2): a known problem beats an unknown.
             worst = 1 if (rc == 1 or worst == 1) else max(worst, rc)
 
     if worst == 0 and not quiet:
-        print(f"[drift] ALL CLEAR — {checked} directory-source plugin(s) checked")
+        print(f"[drift] ALL CLEAR — {checked} plugin(s) checked")
     return worst
 
 

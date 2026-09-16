@@ -379,12 +379,27 @@ def call_haiku(diff_content: str, range_spec: str = "-") -> int:
     # ANTHROPIC_API_KEY so this layer can use a key separate from
     # general-purpose Anthropic usage (better audit + isolated billing); the
     # env forms stay supported for CI and one-off runs.
-    api_key = (
-        read_fleet_keychain()
-        or read_keychain(KEYCHAIN_SERVICE)
-        or os.environ.get("SCRUB_HAIKU_API_KEY")
-        or os.environ.get("ANTHROPIC_API_KEY")
-    )
+    # Which SOURCE won, never the value. Four sources fall through to each
+    # other silently, so a successful scan cannot otherwise tell "the fleet key
+    # is live" from "the fleet key is missing and we quietly used the old one".
+    # Those need opposite actions during a key migration, and the whole point of
+    # moving keys is that the spend lands on the new one — an unobservable
+    # fallback means the migration can look done for weeks without having
+    # happened.
+    api_key, key_source = None, None
+    for source, getter in (
+        (f"fleet key ({FLEET_KEYCHAIN_SERVICE})", read_fleet_keychain),
+        (f"hand-written Keychain entry ({KEYCHAIN_SERVICE})",
+         lambda: read_keychain(KEYCHAIN_SERVICE)),
+        ("SCRUB_HAIKU_API_KEY", lambda: os.environ.get("SCRUB_HAIKU_API_KEY")),
+        ("ANTHROPIC_API_KEY", lambda: os.environ.get("ANTHROPIC_API_KEY")),
+    ):
+        api_key = getter()
+        if api_key:
+            key_source = source
+            break
+    if api_key:
+        print(f"[scrub-haiku] key: {key_source}", file=sys.stderr)
     if not api_key:
         print(
             f"[scrub-haiku] no API key (Keychain `{FLEET_KEYCHAIN_SERVICE}` or "

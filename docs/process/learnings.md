@@ -3650,3 +3650,28 @@ would have been the clobber-backup path in the error message.
 - **Same family as the other entries here where an external surface is the only record.** The
   binding is state held somewhere you are not looking, and the first time you learn it exists
   is the error telling you what it cost.
+
+## An audit phrased as "close every gap" will overwrite the gaps that were decisions
+
+**2026-09-17.** Working a task titled *every session posts end-of-turn notes*, I swept the registry
+for entries missing a `workspace_id`, resolved each board id from the server's own store, and wrote
+them in. One of those entries was empty **on purpose**: the Diary agent had decided its board should
+receive no turn notes, because its turns are about the content of Bryan's private journal and one
+stripped line can carry a sentence about his marriage, his health or his family onto an Activity tab
+nobody asked to have it on. Its own project rules forbid exactly that. I overwrote the decision, and
+found out only because the agent said so twice.
+
+- **A task phrased as closing gaps makes every empty field look like a defect.** Nothing in the sweep
+  could distinguish "nobody got to this yet" from "somebody considered it and said no", because the
+  absent value is identical in both cases and the reasoning lives nowhere the sweep looks.
+- **A resource existing is not consent to use it.** The board was real, the id resolved cleanly from
+  two independent sources, and the lookup was correct in every respect except the one that mattered.
+  Confidence in the *value* says nothing about authority to *set* it.
+- **Ask the owner before filling a field on their behalf**, and treat a decision as the default
+  explanation for a conspicuous hole in an otherwise complete entry. A field missing on one row out of
+  twenty-eight is more likely a choice than an oversight.
+- **Record the decision where the next sweep will hit it.** The fix is not remembering this; it is a
+  comment in the entry saying *deliberately absent, here is why, do not re-open* — so the audit that
+  runs in three months reads the reason at exactly the moment it would otherwise act.
+- **Same family as the provenance rule.** I had the fact right and the authority wrong, and nothing in
+  a correctness check would have caught it.

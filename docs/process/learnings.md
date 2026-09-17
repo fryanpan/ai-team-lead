@@ -4147,3 +4147,24 @@ asked for. A board existing is not consent to post to it.
 - **Where the answer lives matters more than that it exists.** This was settled in a registry comment
   written for exactly this audit, and it still took a peer message to stop a restart. Put the reason at
   the surface the detector reads, not only where a human would look.
+
+## `gh api pulls/<n>/reviews` without `--paginate` returns the OLDEST 30, so it reports the wrong current state
+
+Reported by the App Dev For All peer, 2026-09-17, while verifying a review-state claim of mine. PR #1723
+carries 107 reviews. The unpaginated call returns the first page — the *oldest* thirty — so the latest
+decision is not in the result at all. The call succeeds, returns well-formed JSON, and answers confidently
+with a state that may be weeks stale.
+
+- **Use `gh pr view <n> --json reviews`**, which returns the full set, or pass `--paginate` to the api
+  call. The peer used the former and read 107 reviews where the api call would have shown 30.
+- **A truncated page is not an error, and nothing in the response says it was truncated.** Same family as
+  the other four entries this week: the output cannot distinguish "this is the whole set" from "this is
+  the first page." Default pagination is a silent ceiling on every `gh api` list call, not just reviews.
+- **`CHANGES_REQUESTED` is only cleared by an APPROVED review, never by a `COMMENTED` one.** On #1723 the
+  requester posted four COMMENTED reviews after his 2026-08-31 block and it still stands. A second
+  reviewer on the same PR requested changes five times and then approved, which did clear. Counting
+  comments, or reading the newest review, gets both cases wrong — you need the newest review *per
+  reviewer*, and only APPROVED counts.
+- **Mergeable state is not approval state**, and I conflated them in a review Bryan reads. `MERGEABLE`
+  describes the branch; it says nothing about whether a human has signed off. Ten approved and one
+  blocked read to me as "14 green PRs".

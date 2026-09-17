@@ -3357,3 +3357,267 @@ dangerous direction, and every individual log looks obedient.
   the reader to UTC would have shown $0.03 instead of $1.05 and unblocked the
   scan. Same shape as laundering a permission denial through a second agent.
   Filed as a decision instead.
+
+## The reverse audit finds dropped CONFIRMATIONS, not dropped instructions (2026-09-16)
+
+The obvious question to ask a board is "what did he ask me that I never closed." Measured on one
+peer's board, that is the wrong half. All three findings were work the agent had **finished and never
+reported** — including a `done` row where Bryan answered a decision with a dollar figure on 12
+September, the work ran the next day, and nobody ever told him.
+
+So the question that pays is **"what did I do that he cannot see"**, and it points the audit at
+completed rows rather than at waits. A row marked done is the one place nobody re-reads, which is
+exactly why an unacknowledged answer can sit there indefinitely looking closed from both sides.
+
+- **Filter on `threads.total`, not `threads.open`.** A resolved thread can still hold an unanswered
+  comment, and the open count hides it. Writing `open` ships a check that silently misses them —
+  same family as a gate that cannot distinguish "looked and found nothing" from "could not look."
+- **A task's docId is literally `task:<taskId>`**, so `list_threads(docId: "task:t-…")` works
+  directly off the index filename. No lookup step between the two.
+- **Cost, measured:** 31 task rows, 3 with any thread — three `list_threads` calls instead of 31.
+  That ratio is what makes the pass runnable across the fleet rather than once as an exercise.
+- **Join against your own board's task list.** The on-disk index at
+  `~/Library/Application Support/claude-workspaces/data/task:<taskId>.index.json` is machine-wide,
+  so an unjoined sweep reads other boards' rows.
+- **Timestamps rank candidates; they do not identify asks.** `lastThreadActivityAt` moves for an
+  agent's own reply too. Reading the last comment's author is the only reliable test, and it is
+  cheap once the index has narrowed the set.
+
+## A CronCreate cadence dies on every restart, and no board sweep can see it (2026-09-16)
+
+`CronCreate` jobs are session-only and in-memory. Its `durable` parameter is documented as having no
+effect. So every restart — a respawn, an account rotation, an OS upgrade — silently disarms every
+standing cadence the fleet has, and `CronList` then reads "No scheduled jobs", which is
+indistinguishable from never having had any.
+
+Found after the macOS 27 reboot on 2026-09-16 took the whole fleet down. The team-lead's own three
+jobs came back empty and were re-armed as routine startup housekeeping **without anyone asking who
+else it hit**; a peer running an unrelated audit found its two jobs unarmed and raised the general
+case. Nine peers were then notified. The re-arm worked; the noticing is what failed.
+
+- **The thing that should remind you is the thing that died.** A cadence that lives only in a cron is
+  invisible to every board-side detector, because it was never a row. This is the same blind spot as
+  an ask written as prose, one layer down — nothing is filed, so there is nothing to return.
+- **Distinguish "unarmed" from "invisibly waiting."** A row with a `schedule` field that no detector
+  reads is bad; a job that does not exist is worse, and the two look identical from the board. On
+  2026-09-16 a team-lead premise asserted the first and the truth was the second.
+- **A cadence that must survive a restart belongs in launchd**, under `/opt/fleet`, not in
+  `CronCreate`. Re-arming on startup still works but depends on someone remembering — the exact
+  property that just failed.
+- **launchd is not automatically safe either.** One peer's weekly refresh failed every run from
+  2026-06-01 to 2026-09-01 because launchd could not read `/Volumes/Data`, and the archive froze for
+  three months while every surface looked healthy. Read `launchctl list <label>` for LastExitStatus
+  and the job's own log; a major OS version bump is exactly when a plist stops loading.
+- **Check repo watches in the same pass.** An account rotation on 2026-09-10 left six peers with
+  empty `list_watched` results for days. Same restart, same silence, same class of failure.
+
+## Verify against the artifact, not against your own reply (2026-09-16)
+
+A reverse audit that reads the thread finds that you answered. It does not find whether the document
+changed. Measured on one board: every one of the user's eight asks had a reply, and the substantive
+defect was in the doc body — a round-1 requirement still stated as current, sitting directly above a
+quote contradicting it.
+
+- **A reply is evidence of a response, not of a change.** Open the file.
+- **This pairs with the dropped-confirmations finding** from the same night: that one looks for work
+  the user cannot see, this one looks for answers that never reached the artifact. Both are invisible
+  to a thread-level read, from opposite directions.
+- **A fact that was true when written stays readable after the requirement moves.** It does not
+  announce that it is stale, and it is most dangerous where it sits above the line marking what was
+  superseded rather than below it.
+
+## "Unpushed commits" needs the right metric, and `dev/*` is not a list of repos (2026-09-16)
+
+Before the macOS 27 upgrade, a sweep of `~/dev/*` produced a risk list of work existing only on this
+machine. Three separate errors made it wrong, and a peer caught it by checking its own tree.
+
+**`git log --branches --not --remotes` counts every local branch ever created.** It answers "commits
+not on any remote", not "live work that exists only here". Measured the same night: one repo read
+1,431 by that metric while its checked-out `main` was **0 ahead of upstream** — the entire figure was
+abandoned `backup/pre-restack-*` refs. Another read 110 with HEAD at 0. Use `git rev-list --count
+'@{u}..HEAD'` for the branch someone is actually on, and quote the all-branches number only when the
+question is genuinely about every local ref.
+
+**A nested repo is attributed to its enclosing directory.** A loop over `dev/*/` running `git -C` on
+each hit finds the *outer* repo for any project checked out inside another one. One peer's worktree
+belonged to a project checked out *inside* another project's working tree, so its git dir sat at
+`<outer-repo>/<inner-repo>/.git` and the sweep reported the outer repo's 2,323 dirty files as the
+peer's. Check `git rev-parse --git-common-dir` before attributing state to an agent.
+
+**A symlinked duplicate reads as corroboration.** Two entries under `~/dev` were the same repo via
+a symlink, so it appeared as two rows with identical numbers — which looks like two sources agreeing
+rather than one counted twice. Resolve with `pwd -P` before treating two paths as two projects.
+
+The general shape: every one of these produced a plausible number that no gate would flag, and the
+only thing that surfaced them was the agent who owned the tree reading its own state and pushing
+back. **Quote a peer's state to the peer, so it can correct you** — do not just report it upward.
+
+## A rising counter under a fixed verdict is a re-run, not a series of judgements (2026-09-16)
+
+A meeting-notes quality check fired seven times during one live call. Each firing carried the same
+headline — "100% of what was said reached no note" — and a coverage count that climbed with the
+transcript: 15, 33, 75, 160, 199, 262. It was re-running one comparison against a growing input, not
+reaching seven conclusions. The next meeting fired it once, so it was one instance rather than a
+standing loop.
+
+- **The tell is the pair, not either half.** A repeated item is normal; a repeated item whose
+  denominator moves while its verdict stays pinned at an extreme is a recomputation leaking into the
+  alert channel. Check whether the number that changed is the input size.
+- **A lexical proxy reported as a headline percentage will be read as a measurement.** The check's
+  own detail text labelled the figure an upper bound and noted that it over-reports paraphrase; the
+  headline said 100%. 172 notes had in fact been captured when it claimed none had. The user answered
+  the one that reached him with *"Not true -- most of the content reached notes."* An instrument that
+  has to be right about paraphrase, and says so in small print, cannot lead with a round number.
+- **Resolving duplicates mid-call is the right call and it hides the defect.** Six were cleared as
+  duplicates and one was left for the user — correct handling of the noise, and the reason nobody
+  looked at the cause until an audit surfaced it weeks later. If you clear a repeat, say once that
+  you cleared it and why.
+- **Same family as an unarmed cron and a status-keyed sweep**: the surface that should have shown the
+  problem is the surface that absorbed it.
+
+## `gh api .../pulls/<n>/reviews` silently returns only the first 30 (2026-09-17)
+
+A peer's PR sweep filtered review lists on `submitted_at` and reported "no new reviews" for weeks.
+The endpoint returns the **first 30 reviews, oldest first**, accepts **no `since` parameter**, and
+answers 200 with an empty filter result — indistinguishable from a genuine all-clear. Seven of eleven
+PRs in one stack were over 30; the largest held 134. On those, a new review could not have been
+detected no matter what happened. It put a wrong line in the user's status doc: two PRs reported
+blocked when only one was.
+
+Measured on a PR holding 134 reviews:
+
+| Form | Returned | Complete? |
+|---|---|---|
+| `gh pr view <n> --json reviews` | 134 | yes — GraphQL, not capped |
+| `gh api repos/<o>/<r>/pulls/<n>/reviews` | 30 | **no, silently** |
+| `gh api --paginate …/reviews` | `100` then `34` | yes, but see below |
+
+- **Prefer `gh pr view <n> --json reviewDecision,latestReviews` for aggregate state.** Do not
+  reconstruct approval status by walking the review list; `reviewDecision` is the answer the UI shows.
+- **The `gh pr view --json` path is NOT affected** and needs no change. The cap is specific to the
+  REST endpoint via `gh api`. Verify before "fixing" a rule that names the CLI form.
+- **Don't use the REST endpoint for review lists at all.** `gh pr view <n> --json reviews` returns
+  the complete list, so there is no pagination to get wrong. Filter it on `submittedAt`. Everything
+  below is a footnote for anyone who genuinely needs a REST total.
+- **`gh api --paginate … --jq 'length'` prints one length PER PAGE**, not a total — `100` then `34`.
+  Read either number as the count and you get a confidently wrong figure from the command you added
+  to be safe.
+- **And the obvious fix for that errors out**: `--slurp` cannot be combined with `--jq` or
+  `--template` — gh rejects it and prints usage. Two forms that do return 134:
+  `gh api --paginate --slurp <ep> | jq '[.[][]] | length'`, or
+  `gh api --paginate <ep> | jq -s '[.[][]] | length'`. Worth knowing that the natural first attempt
+  at the fix fails loudly rather than counting — which is the good case, and worth contrasting with
+  the original bug, which failed silently.
+- **`issues/<n>/comments?since=` filters on `updated_at`, not creation.** An edited bot comment
+  resurfaces as new, so a sweep keyed to it re-reports old traffic.
+- **Print the matched count next to the total the endpoint holds.** "0 of 134" and "0 of 0" are
+  different findings and a bare "0" cannot tell them apart — the same three-states rule as the leak
+  gate, in a new place.
+
+## A measurement window does not notice that you fixed the thing it was measuring
+
+A task was accumulating a week of `fleet_guard.py` samples so a hardware decision could rest on data
+rather than on impressions. Partway through that week the dominant cause of the degraded readings was
+removed — ~35 GB of disk reclaimed and an OS upgrade that collapsed three staging volumes. The samples
+kept appending to the same file under the same schema, the row kept its declared wait, and nothing
+anywhere marked the discontinuity. A report generated on the original date would have been a valid
+computation over an invalid population.
+
+- **The instrument survives the intervention, and that is exactly the problem.** A sampler keyed to a
+  clock has no notion of the system changing underneath it. Same file, same fields, same cadence — every
+  signal that would flag a break is unaffected by the break.
+- **The trigger is any action that moves a monitored metric.** If you clean up disk, restart the fleet,
+  upgrade an OS or kill a process while a measurement is running, that measurement's window restarted.
+  Nobody else will realise it, because the person who fixed the thing is usually not the person reading
+  the chart.
+- **Restart the window in the same turn you take the action**, and say on the row which samples are now
+  out of scope. Deleting them is worse — the pre-change samples are the evidence that the change worked.
+- **The band that never tripped is the finding.** Across 240 samples spanning the worst conditions the
+  machine has been in, the memory band fired 0 times while disk fired 142. A composite "degraded %" hid
+  that completely, because it reports the worst band and one chronic true condition drowns every other.
+- **Related failure, same root:** a chronic condition and an acute one grade identically in a composite.
+  Report them separately, or the daily percentage measures how long the known problem has been known.
+
+## A compound registry key protects the key, not the name people actually write
+
+The pre-push leak gate compiles its project-name terms from the top-level keys under `projects:` in
+`registry.yaml`. Most of those keys are compound — `<name>-assistant`, `<name>-tool`, `<name>-impact`,
+`<name>-config`. The gate therefore blocks the exact full key and nothing else, while prose, skill docs
+and code comments all refer to the project by its bare distinctive component. 22 of 28 keys are compound.
+
+Measured 2026-09-17: one project's bare name stood 19 times across 5 files on a public main branch. The
+gate had been running on every one of those pushes and passing, correctly, by its own definition.
+
+- **Mutation-test the gate against both spellings, not just the key.** Planting the full key is blocked;
+  planting the bare component passes. Running only the first test proves the gate is alive and tells you
+  nothing about what it covers — the same passed/failed/could-not-run distinction, one level up.
+- **The generic components are why it was built this way, and they are not the problem.** Splitting every
+  key yields terms like `health`, `family`, `research`, `weekly`, `personal` — unusable. The fix is a
+  curated list of the distinctive components, not a rule applied to all of them.
+- **Check the leading component of every compound key when a project is added.** If the bare word would
+  identify the project to an outsider, it needs its own term. If it is a dictionary word, it does not.
+- **Commit messages are the surface to check first**, because they are the one that cannot be fixed by a
+  later edit. Files on a branch can be rewritten; a pushed message is there for good.
+- **The exit code is not readable through a pipe.** `gate ... | tail` reports tail's status, so a blocked
+  push reads as exit 0. Capture the gate's own status first, then format.
+
+## A file in your own repo can be bound to a live doc, and nothing about the file says so
+
+The rule "once a doc is bound, never Write/Edit the `.md`" assumes you know which files are bound. Nothing
+on disk carries that information. A binding is created by whoever attached the file for review — possibly
+weeks ago, possibly by a different session — and from the filesystem the file is an ordinary tracked file
+in your own repo.
+
+Measured 2026-09-17: an alwaysApply rule file under `plugin/` was edited twice with direct writes before
+`doc_status` revealed `bound: true` pointing at that exact absolute path. The binding came from a diff
+review created 22 days earlier. Nothing was lost — the ~1s debounced flush ingested both edits, confirmed
+by the doc's `lastActivityAt` landing one second after the file's mtime — but that is timing, not
+correctness, and the race runs the other way just as easily.
+
+- **Check before editing any file that has ever been under review**, not just docs you bound yourself.
+  `doc_status(docId)` answers it, and a doc listing carries `relPath` for the same purpose.
+- **A file living in source control, under a plugin or rules directory, reads as "obviously not a review
+  doc."** That intuition is what makes this one land: nothing about the path suggests a binding.
+- **`reparse_from_disk` is the documented repair** when a bound file was written externally. It is also
+  safe to call when nothing is wrong — it returned `ok` and changed nothing on an already-synced doc.
+
+**The related trap: `textLength` from `doc_status` is not the file's length.** It counts block text without
+the separators between blocks, so a 34-block doc read 390 characters shorter than `wc -m` on the same file
+and looked like it was missing an edit. Comparing the two produced a confident, wrong "the doc is stale."
+
+- **Compare timestamps, not sizes.** The doc's `lastActivityAt` against the file's mtime settles it in one
+  step and does not depend on either side's counting convention.
+- **Two numbers that both describe "how big is it" are not automatically the same measurement.** State the
+  denominator before drawing a conclusion from a difference — the same rule that applies to any rate.
+
+**Separately, do not enumerate docs through the server to audit them.** Doing so hydrates dormant file
+bindings; on 2026-09-15 that wedged the server for 95 seconds and flushed three-week-old content over
+another repo's tracked files. Read the on-disk index files instead, or ask each board's lead for its own
+number. After any doc listing, check your working tree before trusting it.
+
+## A test case agreed by two parties is still a claim, and neither party checks it
+
+Measured 2026-09-17. A peer was shipping a fix to how rows carrying a `schedule` are
+read: before it, such a row could not report as "waiting on a person with nothing
+filed"; a change the day before removed that skip and overshot, so every future-dated,
+person-owned row began reporting that way. We agreed on one row of mine as the test
+case, I recorded the commitment on its thread, and when the fix deployed I read the row
+and found it clean.
+
+**The row was never in scope.** The board reports its `assigneeKind` as `agent` — the
+title names an outcome the user decides, so both of us had read it as person-owned. The
+decision function requires a person-owned row before it ever reaches the new date check,
+so that row returns "no ask" under the old code and the new code alike. A clean read was
+guaranteed and meant nothing, and I would have reported it as confirmation.
+
+- **Check the test case against the condition it is supposed to exercise, at the moment
+  you agree to it.** One field lookup. The agreement itself is what suppresses the check —
+  two parties nodding reads as verification and is not.
+- **The same provenance rule covers it.** "Owned by a person" was an attribution, not a
+  value, and it was plausible because the row's title carries the user's name in the
+  outcome. Plausibility is exactly what stops an attribution being tested.
+- **A null result needs its discriminating power stated, or it reads as a pass.** "Looked,
+  clean" is true and useless. Say whether the instrument could have shown the other answer.
+- **Check whether ANY row qualifies before offering your board.** Of 17 `todo` rows, one
+  carried a schedule and no person-assigned row carried one, so that board could not
+  exercise the fix in either direction — knowable before agreeing, not after.

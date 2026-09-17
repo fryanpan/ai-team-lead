@@ -80,7 +80,8 @@ looks answered, the row looks healthy, and the question sits in prose the user h
 
 Measured 2026-09-16 on one board: a question put into a review doc's body on 09-04 went **12 days unread**,
 and the email it was gating was still unsent when the audit found it. The same sweep found the sibling case —
-a comment on a row carrying a `schedule` field, invisible for the same reason from the other direction.
+a comment on a row carrying a `schedule` field, invisible at the time of that measurement for the same
+reason from the other direction.
 
 - **If you need an answer, file a review item.** Prose is for the deliverable; the queue is for the ask. A
   paragraph beginning "should we…" inside a doc body is the failure, however clearly it is written.
@@ -89,14 +90,21 @@ a comment on a row carrying a `schedule` field, invisible for the same reason fr
 - **Check both directions when you audit.** "What am I waiting on from them" is the easy half. "What did they
   ask me that I never closed" is the half that ages invisibly, and neither detector covers it.
 
-**Three kinds of row are invisible to every status-keyed detector**, and they share one cause — the detector
-keys on the row's state, and none of these states is "has an unanswered question":
+**Four things are invisible to every status-keyed detector**, and they share one cause — the detector walks
+task rows and keys on their state, and none of those states is "has an unanswered question":
 
-1. **A row carrying a `schedule` field.** `keep-moving.ts` buckets it as `scheduled-rule` *before* any ask
-   branch, so `blocked-on-owner-unfiled` is unreachable for it. Correct for dispatch, wrong for asks.
+1. **A row carrying a `schedule` field.** Whether the ordinary ask path reaches one has already flipped
+   twice — unreachable on the morning of 2026-09-16, reachable that evening, and a third change was in
+   flight the next day. Trust neither answer: open a deferred row and read it.
 2. **A row already marked done.** The user uses closed rows for follow-ups, and a comment on one is as
    unreachable as a comment on a rule.
 3. **A question written as prose**, per above — nothing is filed, so there is nothing to return.
+4. **A question on a doc with no task behind it.** No status to age, no assignee, no rank: every rung of the
+   ladder walks rows, so nothing in the path can see it from either direction. Measured 2026-09-17 on this
+   board — 9 docs with open threads and no row, 57 threads, the oldest idle 12 days; the first one opened
+   held a 23-day-old commitment of mine whose condition had been met weeks earlier. **The doc-cleanup job
+   makes it worse**, reading an idle doc and asking its owner to delete it, with open threads counted only
+   as a force-delete warning. Sweep docs separately from rows, and read the last comment's author.
 
 **Enumerate them from the plugin's own on-disk index rather than by sweeping the board.** Each doc has
 `~/Library/Application Support/claude-workspaces/data/task:<taskId>.index.json` carrying
@@ -109,3 +117,16 @@ keys on the row's state, and none of these states is "has an unanswered question
   list; the directory is machine-wide, so an unjoined sweep reads other boards' rows.
 - **Quiet time is not unanswered time.** The timestamp moves for an agent reply too, so it ranks candidates;
   reading the last comment's author is still what identifies an ask.
+
+**Never write another repo's internals into a fleet rule.** The bullet above named a source file, a bucket
+name and an evaluation order in the plugin's code. It was accurate when written and false within a day,
+because the plugin shipped a PR that moved the check — and nothing in this repo could have noticed. A rule
+loaded by every peer on every SessionStart then re-teaches the stale fact indefinitely, which is worse than
+a one-time wrong conclusion.
+
+- **State the hazard, not the mechanism.** "A detector keyed on a row's state cannot see an unanswered
+  question" stays true across their refactors; "`keep-moving.ts` buckets it as `scheduled-rule`" does not.
+- **A behaviour you measured is a dated observation, not a rule.** Write the date next to it so the next
+  reader knows what it is, and check it rather than quoting it.
+- **The owning agent is not obliged to keep our rules current**, and asking it to is the wrong fix. The
+  dependency is the defect.

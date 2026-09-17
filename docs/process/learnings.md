@@ -4121,3 +4121,29 @@ surfaced eight days later, by accident, during a run looking at something else.
 - **Related:** the `timeout` entry above and the verification section in
   `plugin/team-lead-fleet/rules/workflow-conventions.md`. Three instances in one week, each arriving from
   a different direction — the wrapper, the API key, and now the target.
+
+## An absence can be a POLICY, and a detector that cannot see that taxes the session it is protecting
+
+2026-09-17. An environment probe found the Diary session missing `CW_WORKSPACE_ID`, the same reading that
+had just correctly identified a real fault on another peer. The probe was sound and the reading was
+accurate. The conclusion was wrong: that blank is deliberate, recorded in `registry.yaml` with a comment
+naming this exact audit, because that session's turns are about the content of a private journal and a
+stripped end-of-turn line can carry a sentence about someone's marriage or health onto a board nobody
+asked for. A board existing is not consent to post to it.
+
+- **This is the fourth variant of one failure in a single week**, and the fourth arrival direction:
+  the instrument (an exhausted API key), its wrapper (a missing `timeout`), its target (the wrong page),
+  and now its **subject** — a value withheld on purpose, indistinguishable from a value that broke.
+- **The general form, from the plugin lead, and it is better than "add a flag":** an absence is never
+  evidence on its own, and the fix is never a better reading — it is making the two cases readable apart.
+  A third state has to be *declared by the subject*, not inferred by the reader.
+- **A negative reading needs its control.** They verified the silence was real and never asked whether it
+  was intended. "Is this deliberate" is the check, and it is the one that gets skipped precisely when the
+  measurement is clean.
+- **The cost falls on the wrong session.** Without a declarable state, every audit re-raises the same
+  peer, and each time that peer has to defend a decision it already made — which for this one means
+  discussing the thing it exists to protect. A detector that repeatedly interrogates its most sensitive
+  subject is not neutral, however correct each individual reading is.
+- **Where the answer lives matters more than that it exists.** This was settled in a registry comment
+  written for exactly this audit, and it still took a peer message to stop a restart. Put the reason at
+  the surface the detector reads, not only where a human would look.

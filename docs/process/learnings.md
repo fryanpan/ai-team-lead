@@ -3303,3 +3303,57 @@ stands" two clauses later, both off the same row at the same moment.
 "did tomorrow's run name a new feed", and the card lands in Bryan's queue
 meaningless. Put the settling event and time in the row's status, say to
 re-declare rather than invent an ask, and treat the 8h ceiling as the bug.
+
+## A CLI that falls through to stdin hangs forever in a background job (2026-09-16)
+
+`scrub-haiku.py` was invoked with `--diff-file <path>`. That flag has never
+existed — the script's only flags are `--diff-range`, `--spend-report` and
+`--help` — and unknown arguments fell through to `else: diff = sys.stdin.read()`.
+From a backgrounded shell, stdin never reaches EOF, so it blocked **35 minutes**
+having read nothing, and would have blocked forever.
+
+**What made it hard to see:** the process looked alive and busy. `ps` showed it
+resident with a growing elapsed time. Nothing errored, nothing printed, and the
+job's captured output held only the two lines from before the call.
+
+- **`etime` is not progress — read `time` (CPU).** The tell was 0:00.04 of CPU
+  against 33 minutes elapsed. A scan that is actually working burns CPU; one
+  blocked on a pipe burns none.
+- **Then check for sockets.** `lsof -nP -p <pid> | grep TCP` was empty, which
+  settles it for anything that is supposed to be calling an API. Its only open
+  fds were `/dev/urandom` and fd 0.
+- **A hang is the quietest of the three states.** This repo's rule already says
+  "could not look" must never read as "looked and found nothing". A hang is
+  worse than the silent zero it warns about, because it never resolves at all
+  and so is never even compared. Fixed in #50: unknown args exit 2 and print
+  `NOTHING WAS SCANNED`.
+- **Verify a flag exists before building a job around it.** One `--help` would
+  have cost nothing. The invocation was written from memory of what the script
+  *ought* to accept.
+
+## Two copies of one gate, one shared ledger, different day boundaries (2026-09-16)
+
+The Haiku leak gate caps spend at $1/day against a ledger at
+`~/.local/state/scrub-haiku/spend.jsonl`, shared across repos deliberately —
+the cap belongs to the API key, not to a checkout.
+
+Two implementations write to it. One stamps `date` from **UTC** (263 entries,
+`ts` ending `Z`); the other from **local** time (22 entries, `ts` carrying
+`-07:00`). The reader uses the local date.
+
+**So for the 7 hours between 17:00 PDT and midnight, each copy's spend is
+invisible to the other's cap**, and at local midnight the "fresh" day inherits
+whatever the UTC bucket accumulated. It fails by under-counting, which is the
+dangerous direction, and every individual log looks obedient.
+
+- **A shared ledger only shares if the key is computed identically.** The
+  sharing was designed and documented; the date derivation was not part of the
+  contract, so it drifted the moment a second implementation appeared.
+- **Classify entries by writer before trusting a total.** Parse `ts` and compare
+  the stamped `date` against both the UTC and local dates of that instant.
+  Entries where the two agree are useless as evidence — only ones written
+  inside the offset window disambiguate.
+- **Don't fix a budget refusal by editing the thing refusing you.** Switching
+  the reader to UTC would have shown $0.03 instead of $1.05 and unblocked the
+  scan. Same shape as laundering a permission denial through a second agent.
+  Filed as a decision instead.

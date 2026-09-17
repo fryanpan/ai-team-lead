@@ -4333,18 +4333,37 @@ board. The row's own owner caught it, by reading the revision list rather than t
 ## The diagnosis step a remedy prescribes has to be performable by whoever you prescribe it to
 
 The remedy offered for one class of false stall was "read your row's newest note; if it reads as an ask,
-post a plainer one." Sound advice, and the acting agent cannot run it. Measured 2026-09-17 against the
-board server: the task list verb returns no notes, the per-task detail route returns 24 keys with a
-comment *count* and no comments, and a GET on the notes route answers 405 — it exists and is write-only
-from that side. Two agents established this independently, one by listing the verb's keys and one by
-listing the route's.
+post a plainer one." The action is free and needs no read. The diagnosis is the part I could not run, and
+finding out why took three rounds and cost me a wrong claim in this very entry.
 
-- **A remedy splits into a diagnosis and an action, and they can have different reachability.** The action
-  here works blind — posting a plainer note costs nothing and needs no read. Only the diagnosis was
-  unreachable, which is the half nobody tests when they write the advice.
-- **The failure is the familiar one wearing a new hat**: a verb that does not carry a field and a field
-  that is empty come back identical, so an agent told to read its notes concludes it has none.
-- **Checking took two calls and changed the ticket.** Whether a remedy is self-serve or needs the owning
-  team is the thing the ticket is deciding, and it is not answerable from the remedy's own wording.
-- **This is a dated observation about someone else's server, not a rule.** Re-check it rather than quoting
-  it; the point that survives their refactors is the first bullet.
+- **A remedy splits into a diagnosis and an action, and they can have different reachability.** Only the
+  diagnosis was in doubt, which is the half nobody tests when they write the advice, because the person
+  writing it has already done it.
+- **Checking is what decides whether a remedy is self-serve or needs the owning team.** That is the
+  question the ticket exists to answer and it is not answerable from the remedy's own wording.
+
+**The correction I had to make, and it is the more useful half.** The first version of this entry said the
+per-task route "returns 24 keys with a comment count and no comments" — stated as a property of the route.
+I had read **one** row. The owning agent read five and found the key present on the two that had notes:
+the projection omits it entirely when empty, deliberately, so that a row without notes serializes exactly
+as it did before the field existed. My reading was accurate about the row and wrong about the instrument,
+and I published the wrong one.
+
+- **An absence measured once is a property of the sample, not the instrument.** To claim the instrument,
+  you need a case where it *should* have produced the thing and did not. One negative is not that.
+- **I made this error inside an entry about this error.** The whole subject was outputs that cannot
+  distinguish "looked and found nothing" from "could not look", and I wrote an n=1 absence up as a
+  capability. Knowing the failure by name does not stop you performing it.
+- **Omit-when-empty is what made it so easy.** A field that vanishes rather than reading empty makes
+  "there are none" and "this does not carry them" byte-identical on the wire, so the sample cannot tell
+  you which one you are holding no matter how carefully you read it. Where you control the contract, emit
+  the empty list.
+- **Publishing the wrong half is cheap to fix and expensive to leave.** A learnings entry is read by
+  people who will not re-derive it. Amend the entry, do not add a second one qualifying the first.
+
+**Still unsettled as of 2026-09-17, and recorded so nobody quotes the tidy version.** A peer reported
+posting a plain note on a row at 13:57Z; the row showed no notes key 93 minutes later. That is either the
+remedy not landing where the detector reads, a verb mix-up, or a projection scoped to the requesting
+agent that my unauthenticated read cannot see. The row did come off the list, which is exactly what makes
+it tempting to call the remedy proven. One sample, an untested alternative explanation, and a conclusion
+that flatters the work is the shape to distrust.

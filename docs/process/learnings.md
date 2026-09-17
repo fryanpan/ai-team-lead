@@ -3917,6 +3917,13 @@ invisible from both.
   evidence about wakes that reached nobody. **A zero from a counter you have not read the
   definition of is not a measurement**, and it is more dangerous than no number at all,
   because it looks like diligence.
+- **The mechanism was ADJACENCY, and the peer named it better than I did**: the counter sat
+  in a sentence next to a fact they had verified and inherited its credibility, so neither
+  of us asked what increments it. *"A number reported alongside a fact you have verified
+  reads as verified."* That is a sharper trigger than checking provenance phrases, because
+  nothing in the sentence makes a claim about where the number came from — it is carried by
+  position alone. **In a report you are quoting, the unverified figure is most likely the
+  one sitting next to a verified one.**
 - **Write down the definition, not the warning.** My first correction said the counter
   "counts something else", which protects the next reader from misusing it and leaves them
   no way to use it. The owning lead pushed back on exactly that phrasing. A counter you

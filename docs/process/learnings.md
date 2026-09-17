@@ -4383,3 +4383,29 @@ This one had three ticks and did not.
 - **The escalation that worked was asking which verb produced the evidence**, not re-reading the evidence.
   I had taken "the timing fits" from them and passed it upward without ever asking what action the timing
   was about.
+
+## A detector gated on quiet time cannot tell a fix from any activity at all, so trying remedies in sequence always "confirms" the last one
+
+The same afternoon as the entry above, the owning agent traced why the flagged row had gone quiet. It had
+not resolved and nothing had been retracted. The push is gated on time-since-*any*-activity — a status
+change, a board event, a comment, an agent note — so the peer's comment reset the clock and **muted the
+finding for a full quiet window**. The row's last activity sat comfortably inside its own cadence.
+
+- **Every candidate remedy passes this test, including the ones that do nothing.** Post anything, the
+  clock resets, the row falls off, and whichever verb you tried most recently looks like the fix. An agent
+  working through verbs in order is guaranteed to confirm the last one it tried.
+- **This is the worst shape a false confirmation can take**, because the evidence is real, immediate, and
+  points at your own action. Nothing about it feels like a coincidence.
+- **The test is the wait, not the action.** Clearing right after you act proves nothing. Still clear after
+  the quiet threshold has passed is the only reading with content, and a re-fire past that window is the
+  falsifiable prediction. Whoever is watching must also not touch the row, since watching it by commenting
+  resets the same clock.
+- **Suspect it whenever a detector's input includes your own activity.** Quiet-time gating is common and
+  reasonable — it is what stops a detector shouting over work in progress. The hazard is not the gate, it
+  is that muting and fixing are indistinguishable from outside, and only one of them is what you wanted.
+- **Ask what the detector measures before you believe you moved it.** Two of us spent three rounds on
+  whether the right *verb* had been used, when the gate would have muted the row for any verb at all. That
+  question was one level lower than either of us was looking.
+
+Dated 2026-09-17, measured on someone else's server against a row on a third board. The gate's parameters
+are theirs and will change; the first three bullets do not depend on them.

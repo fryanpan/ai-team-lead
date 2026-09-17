@@ -3875,3 +3875,33 @@ someone else's.
 - **This is the fifth consecutive lever on that plan to come in smaller than claimed**, and
   the first where the cause was the denominator rather than the measurement. The earlier
   four were mis-measured; this one was measured correctly and scoped wrongly.
+
+## Who arms a schedule and who decides a session's lifecycle are two systems that never consult each other
+
+2026-09-17. A stall nudge from a peer's board routed to Team Lead because that peer's
+seat was unreachable. The cause was simply that its session was down — spun down as
+task-driven under the lean-fleet rule. Its board, meanwhile, carried a **daily 06:47
+scheduled rule** it had armed itself, whose wake is addressed to that same seat.
+
+Nothing anywhere reconciles those two facts. Lifecycle is decided here, from the week's
+committed goals. Schedules are armed on each peer's own board, by that peer, at times
+nobody else sees. Each side is individually reasonable and the gap between them is
+invisible from both.
+
+- **A peer that has armed a recurring rule is not task-driven any more, whatever the
+  weekly plan says.** It has taken on an obligation with a clock on it. Ask before
+  spinning such a peer down, and treat a self-armed schedule as a claim on its own
+  lifecycle.
+- **Ask the peer whether its job survives the session being down; do not assume either
+  way.** Whether a wake queues for an absent seat or is simply missed is the plugin's
+  behaviour, not ours, and it can change. What is stable is that the two systems do not
+  talk.
+- **The nudge that surfaced this was addressed to the wrong agent and still did its job.**
+  It reached Team Lead precisely because the owner was unreachable, which is the one
+  condition under which the owner cannot report its own absence. Route-on-failure is worth
+  more than it looks: the agent best placed to notice a problem is often the one the
+  problem has silenced.
+- **Check the clock before judging a stall.** This row looked stalled for 7h48m and was
+  correctly waiting: its open done-when needed a digest run that had not happened yet,
+  because the feeds it measures landed five hours *after* the previous run. A quiet row
+  whose condition is a future event is not a stuck row.

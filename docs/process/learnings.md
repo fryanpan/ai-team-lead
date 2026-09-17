@@ -4310,3 +4310,41 @@ which is precisely the failure the new version exists to remove, hit by the pers
 evidence that was true of one of the two code paths and unverified on the other, so my report overstated.
 Retracting it before anyone built against it cost one message; after would have cost a ticket. **When a
 report will be acted on by someone else, the retraction is urgent in a way the original never was.**
+
+## An artifact that revises in place has an age, and quoting it without checking is the same error as quoting a stale doc
+
+I relayed a detector's finding to two peers, naming a row it had flagged. The finding was correct when I
+read it and wrong by the time I sent it: the item revises **in place under a stable id**, and eleven
+minutes before my message a new revision had dropped that row and picked up a different one on a different
+board. The row's own owner caught it, by reading the revision list rather than the current text.
+
+- **A stable id makes a moving artifact look like a fact.** Nothing about re-reading `r-...` says the
+  content changed; it just answers. The revision history is where the age lives, and it is one field away
+  from the text everybody quotes.
+- **Read the revision list, not just the body**, whenever you are about to relay a detector's output to
+  someone who will act on it. This is the same discipline as checking a provenance claim — *the detector
+  says* is an assertion about where something came from, and it has a timestamp.
+- **The window that matters is the gap between your read and your send**, not how old the item is. Mine
+  was a few minutes of composing a careful message, which is exactly when a fast-revising detector moves.
+- **Corroboration from the flagged party is worth more than a re-read**, because they can see when their
+  own change landed. Their note went on at 13:57Z, between the revision that named them and the one that
+  did not.
+
+## The diagnosis step a remedy prescribes has to be performable by whoever you prescribe it to
+
+The remedy offered for one class of false stall was "read your row's newest note; if it reads as an ask,
+post a plainer one." Sound advice, and the acting agent cannot run it. Measured 2026-09-17 against the
+board server: the task list verb returns no notes, the per-task detail route returns 24 keys with a
+comment *count* and no comments, and a GET on the notes route answers 405 — it exists and is write-only
+from that side. Two agents established this independently, one by listing the verb's keys and one by
+listing the route's.
+
+- **A remedy splits into a diagnosis and an action, and they can have different reachability.** The action
+  here works blind — posting a plainer note costs nothing and needs no read. Only the diagnosis was
+  unreachable, which is the half nobody tests when they write the advice.
+- **The failure is the familiar one wearing a new hat**: a verb that does not carry a field and a field
+  that is empty come back identical, so an agent told to read its notes concludes it has none.
+- **Checking took two calls and changed the ticket.** Whether a remedy is self-serve or needs the owning
+  team is the thing the ticket is deciding, and it is not answerable from the remedy's own wording.
+- **This is a dated observation about someone else's server, not a rule.** Re-check it rather than quoting
+  it; the point that survives their refactors is the first bullet.

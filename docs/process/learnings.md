@@ -4212,3 +4212,45 @@ from the summary, which is exactly what a summary is for, and had no way to know
   once. A summary is read repeatedly, long after writing, with no signal about its age.
 - **Where a number is genuinely wanted, say where to get it rather than what it is.** The summary now
   says to ask rather than to read, which costs a peer one message and cannot go stale.
+
+## Before spinning a peer down, ask what it OWNS — not just whether its schedules will still fire
+
+2026-09-17. I spun a peer down after it reported its committed work delivered and said nothing on its
+board needed the session resident. That was true of its committed work. It was not true of a backlog row
+it had filed minutes earlier at my own prompting. The row then had no live owner, aged, and the stall
+check escalated it to my seat as the fallback — correctly.
+
+The pre-spindown check I had written that morning covered exactly one question: will its scheduled rules
+still fire with the owner detached. It never asked whether the peer held open rows. **Two different
+questions, and I had only turned one of them into a check.**
+
+- **Add the second question to the check: does it hold open rows, and who moves them while it is down?**
+  A peer's own "nothing needs me resident" is an honest answer about its *work in flight*, and people and
+  agents both read that as covering *everything it owns*. It does not.
+- **The peer is the wrong source for this.** It answered about what it was doing, which is what it can
+  see. What it owns is a board fact, readable without asking it, and the asker is the one who should
+  check.
+- **Parking with a schedule is the repair, and it only works because the wake escalates.** A parked row
+  with a date wakes its real owner; a detached owner's wake escalates to the Team Lead seat by default,
+  which brings the session back. Without that path, "parked until Monday" would be a deferral into
+  nothing — which this repo already has written down as its own failure.
+- **Do not take the row.** Attaching to another board to babysit one item costs a turn on every event
+  that board ever emits. Park it, date it, and leave the seat with its owner.
+
+## A detector that asks for something the user forbade will ask forever
+
+Same day. A row on another board raised "waiting on a person with NO question filed" at roughly 50-minute
+intervals, four times in one afternoon. The row was correctly shaped: Bryan had said *"no need to make a
+review item about this! Please just assign the task to me and leave it be."*
+
+The predicate is not wrong — a todo assigned to a person with no filed question is normally invisible, and
+that is a real class. The defect is that the condition it demands **can never be satisfied**, so it
+re-fires indefinitely, and each firing costs a turn at a seat that cannot act on it.
+
+- **This is the third shape of one gap in a single day**: field projection, board id, filed-ask. An
+  absence that means *withheld on request* reads identically to one that means *forgotten*. Any detector
+  keyed on a missing thing needs a way for the subject to declare the blank deliberate.
+- **A recurring alert nobody can clear trains its reader to dismiss the class**, including the firings
+  that are real. That cost lands on the detector's accuracy, not just the reader's patience.
+- **Check the user's own words before treating a detector as authoritative.** Four firings, and the
+  answer was a sentence he had already written on the row.

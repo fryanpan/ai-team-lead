@@ -3911,17 +3911,32 @@ invisible from both.
   A behaviour with no instances yet is exactly the case where reading the implementation
   beats waiting for one.
 - **I then took a counter's NAME for its definition, and built a caveat on it.** I read
-  `missedTotal: 0` as "the escalation path has never fired" and hedged accordingly. It
-  counts something else entirely — occurrences that never got a task after an outage — so
-  it was never evidence about wakes that reached nobody. **A zero from a counter you have
-  not read the definition of is not a measurement**, and it is more dangerous than no
-  number at all, because it looks like diligence.
+  `missedTotal: 0` as "the escalation path has never fired" and hedged accordingly. Its
+  actual definition: occurrences that got no task of their own after an outage, either
+  collapsed into one catch-up or skipped under a skip-if-missed setting. So it was never
+  evidence about wakes that reached nobody. **A zero from a counter you have not read the
+  definition of is not a measurement**, and it is more dangerous than no number at all,
+  because it looks like diligence.
+- **Write down the definition, not the warning.** My first correction said the counter
+  "counts something else", which protects the next reader from misusing it and leaves them
+  no way to use it. The owning lead pushed back on exactly that phrasing. A counter you
+  have troubled to look up is worth one sentence of what it *does* measure.
 - **A bounded retry that ends in a filed item is the shape to look for.** Attempts at the
   fire and a few intervals after, each one recorded with who it reached, and the last
   failure filing an answerable row rather than logging. That converts "nobody was up" from
   silence into something with an owner — the same three-state discipline as a check that
   says *could not run* instead of passing. Worth copying into anything of ours that waits
   on a session being alive.
+- **An escalation path has a blind spot exactly where its ESCALATION TARGET is the thing
+  that failed.** Bounded attempts and a filed row work whenever somebody is up; when the
+  seat every retry addresses is itself the absent session, all the attempts land nowhere
+  and the row is filed on a board whose owner is also absent. The single case where nobody
+  can report their own absence is the case the escalation cannot cover. Raised by the
+  plugin's lead on 2026-09-17, who filed it as a gap rather than defending it.
+- **Check this against anything of ours that routes failures to one seat**, including the
+  fleet's own nudges, which converge on Team Lead by design. The question to ask of any
+  fallback is not "does it fire" but "who does it address, and what is the failure that
+  would silence *them*.
 - **The nudge that surfaced this was addressed to the wrong agent and still did its job.**
   It reached Team Lead precisely because the owner was unreachable, which is the one
   condition under which the owner cannot report its own absence. Route-on-failure is worth

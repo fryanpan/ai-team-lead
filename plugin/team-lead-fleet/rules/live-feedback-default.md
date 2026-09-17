@@ -59,13 +59,6 @@ oldest four days past the day it named.
 - **This is the mirror of "an answer closes an item and the new wait lands nowhere."** Both come from
   treating the reply as the end of the exchange. Ask what the row is waiting for now, every time.
 
-## A workspace URL is not a durable address
-
-**The review URL embeds a workspace id that changes when the workspace is recreated.** Every link written against the old one dies silently — no error, no redirect, dead for you as well as the reader.
-
-- **In a durable doc** — committed, exported, or sent to someone — cite relative repo paths or GitHub URLs.
-- **In live chat** — a message, a thread reply, a hand-off — the URL is correct and is what he wants, because he's clicking it now.
-
 ## Match BOTH channel-source spellings — transitional, delete when the fleet is fully renamed
 
 **Anything matching on the channel source must accept `source="live-feedback"` AND `source="claude-workspaces"`.** A session emits the new string only once restarted onto the new bundle, so respawned and un-respawned peers coexist. A matcher keyed to one spelling goes silently deaf to half the fleet, indistinguishable from nobody having commented. **Match on the presence of `doc_id` / `thread_id` instead** where you can; those did not change.

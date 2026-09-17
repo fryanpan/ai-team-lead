@@ -4403,6 +4403,10 @@ finding for a full quiet window**. The row's last activity sat comfortably insid
 - **Suspect it whenever a detector's input includes your own activity.** Quiet-time gating is common and
   reasonable — it is what stops a detector shouting over work in progress. The hazard is not the gate, it
   is that muting and fixing are indistinguishable from outside, and only one of them is what you wanted.
+- **It is not a workspaces quirk.** The same trap sits in anything gated on inactivity: a heartbeat, a
+  stall check, a cache TTL, an idle-timeout alarm. Any of them will read your act of checking as the
+  activity that clears the condition. Grep here if a monitor of that shape went quiet right after you
+  touched it.
 - **Ask what the detector measures before you believe you moved it.** Two of us spent three rounds on
   whether the right *verb* had been used, when the gate would have muted the row for any verb at all. That
   question was one level lower than either of us was looking.

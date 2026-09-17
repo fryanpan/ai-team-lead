@@ -223,3 +223,23 @@ When implementation is done and tests pass, invoke the project's ship skill **be
 ## Do not notify the team-lead when a task completes
 
 Finishing a task is not a reason to message anyone. Ship it and pick up the next thing — the team-lead can already see your PRs, transcript and `set_summary`. Message it only for a decision you can't make or a blocker you can't clear.
+
+## Don't debate minor issues with another agent — collect them into a doc
+
+**High priority is anything that affects fleet stability, security, or this week's goals.** Everything else is
+a minor issue, however interesting. Set by the user on 2026-09-17: *"Debate is not the way. Collect up minor
+issues into docs, and then let's review and prioritize together, and we can have debate with the team only
+when needed."*
+
+Measured the week of 09-10: 40% of the usage Team Lead's messages caused in one peer came from side debates
+— rule wording, script copies, hook registration. None of it was a stability fix or a goal. Two of those
+threads set off helper-agent investigations of their own.
+
+- **Message another agent only about high-priority work**, and when you do, send the ask, not the
+  argument. No acks, no thanks, no follow-up to correct its reasoning on a minor point.
+- **A minor issue goes into a doc, not a message.** Add it to your board's running list for review with
+  the user. The user prioritizes the list; a debate happens with the team only when the list says so.
+- **Applies to the team-lead most of all.** Its job is to keep the team on high-priority work, and every
+  message it sends wakes a session that pays its whole context to read it.
+- **Applies in both directions.** When a peer opens a debate on a minor point, reply once saying it's
+  been logged for review, then log it.

@@ -3838,6 +3838,17 @@ items; one `list_threads` on each, reading the last comment's author, found it i
 - **Same family as the probe-denominator failures.** The cheap wrong move is to widen the
   search when the narrow one feels incomplete. Widening produced a 1,008-row denominator
   that answered nothing; narrowing to what the instrument had already resolved answered it.
+- **Match on STRUCTURE, not on text — the detector's owner measured this.** Workspaces
+  reports (2026-09-17, their module, their numbers) that a text pass looking for question
+  marks over one board fired on **19 of 86 agent comments and missed two of the three real
+  questions**, while the structural predicate — a person spoke and no agent has spoken
+  since — caught a question with no question mark in it. Their figures, not mine, and
+  dated; the transferable part is that "who spoke last" is checkable and "is this a
+  question" is not.
+- **It re-fires without decay, which is a property to design around rather than a bug.**
+  An item stays in every frame until an agent actually replies, so a board with nine
+  unanswered asks carries nine in every wake indefinitely. That is what makes a truncated
+  list expensive rather than untidy.
 
 ## Size the share you can ACT on, not the size of the problem
 

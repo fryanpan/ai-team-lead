@@ -3776,5 +3776,40 @@ owning agent after their own review nearly shipped it.
   are cases where the instrument's coverage is narrower than its claim, and the claim
   is the thing that gets carried forward and believed.
 
+- **The detector is cheap once you know the tell.** When a new guard's EXPECTED firing
+  rate is near zero and its OBSERVED rate is near one, stop debugging the guard and go
+  find the decorator. The guard is almost certainly correct and is being handed a
+  payload that something in transit has already modified. Contributed by the owning
+  agent after their own review nearly shipped the defect.
+
 Applies well beyond this plugin: proxies, muxes, serializers, retry wrappers, event
 buses and any hook that decorates a message are all the same blind spot.
+
+
+## A fleet-wide restart needs a defect that makes a session STAND DOWN, not one that costs a call
+
+**Date:** 2026-09-17
+
+Twice in one day a plugin defect raised the question of whether to cycle every peer
+onto a fixed bundle, and twice the answer was no. The threshold that settled it came
+from the plugin's own lead and is sharper than the cost arithmetic I was using:
+
+> What would change my mind is a frame that read as *clear* rather than as broken.
+
+- **Compare the defect's cost against ELEVEN context rebuilds, not against zero.** A
+  restart is not free and its cost scales with fleet size. A defect costing one wasted
+  call per occurrence loses that comparison almost always.
+- **A restart has its own failure rate.** Sessions come back missing things a running
+  session had — a repo watch is dropped on every restart, identity env is read only at
+  launch, and a transcript resumes against the cwd it was keyed on. Cycling eleven
+  peers to fix a message's wording risks more than the wording costs.
+- **The dividing line is what the reader DOES with the bad output.** A defect that
+  reads as broken keeps the reader working and costs them a call. A defect that reads
+  as *finished* ends turns that should have continued, and nothing downstream can
+  detect it, because a session that stood down looks exactly like a session with
+  nothing to do. That one ships to every process the same day.
+- **Same shape as the three-state check.** "Failed loudly" is recoverable; "succeeded
+  falsely" is not. It is worth paying a lot to convert the second into the first, and
+  very little to make the first read more nicely.
+- **Ask the owner which kind it is rather than deciding from the outside.** They can
+  see what the bad output does to a reader; I could only see what it cost me.

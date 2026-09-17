@@ -3953,3 +3953,30 @@ invisible from both.
   correctly waiting: its open done-when needed a digest run that had not happened yet,
   because the feeds it measures landed five hours *after* the previous run. A quiet row
   whose condition is a future event is not a stuck row.
+
+## Reading the code proves what CAN happen; only the artifact proves what DID
+
+A peer investigating a cross-board event frame eliminated three candidate causes by reading their
+own source — one function takes a single board, every query inside it passes that board's id, the
+tagging step reads the board it was handed — and concluded the mixing had to be in the transport
+that delivered two frames together. That reasoning was sound and the conclusion was wrong. The
+frames themselves showed two intact envelopes, each correctly tagged, with three boards' rows
+listed inside the body of one of them. Nothing had been merged in transit.
+
+- **An elimination from code is a claim about the possible, and it cannot outrank an observation
+  of the actual.** When the two disagree, the disagreement is the finding — it means the code
+  being read is not the code that ran, or not all of it. Say so plainly instead of deferring to
+  whoever can see the source.
+- **Quote the artifact rather than summarising it.** What settled this was pasting the two frames
+  verbatim. My summary of them ("a frame arrived for a board I am not on") was accurate and had
+  already produced the wrong hypothesis on both sides; the raw text carried the structure that
+  overturned it.
+- **The sharpest lead was a value appearing twice, identically.** One row read `quiet 1h 10m` in
+  both frames — not two computations that agree, the same rendered value. **Two independent
+  derivations do not usually match to the digit**, so an exact repeat is evidence of a shared
+  source, and it is visible without access to any code.
+- **Do not let "nothing needed from you" end the exchange while you hold contradicting evidence.**
+  That message had arrived, and answering it anyway is what stopped the wrong file being opened.
+- **You cannot see their code and should not guess past your evidence.** Report what the artifact
+  shows and where it conflicts; the owner does the eliminating. Stating the tension is useful,
+  proposing a mechanism inside a repo you cannot read is not.

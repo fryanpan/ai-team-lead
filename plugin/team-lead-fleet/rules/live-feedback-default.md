@@ -13,7 +13,7 @@ When you want the user to review a markdown doc, a dev server or an interactive 
 - **Applies to:** anything you want his voice, structure or content pass on — posts, plans, audits, retros, design and decision docs — plus any dev-server URL or mockup, and anything where you want comment-level input.
 - **Skip for:** one-line acks, code review (the PR diff is canonical), your own notes.
 - **Once a doc is bound, never Write/Edit the `.md`.** The plugin flushes the live doc to disk about a second after every change and silently clobbers filesystem edits.
-- **If this session has a `workspaceId`, or someone said "the board is your task list", read `claude-workspaces:working-in-a-workspace` before doing anything else.** It is the contract, and nothing else will tell you to open it.
+- **If this session has a `workspaceId`, or someone said "the board is your task list", read `claude-workspaces:working-in-a-workspace` before your first piece of work.** It is the contract, and nothing else will tell you to open it. This is a once-per-session read, so it does not displace the `post_reply`-first rule below on a turn where comments are arriving — ack, then read, then work.
 
 ## Ack on the thread first, fix after
 
@@ -30,7 +30,7 @@ Every peer watching a doc receives the same `thread.created` event, and each one
 
 - **The doc's lead answers. Everyone else stays out**, however good their take is. If there is no lead, the peer that owns the underlying repo answers.
 - **Before replying to a thread, read the thread.** If a peer has already answered, you are done — an addition is only warranted when you hold a fact they got wrong, and then it is one paragraph, not a second draft set.
-- **Never reply to correct another agent's reasoning.** That conversation is between the two of you and it is running in the user's review surface. Take it to `send_message`.
+- **Never reply to correct another agent's reasoning.** That conversation is between the two of you and it is running in the user's review surface. Take it to `send_message`. The line against the bullet above: a **fact** they got wrong misinforms the user and is worth one paragraph on the thread; their **reasoning** being weak affects only how they got there, and the user did not ask to watch that.
 - **A request for options is a request for options.** They go in the doc body where he can edit them; the thread gets one line saying where they are. Analysis of which option is better is not what was asked for.
 - **Answer the count he named.** Three requested means three delivered — not three each.
 
@@ -99,21 +99,23 @@ task rows and keys on their state, and none of those states is "has an unanswere
    makes it worse**, reading an idle doc and asking its owner to delete it, with open threads counted only
    as a force-delete warning. Sweep docs separately from rows, and read the last comment's author.
 
-**Enumerate them from the plugin's own on-disk index rather than by sweeping the board.** Each doc has
-`~/Library/Application Support/claude-workspaces/data/task:<taskId>.index.json` carrying
-`threads: {open, total}` and `lastThreadActivityAt`. Filter to rows with an open thread and you pay
-`list_threads` only on those — one board went 25 rows to 4. Three things to get right:
+**Start from the detector's own output, not from a fresh sweep.** When a stall frame names items, it has
+already done the join you would otherwise redo by hand. Re-run its predicate against the docs it named
+before widening — a truncated list hides items, not docs, and several items commonly sit on one doc.
 
-- **`lastThreadActivityAt` is epoch milliseconds**, not an ISO string, and it is absent on rows that never
-  had a thread.
-- **The index carries no status, no schedule and a placeholder title.** Join against your own board's task
-  list; the directory is machine-wide, so an unjoined sweep reads other boards' rows.
-- **Quiet time is not unanswered time.** The timestamp moves for an agent reply too, so it ranks candidates;
-  reading the last comment's author is still what identifies an ask.
+- **The identifying test is who spoke last**, not thread count and not quiet time. A timestamp moves for an
+  agent reply too, so it ranks candidates and never identifies one. Read the last comment's author.
+- **Any board-wide cache on this machine spans every board.** Joining it to your own task list is not an
+  optimisation, it is the thing that stops you reading someone else's rows — and unjoined it returns a
+  number large enough to look like a finding. Measured 2026-09-17: 1,008 entries, answering nothing.
+- **Widening is the expensive wrong move when the narrow answer feels incomplete.** The item that looked
+  missing was on a doc already named.
 
-**Never write another repo's internals into a fleet rule.** The bullet above named a source file, a bucket
-name and an evaluation order in the plugin's code. It was accurate when written and false within a day,
-because the plugin shipped a PR that moved the check — and nothing in this repo could have noticed. A rule
+**Never write another repo's internals into a fleet rule.** This section has twice held one — a source file
+with a bucket name and an evaluation order, and later an on-disk cache path with its field types. Both were
+accurate when written; the first was false within a day because the plugin shipped a PR that moved the
+check, and the second sent a reader to a machine-wide directory that answered nothing. Nothing in this repo
+could have noticed either. A rule
 loaded by every peer on every SessionStart then re-teaches the stale fact indefinitely, which is worse than
 a one-time wrong conclusion.
 

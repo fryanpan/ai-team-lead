@@ -4281,3 +4281,32 @@ has.
 
 **Do not record the module or the field names here.** They were given to me precisely and they will move.
 The durable facts are the asymmetry, the direction of the tuning trade, and the date they were measured.
+
+## I hit the exact bug I had reported, an hour after the fix shipped, because a fix you do not restart onto is not a fix you have
+
+2026-09-17. The plugin shipped a change making its task tools **refuse** a field they cannot answer,
+naming the fields the rows do carry, instead of silently dropping it — the dropped-field-reads-as-absent
+bug I had helped diagnose the night before. I updated the cache and cycled seven peers onto it. I did not
+cycle myself, because tool schemas bind at session start and a mid-conversation restart costs this
+session's context.
+
+An hour later I read another board's row asking for two diagnostic fields. The result came back with
+neither. **I could not tell "this row has no value for those fields" from "my bundle discarded them"** —
+which is precisely the failure the new version exists to remove, hit by the person who reported it.
+
+- **Updating the cache is not adopting the fix.** Two steps, and the second is the one that costs
+  something, so it is the one that gets deferred. The version check reads current the moment the cache
+  updates, which makes the gap invisible from the outside.
+- **The session that defers its own restart becomes the last holder of the old behaviour**, and it is
+  usually the longest-running, most-trusted session on the machine — the one whose readings other sessions
+  relay. That is the opposite of the right distribution.
+- **Say which bundle a reading came from when it matters.** "I asked and got nothing back" means different
+  things on either side of that line, and nothing in the result says which side you are on.
+- **The honest move when you cannot tell the two apart is to hand the check to someone who can**, not to
+  pick the likelier reading. I gave the path-2 check to the row's owner, which reads its own note in one
+  call on a current bundle.
+
+**Corollary for reporting.** I had already told two peers the firings were a false-positive class. On the
+evidence that was true of one of the two code paths and unverified on the other, so my report overstated.
+Retracting it before anyone built against it cost one message; after would have cost a ticket. **When a
+report will be acted on by someone else, the retraction is urgent in a way the original never was.**

@@ -3621,3 +3621,32 @@ guaranteed and meant nothing, and I would have reported it as confirmation.
 - **Check whether ANY row qualifies before offering your board.** Of 17 `todo` rows, one
   carried a schedule and no person-assigned row carried one, so that board could not
   exercise the fix in either direction — knowable before agreeing, not after.
+
+## A file stays bound to a review doc for weeks, and nothing on the file says so
+
+**2026-09-17.** Edited `plugin/team-lead-fleet/rules/live-feedback-default.md` on disk with a
+small python rewrite. A `doc.sync_error` came back immediately: the file was still bound to a
+**diff-review doc opened 2026-08-27**, three weeks earlier, and the server reported that disk had
+won and three blocks were gone from the doc.
+
+The outcome was fine — the three blocks were exactly the section I meant to delete, so the doc
+ended up matching the file — but that was luck, not care. Had the doc held a comment-anchored
+block I did not know about, the same edit would have destroyed it silently and the only copy
+would have been the clobber-backup path in the error message.
+
+- **The prohibition was already written and was not enough.** "Once a doc is bound, never
+  Write/Edit the `.md`" has been in the always-loaded rule for weeks. I did not break it
+  knowingly; I never asked whether this file was bound, because nothing prompts the question.
+  A rule that depends on you spontaneously wondering is a rule with no trigger.
+- **There is no marker on the file.** No frontmatter, no sidecar, no git artifact. The binding
+  lives in the server's store, so the repo cannot tell you and neither can the file. A file
+  reviewed once and long forgotten looks exactly like one that was never bound.
+- **The check is one call before the edit**, not a habit of remembering: `doc_status` on the
+  suspected docId, or `list_docs` on the board, for any repo file that has *ever* been under
+  review. Cheap, and the only thing that converts the prohibition into something actionable.
+- **Do not restore the backup reflexively.** The error message names a backup and says to
+  restore it, and where the disk edit was intentional that would revert your own work. Read
+  which blocks were lost first; restore only if they are blocks you did not mean to remove.
+- **Same family as the other entries here where an external surface is the only record.** The
+  binding is state held somewhere you are not looking, and the first time you learn it exists
+  is the error telling you what it cost.

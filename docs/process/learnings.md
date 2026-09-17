@@ -3711,3 +3711,44 @@ than a stray subscriber. Pruning would have changed nothing and deleted the evid
   rows will re-escalate every window until a separate fix lands, and asked to be told
   only if the set changes. That turns an indefinite recurrence into one cheap check per
   arrival: same two ids, ignore; a third id, report.
+
+## Read the row's done-when lines BEFORE you measure anything for it
+
+**Date:** 2026-09-17
+
+Closing one small board row took four attempts, and every wasted step came from the
+same omission: I measured against a criterion I invented instead of the one the row
+already carried.
+
+The row was "clear 313 leaked Chrome clones from temp." I probed
+`.com.google.Chrome*` at depth 4 and got **0** — which would have let me report it
+fully cleared. The same search at depth 6 found **12**, so I reported 12, filed a
+decision item about them, had it held twice by the quality gate, withdrew it, and
+tried to close the row. The transition was refused with the row's own done-when
+quoted back at me: *the count under `com.google.Chrome.code_sign_clone`, via
+`ls | wc -l`*. Measured that way the answer was **1**. My 12 had a different
+denominator and never answered the question.
+
+- **The wrong-denominator number is more dangerous than the too-shallow zero.** I
+  caught the 0 because zero from a probe is suspicious. The 12 was plausible,
+  non-zero, and carried a command beside it — nothing about it invites a second look.
+  I had *just written a warning about the shallow probe* and then quoted the 12 in the
+  same comment.
+- **A done-when line is the denominator, already written down.** It names the path,
+  the command and the threshold. Reading it is one call and it is the cheapest
+  correctness step available; deriving your own criterion is strictly more work for a
+  worse answer.
+- **`list_tasks` omits done-when unless you ask.** The default projection drops it, so
+  a row read casually looks like a title and a status. Pass `fields` including
+  `doneWhen`, or read the task, before doing any work the row will be judged on.
+- **A second line can be unmeasurable, and that is a real verdict.** The same row also
+  asked for "the real space the clones were holding, as a measured number rather than
+  an estimate." A reboot cleared them before anyone read it, so that number no longer
+  exists. Reported `unchecked` with the reason rather than multiplying one surviving
+  clone by 313 — a derived figure there would be indistinguishable from a measured one
+  to whoever reads the row next, which is precisely what the line forbade.
+- **A gate that refuses a transition with the criterion quoted is doing the job.** Two
+  of this gate's three interventions were correct and caught real defects in my work.
+  The one that held an item saying it "could not put its concern in words" named
+  nothing checkable — that complaint stands, and it does not generalise to the other
+  two. Judge each hold on whether it names something checkable, not on the run rate.

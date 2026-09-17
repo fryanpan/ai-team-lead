@@ -4254,3 +4254,30 @@ re-fires indefinitely, and each firing costs a turn at a seat that cannot act on
   that are real. That cost lands on the detector's accuracy, not just the reader's patience.
 - **Check the user's own words before treating a detector as authoritative.** Four firings, and the
   answer was a sentence he had already written on the row.
+
+## When a detector's RECALL is the binding constraint, tightening it is the wrong repair
+
+Reported by the Workspaces lead, 2026-09-17, after I reported four false firings of an unfiled-ask check.
+The measured figures on their detector at that date: **precision 86%, recall on the unfiled-ask class
+15%.** A documented tuning pass raised precision to 96% and cut recall to 3%. It was reverted, because a
+false positive costs one turn and a miss costs the whole point of having the detector.
+
+This inverts the instinct. Four noisy firings in an afternoon feel like a precision problem and the
+obvious fix is a narrower test — and that fix would have made the instrument worse at the only job it
+has.
+
+- **Ask which error is expensive before proposing a fix.** Where a miss is silent and permanent and a
+  false positive costs a turn, the asymmetry can be enormous, and a precision-shaped complaint (mine) can
+  be entirely valid while implying exactly the wrong remedy.
+- **The repair for a false positive on a low-recall detector is a STATE, not a threshold.** Let the row
+  declare what it is doing, so the detector stops guessing from silence. Every instance of this today
+  ended the same way: make the thing name what it is doing rather than read the silence more cleverly.
+- **My report was right and my implied fix would have been wrong.** Worth separating those when reporting
+  anything: what I observed, and what I think should change, are different claims with different
+  standards of evidence, and the second one is where I had no data at all.
+- **A deferral is not the same shape as a standing instruction.** Arming a date on a row means "ask me
+  again then". Where the instruction was indefinite — "leave it be" — a date misrepresents it. Parking
+  with a schedule was right for a row that genuinely resumes; it would have been wrong for that one.
+
+**Do not record the module or the field names here.** They were given to me precisely and they will move.
+The durable facts are the asymmetry, the direction of the tuning trade, and the date they were measured.

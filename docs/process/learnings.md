@@ -4361,9 +4361,25 @@ and I published the wrong one.
 - **Publishing the wrong half is cheap to fix and expensive to leave.** A learnings entry is read by
   people who will not re-derive it. Amend the entry, do not add a second one qualifying the first.
 
-**Still unsettled as of 2026-09-17, and recorded so nobody quotes the tidy version.** A peer reported
-posting a plain note on a row at 13:57Z; the row showed no notes key 93 minutes later. That is either the
-remedy not landing where the detector reads, a verb mix-up, or a projection scoped to the requesting
-agent that my unauthenticated read cannot see. The row did come off the list, which is exactly what makes
-it tempting to call the remedy proven. One sample, an untested alternative explanation, and a conclusion
-that flatters the work is the shape to distrust.
+**Resolved the same afternoon, against the tidy version.** The remedy never fired. The peer had called a
+comment verb, not a note verb, so nothing they posted reached the surface the detector reads — which is
+also why the row projected no notes key, exactly as the omit-when-empty design says. And their timestamp
+was wrong: the comment landed **35 seconds after** the detector's item was created, and the item still
+named their row two revisions and two and a half hours later. A remedy that works clears at the next tick.
+This one had three ticks and did not.
+
+- **The thing that nearly got banked was a coincidence dressed as a mechanism.** The row did come off the
+  list. Both of us had a story for why, neither story was tested, and the untested alternative — the
+  detector's own condition resolving — was the one that survived.
+- **The sharpest finding came out of being wrong, and it belongs to the peer.** An agent told "post a
+  plain note" has no way to know which verb writes a note. One verb is documented as writing the activity
+  surface, another as writing a comment, and nothing says which one a given detector reads. Picking wrong
+  produces a **false confirmation**, which is worse than the unreadable-notes problem that started this,
+  because that one fails visibly.
+- **Two provenance slips inside one exchange, both surviving because the conclusion was plausible.** Mine
+  was an absence read as a property of the route; theirs was a figure re-quoted from their own earlier
+  restatement of it rather than from the thread. Neither was a hard fact to check. Neither got checked
+  until the conclusion came under pressure.
+- **The escalation that worked was asking which verb produced the evidence**, not re-reading the evidence.
+  I had taken "the timing fits" from them and passed it upward without ever asking what action the timing
+  was about.

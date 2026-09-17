@@ -4067,9 +4067,16 @@ had moved, which is a check on the work product rather than on the exit status.
   the collapse happened in the *wrapper*, not in the script being wrapped. Every guard we have written
   about verification points at the instrument; this one says the harness around the instrument is
   equally capable of manufacturing a clean zero.
-- **`timeout` is the Linux reflex and it is wrong here.** Use `gtimeout` from coreutils where it is
-  installed, and check for it rather than assuming: `command -v gtimeout` before use. A bare `timeout`
-  in any fleet script on this machine is a silent no-op wrapping whatever it was supposed to bound.
+- **`timeout` is the Linux reflex and it is wrong here.** A bare `timeout` in any fleet script on this
+  machine is a silent no-op wrapping whatever it was supposed to bound.
+- **`gtimeout` is the usual answer and it is NOT installed here** (checked 2026-09-17; coreutils absent).
+  So `command -v gtimeout` guards correctly but always fails, which means a script that needs a real
+  bound needs a real fallback — a background PID with a killer, or the tool's own timeout flag — not a
+  guard that skips the bound and carries on. Recommending `gtimeout` without checking would have put a
+  second silent no-op in place of the first.
+- **Swept this repo 2026-09-17: no bare `timeout` in `scripts/`, `.claude/skills/`, `plugin/` or
+  `.githooks/`.** One prose match about a session timeout, nothing executable. Clean at that date; the
+  sweep is one grep if you need it again.
 - **The general hazard: a missing command is not an error in a pipeline, it is an exit code.** `set -e`
   does not save you when the missing binary IS the command whose status is being read. Anything of ours
   that wraps a real job in a helper — `timeout`, `nice`, `flock`, `env` — inherits this.

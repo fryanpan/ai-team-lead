@@ -61,6 +61,17 @@ ARMED="/tmp/tl-selfrespawn.armed.$$"
 [ -x "$TMUX_BIN" ] || { echo "ABORT: tmux not executable at $TMUX_BIN — not killing self."; exit 1; }
 [ -d "$TL_DIR" ]   || { echo "ABORT: TL_DIR does not exist: $TL_DIR — not killing self."; exit 1; }
 command -v python3 >/dev/null 2>&1 || { echo "ABORT: python3 required for the detach — not killing self."; exit 1; }
+# An EMPTY board id is worse than a missing one: `-e CW_WORKSPACE_ID=''` sets the
+# variable rather than leaving it unset, and readWorkspaceId's fallback chain only
+# moves on when the first name is absent. So a registry edit that breaks this
+# lookup would come back looking exactly like the bug we just fixed, and the only
+# symptom is an Activity tab that quietly stays empty. Fail here, where failing is
+# free, rather than after the session is gone.
+case "$TL_WORKSPACE" in
+  w-*) ;;
+  "")  echo "ABORT: no workspace_id found for ai-team-lead in $TL_DIR/registry.yaml — respawning without it would come back board-less and silent. Not killing self."; exit 1 ;;
+  *)   echo "ABORT: workspace_id '$TL_WORKSPACE' is not a w- board id — refusing to post this session's notes to whatever that names. Not killing self."; exit 1 ;;
+esac
 kill -0 "$SELF_PID" 2>/dev/null || { echo "ABORT: pid $SELF_PID is not alive (wrong PID?) — not killing anything."; exit 1; }
 
 rm -f "$ARMED"

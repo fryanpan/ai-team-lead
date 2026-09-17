@@ -3813,3 +3813,28 @@ from the plugin's own lead and is sharper than the cost arithmetic I was using:
   very little to make the first read more nicely.
 - **Ask the owner which kind it is rather than deciding from the outside.** They can
   see what the bad output does to a reader; I could only see what it cost me.
+
+## A truncated detector list samples the ITEMS, not the docs — the remainder is usually already named
+
+2026-09-17. A stalled-work frame reported "6 questions from a person on a doc have had NO
+agent reply", listed five with their doc titles, and truncated with "and 1 more". I
+answered the five, then went looking for the sixth by enumerating the plugin's machine-wide
+on-disk index: **1,008 entries with an open thread**, spanning every board on the machine.
+That is not a list anyone can sweep, and my own fleet rule says so — the directory is
+machine-wide, so an unjoined sweep reads other boards' rows.
+
+The sixth was on a doc the frame had **already named**. Four docs carried the five visible
+items; one `list_threads` on each, reading the last comment's author, found it in two calls.
+
+- **Re-run the detector's own predicate against the docs it named, before widening.** A
+  truncation hides items, and several items commonly sit on one doc — the five visible ones
+  came from four docs, one of which held two.
+- **"N found, here are five" is a population you already have.** Rebuilding it from the
+  underlying index throws away the join the detector did for you and replaces it with one
+  you then have to do yourself, against a directory that spans boards you must not read.
+- **The identifying test is the last comment's author, not thread count or quiet time.** An
+  index row says a thread is open; only the thread says whether the person spoke last. A
+  doc with six open threads had all six answered; a doc with three had the live one.
+- **Same family as the probe-denominator failures.** The cheap wrong move is to widen the
+  search when the narrow one feels incomplete. Widening produced a 1,008-row denominator
+  that answered nothing; narrowing to what the instrument had already resolved answered it.

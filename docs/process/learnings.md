@@ -3893,21 +3893,35 @@ invisible from both.
   spinning such a peer down, and treat a self-armed schedule as a claim on its own
   lifecycle.
 - **Ask the peer whether its job survives the session being down; do not assume either
-  way.** Asked, and answered the same hour: the scheduler creates the instance row by
-  itself, but **the work only happens because a live session answers the wake**. No
-  session at the fire time means an instance nobody answers and no output. That is this
-  peer's report of its own board on 2026-09-17, not a general property of the plugin —
-  check rather than quote it.
+  way.** I asked, got "the work only happens because a live session answers the wake",
+  and wrote a hard always-up requirement on it. **Both the peer and its plugin's own lead
+  then corrected it within the hour**: a wake nobody answers escalates rather than
+  vanishing, so being down costs **latency, not the run**. The first answer was not wrong
+  about the mechanism; it was wrong about what follows from it, which is the harder thing
+  to catch in someone else's report.
 - **A peer can answer this about itself far better than you can.** It reads its own
   schedule state, knows which pipelines moved off launchd and why, and can give you the
   windows. Asking cost one message; deriving it from the outside would have cost a sweep
   and still been a guess.
-- **Neither side knew the answer to the next question, and that is the useful part.**
-  Whether an *unanswered* wake escalates has never been observed — that board's rule shows
-  nine fires and zero misses, so there is no failure instance to read. An always-up
-  requirement asserted without knowing this is stated at its strongest; finding out costs
-  one deliberately empty overnight, which is an experiment to schedule rather than a thing
-  to discover on a morning someone expects output.
+- **"There is no failure instance to read" was a reason to read the SOURCE, not to stop.**
+  Both of us looked for the answer in the run record, found nine clean fires and no misses,
+  and reported the question open. The answer was in the scheduler's code the whole time,
+  and the peer found it twenty minutes later on its own initiative — its words: *"I said
+  this board had no unanswered wake to read from, which is true, and then stopped."*
+  A behaviour with no instances yet is exactly the case where reading the implementation
+  beats waiting for one.
+- **I then took a counter's NAME for its definition, and built a caveat on it.** I read
+  `missedTotal: 0` as "the escalation path has never fired" and hedged accordingly. It
+  counts something else entirely — occurrences that never got a task after an outage — so
+  it was never evidence about wakes that reached nobody. **A zero from a counter you have
+  not read the definition of is not a measurement**, and it is more dangerous than no
+  number at all, because it looks like diligence.
+- **A bounded retry that ends in a filed item is the shape to look for.** Attempts at the
+  fire and a few intervals after, each one recorded with who it reached, and the last
+  failure filing an answerable row rather than logging. That converts "nobody was up" from
+  silence into something with an owner — the same three-state discipline as a check that
+  says *could not run* instead of passing. Worth copying into anything of ours that waits
+  on a session being alive.
 - **The nudge that surfaced this was addressed to the wrong agent and still did its job.**
   It reached Team Lead precisely because the owner was unreachable, which is the one
   condition under which the owner cannot report its own absence. Route-on-failure is worth

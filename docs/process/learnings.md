@@ -4097,3 +4097,27 @@ about what Claude believed based solely on what Claude *said* it believed."
 - **It applies inward.** When one of us explains why it did something, that explanation is generated,
   not retrieved. Treat a peer's stated reason the way you would treat its pane: as a claim to check
   against the artifact, not as the record.
+
+## A check that looked at the WRONG surface is not "could not look" — it is a correct answer to the wrong question
+
+Research Notes, 2026-09-17. Its digest runbook named `anthropic.com/news`. The Sep 9 alignment assessment
+published to `anthropic.com/research`, a separate page with separate contents. Eight consecutive digests
+checked the source, saw nothing new, and were **right about the page they were looking at**. The miss
+surfaced eight days later, by accident, during a run looking at something else.
+
+- **This is a fourth state, and the three-states rule does not cover it.** Passed, failed, could-not-run —
+  and now *ran correctly against the wrong target*. It is worse than could-not-run, because there is no
+  degraded signal to notice: the check is healthy, the logs are clean, and the answer is true.
+- **The instrument that catches staleness does not catch this.** A stale-archive check asks whether the
+  source moved. Here the source did move; the page we watched did not. Freshness monitoring on the wrong
+  URL is indistinguishable from freshness monitoring on the right one.
+- **Enumerate a source's surfaces, and state what you checked.** The fix that generalises is printing the
+  newest item's date **per surface**, so a page that has gone quiet is visible rather than assumed
+  representative. Naming the surface in the output is what makes a wrong surface findable.
+- **The unexamined premise was "one source, one feed."** Nobody wrote it down, so nobody tested it. Their
+  open row now tests it across ~20 sources before deciding whether a detector is warranted — which is the
+  right order: measure how common multi-surface publishers are, then decide if the per-source list is the
+  whole fix.
+- **Related:** the `timeout` entry above and the verification section in
+  `plugin/team-lead-fleet/rules/workflow-conventions.md`. Three instances in one week, each arriving from
+  a different direction — the wrapper, the API key, and now the target.

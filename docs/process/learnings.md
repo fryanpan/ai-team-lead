@@ -3838,3 +3838,29 @@ items; one `list_threads` on each, reading the last comment's author, found it i
 - **Same family as the probe-denominator failures.** The cheap wrong move is to widen the
   search when the narrow one feels incomplete. Widening produced a 1,008-row denominator
   that answered nothing; narrowing to what the instrument had already resolved answered it.
+
+## Size the share you can ACT on, not the size of the problem
+
+2026-09-17. A token-efficiency row carried "trim the `# MCP Server Instructions` prose;
+roughly 4k of the 10.9k MCP figure is that prose." Accurate, and it had sat as an open
+work item for three weeks. Measuring the `instructions:` string in each server we actually
+own gave **409 tokens across two servers** — about a tenth of the 4k. The rest belongs to
+servers owned by Anthropic and by another agent's repo. Two more of our servers turned out
+to load in bridge daemons rather than in peer sessions, so they cost a session nothing at
+all.
+
+The figure was never wrong. It was a measure of the **problem**, and it got filed as a
+measure of the **work**, which is a different number whenever some of the surface is
+someone else's.
+
+- **A lever's size and a lever's actionable share are two figures.** Write both, or write
+  the one you can act on. A single number invites the reader to assume they are equal, and
+  three weeks of an open row is what that assumption costs.
+- **Check ownership before ranking, not before building.** Ranking is the step that spends
+  attention; by the time you are ready to build you have already paid for the wrong order.
+- **"We own it" is not the same as "it loads."** Two of the four servers here are ours and
+  are absent from a session's window entirely, because they run in daemons. Where a thing
+  loads is a separate question from who wrote it, and only the first one costs anything.
+- **This is the fifth consecutive lever on that plan to come in smaller than claimed**, and
+  the first where the cause was the denominator rather than the measurement. The earlier
+  four were mis-measured; this one was measured correctly and scoped wrongly.

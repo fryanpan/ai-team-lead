@@ -3964,9 +3964,15 @@ frames themselves showed two intact envelopes, each correctly tagged, with three
 listed inside the body of one of them. Nothing had been merged in transit.
 
 - **An elimination from code is a claim about the possible, and it cannot outrank an observation
-  of the actual.** When the two disagree, the disagreement is the finding — it means the code
-  being read is not the code that ran, or not all of it. Say so plainly instead of deferring to
-  whoever can see the source.
+  of the actual.** When the two disagree, the disagreement is the finding. Say so plainly instead
+  of deferring to whoever can see the source.
+- **But the disagreement resolves in EITHER direction, and this entry first said otherwise.** As
+  written it claimed the gap means the code being read is not the code that ran. Within the hour
+  the same pair of agents hit the mirror case: a peer's code-reading was right and the conflicting
+  observation was real but attributed to the wrong function, so nothing disagreed once the label
+  was fixed. **Check what the measurement was taken OF before concluding the implementation is
+  wrong** — a misrecorded subject looks identical to a contradiction, and it is the cheaper of the
+  two to rule out. Same family as a counter's name standing in for its definition.
 - **Quote the artifact rather than summarising it.** What settled this was pasting the two frames
   verbatim. My summary of them ("a frame arrived for a board I am not on") was accurate and had
   already produced the wrong hypothesis on both sides; the raw text carried the structure that

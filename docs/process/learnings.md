@@ -3893,9 +3893,21 @@ invisible from both.
   spinning such a peer down, and treat a self-armed schedule as a claim on its own
   lifecycle.
 - **Ask the peer whether its job survives the session being down; do not assume either
-  way.** Whether a wake queues for an absent seat or is simply missed is the plugin's
-  behaviour, not ours, and it can change. What is stable is that the two systems do not
-  talk.
+  way.** Asked, and answered the same hour: the scheduler creates the instance row by
+  itself, but **the work only happens because a live session answers the wake**. No
+  session at the fire time means an instance nobody answers and no output. That is this
+  peer's report of its own board on 2026-09-17, not a general property of the plugin —
+  check rather than quote it.
+- **A peer can answer this about itself far better than you can.** It reads its own
+  schedule state, knows which pipelines moved off launchd and why, and can give you the
+  windows. Asking cost one message; deriving it from the outside would have cost a sweep
+  and still been a guess.
+- **Neither side knew the answer to the next question, and that is the useful part.**
+  Whether an *unanswered* wake escalates has never been observed — that board's rule shows
+  nine fires and zero misses, so there is no failure instance to read. An always-up
+  requirement asserted without knowing this is stated at its strongest; finding out costs
+  one deliberately empty overnight, which is an experiment to schedule rather than a thing
+  to discover on a morning someone expects output.
 - **The nudge that surfaced this was addressed to the wrong agent and still did its job.**
   It reached Team Lead precisely because the owner was unreachable, which is the one
   condition under which the owner cannot report its own absence. Route-on-failure is worth

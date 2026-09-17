@@ -3,8 +3,8 @@
 # so it never fires for peer sessions).
 #
 # Why this exists: the team-lead runs standing in-session CronCreate jobs — the
-# weekly-usage token-watch (3x/day) and the automated morning daily-review +
-# Asana sync. CronCreate is session-scoped, so both die whenever the team-lead
+# weekly-usage token-watch (3x/day), the automated morning daily-review, and the
+# Monday digest surfacing. CronCreate is session-scoped, so these die whenever the team-lead
 # respawns (--continue fires SessionStart `resume`). On 2026-07-11->14 a dead
 # token-watch blacked out the trend log for 3 days. A shell hook CANNOT call
 # CronCreate (it's an in-session tool), so instead this injects a standing
@@ -20,7 +20,9 @@ Three session-scoped CronCreate jobs die on respawn. Ensure ALL THREE are armed 
 
 1. Token-watch (weekly usage, 3x/day). If a job with a token-watch prompt (pulls /usage, appends to docs/process/token-control.md trend log) is present, skip. Else arm: CronCreate(cron="7 8,13,18 * * *", recurring=true) with the token-watch prompt documented in docs/process/token-control.md — pulls /usage via an idle fleet session, runs the burn + context scripts, appends one trend-log line (all-models % + Fable sub-meter % + %-elapsed + verdict), applies Tier 0/1, pings Bryan only on a Tier 2 call, AND on the first run after a weekly reset runs the end-of-week quota retro (docs/process/token-control.md, "End-of-week quota retro").
 
-2. Automated morning daily-review + Asana sync (5:27am). If a job with the daily-review morning prompt (invokes the /daily-review automated morning run) is present, skip. Else arm: CronCreate(cron="27 5 * * *", recurring=true) with a prompt that invokes the /daily-review skill's "Automated morning run" — gather fleet status, write today's review doc under live-feedback, produce Bryan's status + today's hit list, and SYNC his Asana so today's tasks match the hit list (mark done what shipped overnight; keep today's items dated today; shift other tasks for the week to later days to respect the weekly Capacity block; add any newly-surfaced must-do). Then send one "Good morning — today: <2-4 items>" PushNotification. Asana ref: workspace ASANA_WORKSPACE_GID, project "Bryan's Projects" ASANA_PROJECT_GID, Bryan (assignee) ASANA_ASSIGNEE_GID, non-premium so use asana_get_tasks not search_tasks. Leave family and other people's tasks + Bryan-Medical self-care items alone.
+2. Automated morning daily-review (5:27am). If a job with the daily-review morning prompt (invokes the /daily-review automated morning run) is present, skip. Else arm: CronCreate(cron="27 5 * * *", recurring=true) with a prompt that invokes the /daily-review skill's "Automated morning run" — gather fleet status, write today's review doc under live-feedback, and produce Bryan's status + today's hit list, ordered by goal priority. Then send one "Good morning — today: <2-4 items>" PushNotification.
+
+   **Do NOT touch Asana.** Removed 2026-09-16 on Bryan's instruction: "Stop the Asana syncs. It's duplicating stuff that's on the workspaces." The workspace boards and his Home review queue are the only task surface. Do not create, re-date, complete or reword Asana tasks, and do not read Asana to build the hit list — take it from the weekly plan and the boards. This line stood stale in this hook until 2026-09-17, four weeks after the skill itself was corrected, because the fix was recorded as done in three places and only landed in two. A cron armed from this prompt re-teaches whatever it says, so correct it here and not only in the skill.
 
 3. Weekly digest SURFACING (Monday 08:23 local). If a job with this weekly-surfacing prompt is present, skip. Else arm: CronCreate(cron="23 8 * * 1", recurring=true) with a prompt that wakes the peer at claude-hive stable_id b21914b86c73 — spawning its session first if it is not running, path per registry.yaml — and hands it the goal: surface the digest its own pipeline already generated this morning to Bryan, on whichever surface he is active on (Claude Remote before CLI). The peer owns how; do not prescribe commands and do not ask it for status.
 

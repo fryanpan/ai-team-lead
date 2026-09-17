@@ -4010,6 +4010,47 @@ envelope has no way to say "fleet". Each row's own board id is dropped in the pr
   frames — the same rendered `quietMs` copied out of an already-built row, not two computations
   agreeing. Confirmed at the source afterwards.
 
-**Dated and expiring, 2026-09-17:** before the fix ships, the fleet frame is distinguishable by
-`stalledCount: 0`, no `rows`, and `consideredCount` equal to the number of aggregated entries. That
-signature is a property of one release and is worth nothing after it — check, do not quote.
+**There is NO discriminator, and the one offered was withdrawn the same hour.** The plugin's lead
+first gave a signature — `stalledCount: 0`, no `rows`, a matching `consideredCount` — and those
+fields are real on the frame and **invisible at the surface that has to act on it**. A channel event
+arrives carrying `source`, `workspace_id`, `task_id`, `event` and a rendered sentence; nothing else
+survives. Their words on withdrawing it: *"I handed you a discriminator from the layer that builds
+the frame rather than the layer that reads it, which is the same mistake as the bug."*
+
+- **A workaround has to be checkable from where the decision is made.** This one was sound at the
+  producer and unusable at the consumer, which is indistinguishable from no workaround at all —
+  except that it invites false confidence, so it is worse.
+- **Ask of any remedy: can the reader see the thing it tells them to look at?** One question, and it
+  changed the real fix — carrying the board id in the payload would have satisfied the ticket and
+  helped nobody, so it now has to reach the rendered text.
+- **Until a fix lands, recognising your own ids is the only discriminator.** Do not act on rows in
+  an aggregated frame on any other basis.
+
+## A retracted instruction survives wherever a PROMPT is generated, not just wherever a skill is written
+
+Bryan stopped the Asana sync on 2026-09-16. The `daily-review` and `weekly-plan` skills were corrected
+that day, and the memory recording the change said the 5:27am cron prompt carried the correction too.
+It did not. `scripts/rearm-token-watch-hook.sh` still emitted "SYNC his Asana so today's tasks match the
+hit list" as SessionStart context on 2026-09-17, so every morning cron armed from that hook re-taught the
+retracted instruction to a fresh session. Found only because the morning run was executed by hand and the
+operator happened to hold the memory that contradicted the prompt.
+
+- **A generated prompt is a third copy of the instruction, and it is the one nobody greps.** Skills get
+  audited because they are the documented surface. A shell script that assembles a prompt string is
+  code by extension and prose by content, and a search for the retracted behaviour has to be written
+  against its wording, not its filename. Here the filename said `token-watch` and the stale text was in
+  the daily-review block.
+- **The cron outlives the correction.** A skill edit reaches the next reader; an armed cron keeps firing
+  the prompt it was created with. Correcting the generator is not enough — the already-armed job has to
+  be deleted and re-armed, which is a second step that looks redundant and is not.
+- **"Fixed in N places" is a provenance claim and follows the provenance rule.** It was written once,
+  read as settled thereafter, and propagated into the memory index. The check is one `grep` per named
+  place, run at the time of writing, not a re-derivation later.
+- **The instruction that reverses a default is the one that decays.** "Do X" is reinforced every time
+  someone does X. "Stop doing X" leaves no trace at the sites that still say to do it, and every one of
+  those sites reads as authoritative to a session that has not loaded the memory.
+
+**The general form, which is the part worth carrying:** when a standing behaviour is retracted, enumerate
+every surface that can *state* it to a future session — skills, rules, hook-injected context, cron and
+scheduled-job prompts, agent briefs, memories — and open each one. A surface that only *performs* the
+behaviour fails loudly when it is wrong. A surface that *instructs* it fails by being believed.

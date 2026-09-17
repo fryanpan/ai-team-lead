@@ -536,6 +536,33 @@ def main() -> int:
               f"cap ${daily_cap_usd():.2f}")
         return 0
 
+    # An unrecognised flag used to fall through to the stdin read below and
+    # block forever with no output — the caller believes a scan is running and
+    # it never is. That is the "could not look" state wearing the costume of a
+    # slow success, so it is an error, not a fallback. Found 2026-09-16 when a
+    # retrospective scan invoked with a non-existent --diff-file hung 35
+    # minutes on a closed pipe.
+    known = {"--help", "-h", "--spend-report", "--diff-range"}
+    unknown = []
+    i = 0
+    while i < len(args):
+        if args[i] == "--diff-range":
+            i += 2
+            continue
+        if args[i] not in known:
+            unknown.append(args[i])
+        i += 1
+    if unknown:
+        print(
+            f"[scrub-haiku] unknown argument(s): {' '.join(unknown)}\n"
+            f"  known flags : --diff-range <range> | --spend-report | --help\n"
+            f"  to scan a diff on stdin, pass no flags:  "
+            f"scrub-haiku.py < some.diff\n"
+            f"  NOTHING WAS SCANNED.",
+            file=sys.stderr,
+        )
+        return 2
+
     range_spec = "-"
     if "--diff-range" in args:
         idx = args.index("--diff-range")

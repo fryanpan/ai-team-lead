@@ -4168,3 +4168,47 @@ with a state that may be weeks stale.
 - **Mergeable state is not approval state**, and I conflated them in a review Bryan reads. `MERGEABLE`
   describes the branch; it says nothing about whether a human has signed off. Ten approved and one
   blocked read to me as "14 green PRs".
+
+## A quality gate's best effect is invisible to the metrics that govern it — and half its holds are still waste
+
+2026-09-17. A review item I filed was held twice by a board's quality gate.
+
+**The first hold was unusable.** Its stated reason was, in as many words, that the gate could not put its
+concern in words that stayed inside what the item said. It attached the generic corrective — do not supply
+a figure or mechanism your source does not carry. That prompt did catch something real by accident: I had
+written "respawn takes about a minute", a number I have never measured. But the hold itself identified
+nothing, and a filer with less patience would reasonably have re-sent the item unchanged.
+
+**The second hold was specific and correct.** I had described the subject only as an idle session and
+never said what it does or why its next work mattered to the reader. Answering that forced me back to the
+weekly plan — and the plan said the goal was due the following day with its first milestone already
+missed. **I reversed my recommendation**, from "spin the session down" to "do not", and corrected the
+daily review. I would not have re-read the plan for any other reason.
+
+- **Record that the first hold was the bad one.** A story where every hold is wise is not the story, and
+  telling it that way is how a gate acquires unearned authority. It held twice; one was worth the turn.
+- **The general property: a hold that sends you back to the SOURCE does something a specificity check
+  cannot.** A demand for specificity is satisfiable by writing more confidently, which actively rewards
+  invention (this repo already has that failure written down). A demand to say what the thing is *for*
+  is only satisfiable by re-reading, and re-reading is where stale facts surface.
+- **The gate's own criteria cannot see this.** Measured by holds-per-week and false-repeat count — both
+  of which measure its COST. A hold that changed the filer's mind scores identically to a wasted one, so
+  any pressure to reduce holds optimises directly against the highest-value thing it does. Check this
+  against anything of ours that meters an intervention by its frequency rather than its outcome.
+- **Answer a hold you cannot satisfy honestly by saying so.** The tool took a `lessSpecific` argument for
+  exactly this, and using it was correct twice: I removed an invented duration rather than defend it, and
+  said plainly that I had not measured the idle cost either. Inventing a figure to clear a hold is the
+  failure the hold exists to prevent.
+
+## A number in your own status line goes stale where you cannot see it, and peers relay it as current
+
+Same day, adjacent. A peer nearly relayed "11 commits held" upward. It was accurate when I wrote it into
+my hive summary and wrong within the hour, because the count grows every time I commit. The peer read it
+from the summary, which is exactly what a summary is for, and had no way to know it had decayed.
+
+- **Put the stable fact in a status line, not the volatile one.** "Blocked on the scrub decision" stays
+  true for as long as it is true. "32 commits held" is false by the next commit and nothing updates it.
+- **A broadcast surface decays silently in a way a message does not.** A message is timestamped and read
+  once. A summary is read repeatedly, long after writing, with no signal about its age.
+- **Where a number is genuinely wanted, say where to get it rather than what it is.** The summary now
+  says to ask rather than to read, which costs a peer one message and cannot go stale.

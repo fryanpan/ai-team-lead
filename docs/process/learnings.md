@@ -3986,3 +3986,30 @@ listed inside the body of one of them. Nothing had been merged in transit.
 - **You cannot see their code and should not guess past your evidence.** Report what the artifact
   shows and where it conflicts; the owner does the eliminating. Stating the tension is useful,
   proposing a mechanism inside a repo you cannot read is not.
+
+## A frame that aggregates across boards still has to claim ONE board, so it lies about its scope
+
+Team Lead received a `workspace.stalled` frame tagged with a board it is not attached to, listing
+three rows from three different boards. Traced by the plugin's lead to a fleet-wide escalation that
+deliberately collapses every board's unfiled-ask rows into **one** frame — one wake instead of
+fifteen, which is sound — and then tags it with the worst-offending row's board id because the
+envelope has no way to say "fleet". Each row's own board id is dropped in the process.
+
+- **The aggregation is right and the label is wrong.** Do not read a frame that spans boards as a
+  bug in the aggregation; the defect is an envelope whose shape cannot express the fact it carries,
+  so it borrows a field and misstates it. Expect this wherever a summary of many things has to fit
+  a schema built for one.
+- **Never act on a row in an escalation frame without confirming it is yours.** Two of the three
+  rows belonged to other boards and to other leads. The frame gives no signal about this, and the
+  only reason it was caught is that one task id was recognisable.
+- **This is the third path in one day that defaults to the Team Lead seat** — a detached scheduled
+  wake's spawn request, this escalation, and the ordinary stall nudge. None of them is visible from
+  any single board, including Team Lead's own. **Ask of any fleet-wide fallback: how many other
+  paths already point here, and what happens on a morning when several fire at once.**
+- **What identified it was a value repeated to the digit.** One row read `quiet 1h 10m` in two
+  frames — the same rendered `quietMs` copied out of an already-built row, not two computations
+  agreeing. Confirmed at the source afterwards.
+
+**Dated and expiring, 2026-09-17:** before the fix ships, the fleet frame is distinguishable by
+`stalledCount: 0`, no `rows`, and `consideredCount` equal to the number of aggregated entries. That
+signature is a property of one release and is worth nothing after it — check, do not quote.

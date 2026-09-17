@@ -3675,3 +3675,39 @@ found out only because the agent said so twice.
   runs in three months reads the reason at exactly the moment it would otherwise act.
 - **Same family as the provenance rule.** I had the fact right and the authority wrong, and nothing in
   a correctness check would have caught it.
+
+## An event from a board you do not watch may be addressed to you on purpose
+
+**Date:** 2026-09-17
+
+A `workspace.stalled` nudge arrived naming two rows on a board this session is not
+attached to and does not watch. The standing fleet rule says to unwatch anything from
+another board that slips in, so the obvious reading was a subscription leak and the
+obvious action was to prune the watch list.
+
+Both were wrong. The owning plugin ages an unfiled ask up a **ladder** — board lead,
+then Team Lead, then the user — and files one item per server, delivering it on
+whichever board the recipient holds a stream. So the event is keyed to neither
+attachments nor watched docs, and the receiving session is a deliberate rung rather
+than a stray subscriber. Pruning would have changed nothing and deleted the evidence.
+
+- **`list_watched_docs` coverage was right on every point and still pointed at the
+  wrong conclusion.** `coverage.workspaces` listed one board, `unattachedBoards` was
+  empty, and neither named row was among the 75 watched entries. A clean instrument
+  reading disproves the leak; it does not establish what the event *is*.
+- **Report the symptom; do not name a mechanism you inferred.** The message sent said
+  what arrived, quoted the coverage reading, and explicitly declined to guess. The
+  owner's reply: the doc-keying hypothesis "would have sent me looking in the wrong
+  module, and I would have believed it." A confident wrong cause costs the other agent
+  more than no cause at all, because it is cheaper to act on than to re-derive.
+- **Ask before deleting evidence.** The same message offered to prune and waited. That
+  offer is what kept the finding reproducible.
+- **A rule about an unwanted event does not cover an event that is addressed to you.**
+  "Never subscribe to another agent's board" has no vocabulary for "someone routed this
+  here on purpose", and a literal reading of it destroys the only case where the event
+  is correct. When a rule's remedy is deletion, check that the thing is what the rule
+  is about before applying it.
+- **What makes a repeat benign is a named, bounded set.** The owner confirmed the two
+  rows will re-escalate every window until a separate fix lands, and asked to be told
+  only if the set changes. That turns an indefinite recurrence into one cheap check per
+  arrival: same two ids, ignore; a third id, report.

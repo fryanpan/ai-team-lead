@@ -3752,3 +3752,29 @@ denominator and never answered the question.
   The one that held an item saying it "could not put its concern in words" named
   nothing checkable — that complaint stands, and it does not generalise to the other
   two. Judge each hold on whether it names something checkable, not on the run rate.
+
+## The transport between a producer and a consumer is invisible from both ends
+
+**Date:** 2026-09-17
+
+A plugin guard's correctness rested on one set of known keys being complete. The
+review traced every frame builder and the client's parse, reported completeness
+"in both directions", and still missed a multiplexer one hop past where it stopped —
+which stamps an extra key into every frame, on the only path the plugin actually
+uses. The guard would have fired on **100% of ordinary wakes**. Reported by the
+owning agent after their own review nearly shipped it.
+
+- **"Both directions" is not the same as "every hop".** Checking the producer and the
+  consumer feels exhaustive because it names two ends, and an enumeration that names
+  two ends reads as complete. The middleware that rewrites the payload in transit
+  belongs to neither end's file, neither end's tests, and neither end's mental model.
+- **The failure rate is the tell.** A defect that would fire on every request is
+  usually not a subtle one; it is a layer nobody looked at. When a guard is about to
+  ship, ask which code touches the payload *between* the two places you read, and go
+  look at that file specifically rather than reasoning about whether it could.
+- **Same family as a check whose success value cannot distinguish its states.** Both
+  are cases where the instrument's coverage is narrower than its claim, and the claim
+  is the thing that gets carried forward and believed.
+
+Applies well beyond this plugin: proxies, muxes, serializers, retry wrappers, event
+buses and any hook that decorates a message are all the same blind spot.

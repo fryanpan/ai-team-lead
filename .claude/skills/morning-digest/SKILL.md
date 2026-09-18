@@ -59,6 +59,34 @@ is how he reads it.
   a wall of text on a phone.
 - **Links are Tailscale or GitHub, never `*.local`**, and go on the noun at first mention.
 
+**Every item links its own artifact, in every section.** Asked for on the first run:
+*"Provide links to Deepcell, learnings-gate-hazards branch, and other unclear items."*
+An item that names a thing he would have to go find — an email thread, a branch, a PR, a
+board row, a settings pane — carries the link on the noun at first mention.
+
+- **A Gmail thread** is `https://mail.google.com/mail/u/0/#inbox/<threadId>`; the
+  connector returns `threadId` on every search hit, so there is no excuse for naming a
+  sender without one.
+- **Where no URL exists, say so and say what to open.** An unpushed branch has no GitHub
+  page — write the branch name and the repo, not a link that 404s.
+- **Verify a link resolves before it ships.** A dead link costs him more than a missing
+  one, because he only finds out after the context switch.
+
+**A setup step that only he can perform ships with its actual steps, not its name.**
+*"Include specific step-by-step instructions for Full Disk Access (Messages) and Signal
+device linking in daily updates."* Naming the task is what the digest had been doing, and
+it leaves him to reconstruct the procedure every morning it reappears.
+
+- **Write the pane path and the clicks**, e.g. System Settings → Privacy & Security →
+  Full Disk Access → `+` → add the terminal app that runs this session.
+- **Say where it can be done from.** *"instructions can be executed from Mac mini, SSH
+  from phone/iPad, or remote desktop."* That is per-step and it matters: anything in
+  System Settings needs the GUI, so it is the Mac mini directly or remote desktop — **not
+  SSH**. A CLI step is fine over SSH from the phone or iPad.
+- **Confirm the client before writing Signal's steps.** Linking differs between Signal
+  Desktop (scan the QR it displays) and `signal-cli` (`link` prints a `sgnl://` URI you
+  have to render as a QR yourself). Do not write one procedure as if it covered both.
+
 ## 1. Needs you
 
 Read the last 48 hours. Two buckets, and they are different questions — keep them apart.
@@ -205,12 +233,22 @@ quickest, not by the order you found them.
 
 ## 5. Token spend
 
-Three lines, no more.
+**A table of weekly usage against the limit, then one verdict line.** Changed by him on
+2026-09-18, on the first run: *"Show weekly usage vs. limit, not just current pool
+state"* and *"Present token spend as a table showing weekly usage vs. limit, not just
+pool state."* Pool state answers "where is the fleet billing right now", which is not the
+question he is asking.
 
-- **Which pool is active, what it reads, and when that reading was taken.**
-- **The runway**, measured off points GAINED since the stint began ÷ hours. Never
+- **The table is the estate**, one row per pool: used against the weekly limit, the Fable
+  meter separately, the reset, and whether the reading is live or stale.
+- **Then the runway**, measured off points GAINED since the stint began ÷ hours. Never
   `used% ÷ hours`, and never projected multiple days off the current 5h window.
-- **Anything that needs him** — a Tier 2 call, or nothing.
+
+**The verdict line ends in a decision word: speed up, slow down, or all clear.** His
+words: *"Summarize token spend decision rule — speaker needs to know if action is
+required."* A percentage is not an instruction, and he should not have to derive one from
+the table he was just handed. If the answer is that nothing needs doing, write **all
+clear** — that is a verdict, and an absent one reads as an unfinished section.
 
 **This digest does not drive a pane for `/usage`.** The live read belongs to `/token-watch`
 at 08:07, an hour later. Run `scripts/fleet_budget_watch.py` and report the estate panel as

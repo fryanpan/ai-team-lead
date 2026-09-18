@@ -82,23 +82,35 @@ broken one.
 
 ### Which channels this sweeps
 
-**Email is on. Everything else is gated on Bryan's answer to the channel-scope decision
-row on the Team Lead board** — a
-privacy decision, not a technical one, and not yours to advance.
+**Answered 2026-09-18:** *"Slack, Messages and Signal. Research if there's a clean way to
+handle WhatsApp."* All four are wanted. Three have a path; one does not yet.
+
+**Which channels are in was his call, not a technical one.** Do not widen the sweep on
+your own judgement, and do not narrow it either.
 
 - **Gmail** — on now.
-- **Slack** — a connector is already authorised in this session, so this is one line of
-  work once he approves it. Same unreplied test: the last message in the thread or DM is
-  not from him.
-- **iMessage** — needs Full Disk Access, which only he can grant and which is broad
-  rather than scoped to Messages. **Never ask for that grant on your own initiative.**
-- **WhatsApp, Signal** — no sanctioned path for a personal account. Do not reach for an
-  unofficial bridge to satisfy this section; the documented consequence for WhatsApp is
-  the number being banned.
+- **Slack** — on now. The connector was already authorised, so this needed nothing from
+  him. Same unreplied test as email: the last message in the thread or DM is not from
+  him. Sweep DMs and channels where he is @-mentioned — **not** every channel he belongs
+  to, which is a newsletter, not an inbox.
+- **Messages (iMessage)** — approved, blocked on a Full Disk Access grant only he can
+  make. No connector exists; the history is a local SQLite store under his Library. That
+  grant is machine-wide rather than scoped to Messages, so **never perform it, script it,
+  or prompt for it mid-digest** — the steps live on the channel-scope row and he does it
+  in System Settings.
+- **Signal** — approved, blocked on him linking this machine as a second device. There is
+  no API, by design; `signal-cli` works by linking, which means a QR scan from his phone
+  and real message history stored on this machine.
+- **WhatsApp** — **not approved. Open research question.** He asked whether a clean path
+  exists, which is not the same as approving one. Until one is found and he says yes, do
+  not read WhatsApp by any route. The Business API covers business numbers only; the
+  desktop client's local store and unofficial bridges both breach the terms, with a
+  documented consequence of the number being banned.
 
 **Name the channels this run actually read, every time.** "Nothing needs you" means
 nothing in the channels that were swept, and a reader cannot tell which those were unless
-the line says so.
+the line says so. An approved-but-not-yet-wired channel reads as swept otherwise, which
+is the failure this line exists to prevent.
 
 ## 2. Meetings today
 

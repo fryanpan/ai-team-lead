@@ -52,8 +52,9 @@ builder does from memory.
 
 Measured on the week of 2026-09-07 by the peer that instruments the fleet's weekly numbers, in one
 lead's session: **of 101 subagent
-lanes, 7 linked clearly to a board task and 68 to none at all** (the rest were ambiguous). Dispatch prompts
-named a task id in **4 of 264**. The board's rows linked or named **125 PRs against 264 merged**. So for
+lanes, 7 linked clearly to a board task, 26 only because the lane's worktree name happened to appear in some
+row's text (18 matching one row, 8 matching several), and 68 to nothing at all.** Dispatch prompts named a
+task id in **4 of 264**. The board's rows linked or named **125 PRs against 264 merged**. So for
 most of the week's work, the row and the work that satisfied it could not be joined by anyone reading
 either one.
 
@@ -65,7 +66,9 @@ survive whichever step a builder does for itself.
 2. **The PR body names the row, and the PR URL is attached back to it.** The body is what a human reads;
    the attachment is what a query reads. Neither substitutes for the other.
 3. **The worktree is named after the row** (`.claude/worktrees/t-…`). The lead creates the worktree 32
-   times in 42, so this is usually the lead's to get right.
+   times in 42, so this is usually the lead's to get right. It is also the step with the most evidence
+   behind it: the worktree name was the *only* thread joining a quarter of those lanes to a row, and it
+   did that by accident — 8 of the 26 matched several rows, which is a guess rather than a join.
 
 - **This is for work that came off a row.** A spike, a sweep or a one-off investigation has no row and
   needs no id; inventing one to satisfy the rule is worse than leaving the lane unlabelled.

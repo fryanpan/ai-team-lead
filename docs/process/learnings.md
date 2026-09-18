@@ -4559,3 +4559,26 @@ structurally blind to that.
   that does not require trusting their reading of their own code.
 - **Publish the correction where the wrong claim went.** Mine had gone onto a board row in
   front of Bryan and into a peer's inbox, so both got the correction, not just the row.
+
+## A board-coverage report says nothing about doc-level subscriptions (2026-09-18)
+
+Auditing whether this session had drifted into other agents' boards, the coverage
+block reported one board attached, lead true, and `unattachedBoards` empty. Read
+alone that is a clean bill of health. The same call's `watching` list held two docs
+belonging to other projects — one on a client board, one on another peer's — both
+restored from the server on every respawn since August.
+
+- **Board attachment and doc watching are separate subscriptions, and only one of
+  them is summarised.** The audit that matters reads the raw list, not the summary
+  computed from it. A summary answers the question it was built for and is silent
+  on the one you brought.
+- **Ask what a green field was computed FROM.** "No unattached boards" is a true
+  statement about boards. It was never a statement about docs, and nothing in its
+  wording says so.
+- **These survive restarts by design.** Server-side persistence means a watch
+  picked up once is still there months later; the restore block listing ~80 entries
+  as "restored" is the mechanism working, not drift. So the only way one leaves is
+  an explicit unwatch, which means nobody notices until someone reads the list.
+- **Same family as the per-task note count.** Both were instruments answering a
+  narrower question than the one asked, and in both cases the narrow answer was
+  correct and read as the broad one.

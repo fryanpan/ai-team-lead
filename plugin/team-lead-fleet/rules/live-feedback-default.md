@@ -44,6 +44,37 @@ Every peer watching a doc receives the same `thread.created` event, and each one
 - **That is not a pause.** Pick up the next task immediately — you are leaving a row open, not waiting on an answer.
 - **A thread he resolved is not an artifact that is ready.** Resolving is the cheapest signal a person can send — one click, no content — and he often keeps editing for an hour afterwards. Read the file before you report the state. Measured 2026-09-04: this produced two wrong "ready to send" claims in one day.
 
+## A dispatched build carries its row's id, or the row cannot be traced to the work
+
+A board row is only a record of work if something joins it to the branch, the PR and the subagent that did
+it. Nothing does that automatically, and every step where it could be written down is a step a lead or a
+builder does from memory.
+
+Measured on the week of 2026-09-07 by the peer that instruments the fleet's weekly numbers, in one
+lead's session: **of 101 subagent
+lanes, 7 linked clearly to a board task and 68 to none at all** (the rest were ambiguous). Dispatch prompts
+named a task id in **4 of 264**. The board's rows linked or named **125 PRs against 264 merged**. So for
+most of the week's work, the row and the work that satisfied it could not be joined by anyone reading
+either one.
+
+**Three places to write the id. Do all three.** Any one of them makes the join possible; all three make it
+survive whichever step a builder does for itself.
+
+1. **The dispatch prompt's first line names the row** — `Board task: t-…`. This is the cheapest of the
+   three and the one that was almost never done.
+2. **The PR body names the row, and the PR URL is attached back to it.** The body is what a human reads;
+   the attachment is what a query reads. Neither substitutes for the other.
+3. **The worktree is named after the row** (`.claude/worktrees/t-…`). The lead creates the worktree 32
+   times in 42, so this is usually the lead's to get right.
+
+- **This is for work that came off a row.** A spike, a sweep or a one-off investigation has no row and
+  needs no id; inventing one to satisfy the rule is worse than leaving the lane unlabelled.
+- **Write the id, not a description of the row.** A title drifts when the row is reworded and a paraphrase
+  never matched in the first place. The id is the only part that survives an edit.
+- **The verbs and paths above will get renamed eventually; the obligation will not.** What the rule asks
+  for is that the row, the branch and the PR each carry a pointer to the others — implement it with
+  whatever the current tools call it.
+
 ## An answer that defers without a date leaves nothing behind
 
 An ask answered with "snooze until next Tuesday", "wait a week", "defer for a month", "we can defer" or

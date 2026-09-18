@@ -4505,3 +4505,26 @@ requesting lead's own call to make about its own subagents.
 - **Verify the identity vars after, not the process.** `tmux show-environment -t <session> CW_AGENT_NAME`
   returned `Workspaces`, and the peer re-appeared on the hive with a new session id. Registration proves the
   hive handshake; it does not prove the board write, which is the peer's own first turn to demonstrate.
+
+## The Gmail connector's scopes are split, and `update_draft` silently detaches a draft from its thread (2026-09-18)
+
+Two separate failures in one pass, both silent in the way that matters — the call
+succeeds, and the damage is in a field nobody reads back.
+
+- **Read/compose works; modify does not.** `search_threads`, `get_thread`, `get_message`,
+  `create_draft` and `update_draft` all succeed. `unlabel_thread`, `label_thread`,
+  `trash_message` and the rest of the label/archive/trash family fail with
+  `Insufficient scope: required … https://www.googleapis.com/auth/gmail.modify`. So an
+  agent can read an inbox and prepare a reply, and can never mark anything read, archive
+  it, or clean up after itself. Say "could not — missing scope", not "done".
+- **`update_draft` returns a NEW `threadId`, equal to its own `messageId`.** The draft is
+  no longer on the conversation it was replying to, and nothing in the response says so —
+  you have to compare the returned `threadId` against the one you started with. The reply
+  would have reached the recipient as a fresh thread with no quoted history.
+- **The fix is to rebuild, not to patch.** `create_draft` with `replyToMessageId=<the
+  original thread id>` produces a correctly threaded draft. The detached one then cannot
+  be deleted, because deleting a draft needs `gmail.modify` — so it stays in the user's
+  drafts folder and has to be handed to them as a cleanup item.
+- **The general shape is the one the verification rules already name.** Both halves return
+  success-looking output for a thing that did not happen the way it reads. Check the field
+  that would prove it, not the absence of an error.

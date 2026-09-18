@@ -75,6 +75,40 @@ Read the last 48 hours. Two buckets, and they are different questions — keep t
 - **Never draft or send a reply from this skill.** The digest surfaces; sending is a
   separate act with its own approval.
 
+### The bar is "needs him", not "involves him" (set 2026-09-18)
+
+Three corrections on the first real run, all the same shape: the digest surfaced things
+nobody was asking him for.
+
+- **A PR is his to review only when HIS OWN LOGIN is on it.** `gh search prs
+  --review-requested=<user>` **expands team membership** and returns every PR requesting
+  any team he belongs to. Five came back that way on the first run and not one was his.
+  *"I think none of these are assigned to me -- don't highlight these in the future unless
+  assigned to me to review."* The correct test is the PR's own `reviewRequests` array —
+  `gh pr view <n> --json reviewRequests` — checked for his login. Never use
+  `--review-requested` to decide this.
+- **"Worth knowing" is not a licence to include whatever you found.** A payment that
+  cleared, a booking already confirmed, a thread someone else closed: if nothing turns on
+  him, it does not go in. *"No need to bring these to my attention -- does not need me."*
+- **Check whether he already handled it before you file it.** *"Already took care of
+  this."* A thread whose last message is not from him can still be finished — by a phone
+  call, a text, a form he submitted. Where the channel cannot show you, mark the item
+  unconfirmed rather than asserting it is open.
+
+### The Gmail connector is read-and-compose only
+
+Measured 2026-09-18. Search, read and `create_draft` work. **`unlabel_thread`, label
+edits, archive and trash all fail** with `Insufficient scope: required …
+https://www.googleapis.com/auth/gmail.modify`. So this skill can surface a thread and it
+can never mark one read or clear it — say that plainly when asked, and do not route
+around it.
+
+**`update_draft` DETACHES a draft from its thread.** It returns a new `threadId` equal to
+its own `messageId`, and the reply then arrives as a fresh conversation. To change a
+threaded draft, create a replacement with `replyToMessageId` and confirm the returned
+`threadId` still matches the original. The orphan cannot be trashed from here — it is
+Bryan's to delete, so tell him it exists.
+
 **A quiet inbox and a failed search read the same.** If the search returns nothing, say
 which query ran and that it ran — "no unreplied threads in 48h (searched `newer_than:2d`
 across N threads)". An empty section with no denominator is indistinguishable from a

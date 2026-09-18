@@ -4696,3 +4696,26 @@ Both of us had checked. Neither check looked at paths.
   have caught it, which is the part worth remembering — the near-miss, not the catch.
 - **Ask what surface each check reads before trusting a set of them.** Two checks that both read
   contents are one check run twice, however differently they are implemented.
+
+## Search the board before filing an ask — the answer is often on a row already closed (2026-09-18)
+
+A pre-push gate blocked on a private project name in a public repo. I measured the exposure
+carefully, verified both repos' visibility with `gh` rather than assuming, swept for other
+instances, and filed a well-evidenced decision item asking what to do about it.
+
+Bryan had answered that exact question the previous evening. Same project, same 19 occurrences,
+same 5 files, on a row whose recorded answer was "Accept it". His answer was about 21 hours old
+when my item reached his queue.
+
+- **The row was `done`, which is exactly why I did not see it.** I had looked at in-progress and
+  triage. A closed row is invisible to every ordinary sweep, and a closed row is where an answer
+  lives — so the state that holds the answer is the state nobody queries.
+- **Grep the board by SUBJECT before filing, including closed rows.** Not by status, not by
+  assignee. One `list_tasks` with no status filter would have cost one call and saved the item.
+- **Careful measurement made it worse, not better.** The evidence I gathered was correct and it
+  made the item persuasive, so nothing in my own work signalled that the question was settled.
+  Quality of a finding is no evidence that the finding is wanted.
+- **The real signal was in the same listing I had already pulled.** An earlier answered item read
+  "Fix the gate" on this defect class, nine days old. I read past it on the way to filing.
+- **Withdraw and archive rather than leaving both.** A withdrawn item with a reason reads as a
+  correction; a silent second row reads as the board losing track. Say which row holds the answer.

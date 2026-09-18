@@ -4474,3 +4474,34 @@ itself.
 - **A leak gate's scope is a decision, not an implementation detail.** Whole-file scanning and
   added-line scanning catch different things and fail differently. Neither is obviously right, so
   the choice goes to the owner rather than into a commit.
+
+## A peer's "safe to restart" is its own reading of its state, and the check that settles it is the branch, not the worktree (2026-09-18)
+
+The Workspaces lead asked for its own respawn and pre-cleared it: *"no builders running, no PR in flight,
+prod deployed and healthy."* Two of those three did not survive a look from outside:
+
+- **A commit landed on `fix/long-topics-replay` at 07:13:19 PDT, seven minutes before the request.** So
+  something in that repo was working while the message said nothing was.
+- **Two PRs were open** (#1103 and #498).
+
+Neither turned out to matter, and the reason is the useful part. **The check that settled it was not "is
+anything running" — which I cannot answer for another session — but "is any work only in one place."**
+`git status --porcelain -uall` on that worktree was clean and `git ls-remote` showed the branch pushed at
+the same SHA. Committed and pushed work survives a kill; a builder's context does not, but that is the
+requesting lead's own call to make about its own subagents.
+
+- **Ask what a restart would destroy, not whether the peer is busy.** Busy is unanswerable from outside and
+  the pane cannot tell you. Uncommitted-or-unpushed is answerable in two commands and is the whole risk.
+- **`git for-each-ref --sort=-committerdate refs/heads | head` is the right first call**, not a worktree
+  sweep. This repo had **57 worktrees**, nearly all long abandoned; sorting by commit recency named the one
+  live branch immediately. Same finding as the restart-a-lead-with-builders rule, from the other direction.
+- **Do not send the peer a correction you cannot support.** I could not tell whether that commit was a
+  builder's or the lead's own work in a worktree — every commit in that repo is authored "Bryan Chan". An
+  observation I could not resolve is not a fact it got wrong, and messaging it would have been a side debate
+  costing a full-context turn to settle nothing.
+- **`--mode running --only <name>` is the mode for this**, because the target is `respawn: false` in the
+  registry and `--mode missing` would silently skip it. Dry-run first: it printed exactly one PID and one
+  spawn, at the right cwd.
+- **Verify the identity vars after, not the process.** `tmux show-environment -t <session> CW_AGENT_NAME`
+  returned `Workspaces`, and the peer re-appeared on the hive with a new session id. Registration proves the
+  hive handshake; it does not prove the board write, which is the peer's own first turn to demonstrate.

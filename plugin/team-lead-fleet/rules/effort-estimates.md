@@ -24,6 +24,8 @@ The baseline is **hours a skilled human engineer would need without LLM assistan
 
 **Always show the baseline you divided:** `≈40h baseline → ~2.7h hands-on, ~4h wall clock`. Never surface the baseline alone.
 
+**The hands-on divisor rests on a denominator that was replaced, and its margin is thinner than it looks (noted 2026-09-18).** It was fitted against multipliers measured Apr–Jun 2026, when hands-on time meant keyboard attention. Bryan rejected that measure on 2026-08-17 — it scored watching a build, reading a diff and thinking at zero. Its replacement is strictly larger on every task, which makes every multiplier smaller and eats the safety margin ÷15 was chosen for. **Keep using ÷15 and keep calling it provisional.** The corrected figure does not exist yet for anyone: the owning peer is holding every multiplier until Bryan picks a segmentation method. Do not re-derive one yourself, and do not quote a divisor from an installed plugin copy — 0.5.0 says ÷20, and reading it as current is the mistake this note exists to stop.
+
 ## What the divisor does NOT apply to
 
 Two kinds of time are not work an agent can absorb; dividing them yields a confident fake number.

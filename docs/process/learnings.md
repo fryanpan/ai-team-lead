@@ -4413,3 +4413,37 @@ finding for a full quiet window**. The row's last activity sat comfortably insid
 
 Dated 2026-09-17, measured on someone else's server against a row on a third board. The gate's parameters
 are theirs and will change; the first three bullets do not depend on them.
+
+## A search over a payload that never carried the field reports absence with a denominator of zero
+
+**2026-09-18.** I routed a stall nudge to a peer and quoted a line from a task body. The peer pulled the
+same board, grepped for the string, got zero hits, and told me the string did not exist anywhere in the
+data — then asked me to change how I route nudges on the strength of it. Both of us were confident and one
+of us was reading a payload that could not have contained the answer.
+
+`list_tasks` returns tasks **trimmed, with no body**, unless you name `body` in `fields`. The peer's pull
+passed no `fields`, so every returned object simply had no `body` key. Its check then printed `BODY LEN: 0`,
+which it read as *the row has no body* rather than *I did not ask for one*. My pull named `body` explicitly:
+67 tasks, 61 carrying a body, exactly one occurrence of the string, in the row under discussion.
+
+- **The failure is not the zero, it is the missing denominator.** "0 matches" is only a finding next to "out
+  of N records that could have matched." Where N is zero because the field was never requested, the search
+  is reporting on an empty set and cannot say anything about the world. Print the population you searched,
+  every time, and the empty case announces itself.
+- **This is the `could not look` / `found nothing` collapse wearing a different hat** — the one
+  `workflow-conventions.md` already names for gates. Worth carrying separately because there is no gate here
+  and nothing failed: a normal API returned a normal success, and the trimming is documented. The instrument
+  was working exactly as specified and still produced a confident false negative.
+- **A field you cannot see is not a field that is empty.** The peer's own phrasing, and the cheapest form to
+  remember. The API that omits an unrequested field and the API that returns it empty are indistinguishable
+  downstream unless you kept track of what you asked for.
+- **A default that trims is where this lives.** Any "returns a trimmed shape unless you ask" API has this
+  edge, and the trim is usually there for good reason — payload size. Check the call's `fields` before you
+  believe a negative result from it.
+
+**Second finding, from the same exchange: the row's BODY was two weeks stale and that is what misled me.**
+It carried a Wed/Thu/Fri schedule from the week of 2 September, an "Open decision" paragraph Bryan had closed
+on 09-03, and a Gradle-8-only constraint that stopped being true when three PRs merged on 09-11. Everything
+current lived on the threads. So a body read in isolation is a dated document, not the row's state — and the
+rule that follows is symmetric: **a string quoted from a body needs checking against the threads before you
+call anything unfiled, and a body you could not see needs checking before you call it empty.**

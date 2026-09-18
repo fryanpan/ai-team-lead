@@ -4528,3 +4528,34 @@ succeeds, and the damage is in a field nobody reads back.
 - **The general shape is the one the verification rules already name.** Both halves return
   success-looking output for a thing that did not happen the way it reads. Check the field
   that would prove it, not the absence of an error.
+
+## Counting records by their attachment point cannot see an unattached one, and its empty result reads as "none exist" (2026-09-18)
+
+A done-when asked me to confirm end-of-turn notes were actually landing, not merely that
+the env var was set. I counted notes attached to tasks, found the newest was twelve days
+old, and reported that the posting had stopped. **It had not.** The notes were being
+written the whole time — 94 in the window I called empty, the most recent nine minutes
+before I said so. They were simply not attached to any task, and a per-task count is
+structurally blind to that.
+
+- **The query answered a narrower question than the one I asked it.** "How many notes are
+  on tasks" is not "how many notes exist". The gap between those two is invisible in the
+  result, which is a number either way.
+- **This is the three-state rule wearing a different hat.** Passed, failed, could-not-run
+  — and "looked in a place the record does not live" is a could-not-run that returns a
+  clean, confident zero. I have written that rule into two skills this week and then
+  committed it while checking a criterion written to catch it.
+- **The tell was available and I walked past it.** A count that goes to zero and *stays*
+  there while the system is plainly still working is a claim that something stopped dead
+  on a particular date. That should prompt "what changed about my query's assumptions on
+  that date", not "what broke". The date was real; it was the date my own situation
+  changed, not the date the feature did.
+- **Ask the component that owns the store.** The owning agent read its server's own note
+  log and had the answer in one pass, because it counted the records themselves rather
+  than their attachments. Where a record can exist unattached, only the store can count it.
+- **Verify the part of someone else's explanation that is checkable from your side.** Its
+  account turned on my holding two or more in-progress tasks. I counted: seven. That took
+  one command and moved the explanation from plausible to confirmed — and it is the half
+  that does not require trusting their reading of their own code.
+- **Publish the correction where the wrong claim went.** Mine had gone onto a board row in
+  front of Bryan and into a peer's inbox, so both got the correction, not just the row.

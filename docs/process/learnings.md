@@ -4639,3 +4639,35 @@ original proposal.
   actually ships, which still sits under the old median. The finding was a thin
   margin, which is worth a caveat, not a wrong rule, which would have been worth
   a change.
+
+## Two snapshots of a file are two states, not a process caught mid-flight (2026-09-18)
+
+A doc bound to the live editor threw two `doc.sync_error` events an hour apart, each
+saving the losing copy to a backup. I diffed the two backups, found one holding real
+names and the other holding redacted ones, and reported to the doc's owner that their
+redaction script had been running while the doc flushed over it — a race landing
+unscrubbed text into a file heading for a public repo.
+
+The owner checked and the cause was ordinary: **they switched branches twice in the
+worktree the doc is bound to.** The redaction commit lives on an unpushed branch, so
+checking out a branch from main put the unredacted file on disk, and checking the other
+back out restored the redacted one. The two backups are the two branches' copies. Nothing
+was mid-flight and nothing was lost.
+
+- **A diff gives you two states and no arrow between them.** I supplied the arrow from the
+  most interesting available story. Branch switches, a `git stash`, a checkout, an editor
+  reverting a file and a partially-completed write all produce the same pair of snapshots,
+  and only one of those is an emergency.
+- **The tell is a mechanism claim that no observation in hand supports.** "The scrub was
+  running" was not something I measured; the events carry timestamps and content, never a
+  cause. The same family as the killer item — an external surface is not state — reached
+  from a new direction, because two renders of a file are not a history of it.
+- **Ask the owner before escalating on their repo.** One question would have settled it.
+  Instead the finding went out as a warning, and they spent a turn disproving it.
+- **What survives a wrong attribution is the part you could check.** The hazard itself was
+  real: a bound file can be overwritten by the doc's flush, and the race can resolve the
+  unsafe way round. That stood, and the owner armed a `git diff HEAD` check on the path
+  before every commit. **Say which half is which when you correct yourself** — the
+  mechanism, which held, and the instance, which did not.
+- **Being right about the danger is not evidence of being right about the event.** It is
+  what makes the wrong attribution persuasive, to its author most of all.

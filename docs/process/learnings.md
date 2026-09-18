@@ -4582,3 +4582,28 @@ restored from the server on every respawn since August.
 - **Same family as the per-task note count.** Both were instruments answering a
   narrower question than the one asked, and in both cases the narrow answer was
   correct and read as the broad one.
+
+## A schedule armed on a row assigned to a human wakes nobody, and escalates as if a peer had stalled (2026-09-18)
+
+An ask that needed the user was filed as a task row assigned to `human` with a
+one-shot schedule on it, on the reasoning that the schedule would bring it back
+when it mattered. A schedule wakes a **session**. There is no session for a human,
+so the wake resolved to `nobody` four times over 110 minutes and then filed itself
+as a review item reading "nobody picked it up, no session that could start the
+owner was attached."
+
+- **The escalation blames the wrong thing, and convincingly.** It reads as an
+  unresponsive peer. Nothing in its wording says the row was never addressable in
+  the first place, and the wake record that shows `via: "nobody"` on every attempt
+  is one level down from what the item surfaces.
+- **The surface a human ask reaches is a review item, not a scheduled row.** A row
+  assigned to a person and left in `todo` is not on their queue; it is on the
+  board. Arming a date on it does not change which queue it is in.
+- **Check the assignee before arming a schedule.** One field, and it decides
+  whether the wake has anywhere to land.
+- **A `once` rule that fires spawns a second row with the same title**, so the
+  duplicate on the board is the mechanism working. Archive the instance and keep
+  the ask on the parent, or the next reader dedupes the wrong one.
+- **Same family as the coverage summary and the per-task note count**: an
+  instrument reported a real state accurately and the reading available from
+  outside it was the wrong one.

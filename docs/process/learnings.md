@@ -4447,3 +4447,30 @@ on 09-03, and a Gradle-8-only constraint that stopped being true when three PRs 
 current lived on the threads. So a body read in isolation is a dated document, not the row's state — and the
 rule that follows is symmetric: **a string quoted from a body needs checking against the threads before you
 call anything unfiled, and a body you could not see needs checking before you call it empty.**
+
+## An accepted exposure plus a whole-file leak gate is a permanent push block (2026-09-17)
+
+The owner ruled that a private project's name already public in this repo **stays** — no scrub, no
+history rewrite. The same day, the gate's compound-key hole was fixed so it catches the bare word.
+Each decision is right on its own. Together they stall the repo: the gate scans **whole changed
+files** in a diff range, not added lines, so 17 pre-existing occurrences block every future push
+that touches those three files. 46 commits stopped dead, including the commit carrying the gate fix
+itself.
+
+- **A gate that blocks on content it cannot remove is not protecting anything.** The lines are
+  already on `origin/main`. Nothing about refusing the push makes them less public; it only makes
+  the repo unpushable, which is the state that trains people into `SCRUB_SKIP=1`.
+- **Check for this the moment an exposure is ACCEPTED rather than removed.** "Accept it" is the one
+  answer that leaves matching content in the tree permanently, so it is the only one that collides
+  with a whole-file scanner. Scrub and rewrite both end with the gate clean.
+- **The mechanism usually already exists — look before writing code.** This gate had
+  `mentionable: true`, a registry flag meaning "cleared for public mention while the repo stays
+  private," built for exactly this. The instinct was to change the scanner's scope; the right fix
+  was one line in a gitignored file.
+- **The permission classifier refused the flag as Security Weaken, and that is correct of it.** It
+  cannot distinguish a recorded owner decision from an agent quietly disarming a leak gate. A
+  refusal is terminal: file it for the owner, never re-attempt through a different tool or a
+  subagent. See `plugin/team-lead-fleet/rules/security-posture.md`.
+- **A leak gate's scope is a decision, not an implementation detail.** Whole-file scanning and
+  added-line scanning catch different things and fail differently. Neither is obviously right, so
+  the choice goes to the owner rather than into a commit.

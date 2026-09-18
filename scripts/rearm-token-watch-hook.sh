@@ -16,13 +16,21 @@ set -euo pipefail
 
 read -r -d '' DIRECTIVE <<'EOF' || true
 [Team-lead session-cron re-arm — startup check]
-Three session-scoped CronCreate jobs die on respawn. Ensure ALL THREE are armed now — idempotent: call CronList first and skip any already present. Do this silently as startup housekeeping; note only if a job was found dead.
+TWO session-scoped CronCreate jobs die on respawn. Ensure BOTH are armed now — idempotent: call CronList first and skip any already present. Do this silently as startup housekeeping; note only if a job was found dead.
 
 1. Token-watch (weekly usage, 3x/day). If a job with a token-watch prompt (pulls /usage, appends to docs/process/token-control.md trend log) is present, skip. Else arm: CronCreate(cron="7 8,13,18 * * *", recurring=true) with the token-watch prompt documented in docs/process/token-control.md — pulls /usage via an idle fleet session, runs the burn + context scripts, appends one trend-log line (all-models % + Fable sub-meter % + %-elapsed + verdict), applies Tier 0/1, pings Bryan only on a Tier 2 call, AND on the first run after a weekly reset runs the end-of-week quota retro (docs/process/token-control.md, "End-of-week quota retro").
 
-2. Automated morning daily-review (5:27am). If a job with the daily-review morning prompt (invokes the /daily-review automated morning run) is present, skip. Else arm: CronCreate(cron="27 5 * * *", recurring=true) with a prompt that invokes the /daily-review skill's "Automated morning run" — gather fleet status, write today's review doc under live-feedback, and produce Bryan's status + today's hit list, ordered by goal priority. Then send one "Good morning — today: <2-4 items>" PushNotification.
+2. Morning digest (~7AM). **DO NOT ARM A CRON FOR THIS.** Retired from CronCreate on
+   2026-09-18 and moved to a BOARD SCHEDULE on task t-GiDXzpDiuz98 (board w-u8_fKyDre63I),
+   a daily calendar rule at 06:47 America/Los_Angeles. A board schedule survives the
+   respawn that kills a session cron, which is the whole reason it moved. Verify with
+   list_tasks on that row, not with CronList.
 
-   **Do NOT touch Asana.** Removed 2026-09-16 on Bryan's instruction: "Stop the Asana syncs. It's duplicating stuff that's on the workspaces." The workspace boards and his Home review queue are the only task surface. Do not create, re-date, complete or reword Asana tasks, and do not read Asana to build the hit list — take it from the weekly plan and the boards. This line stood stale in this hook until 2026-09-17, four weeks after the skill itself was corrected, because the fix was recorded as done in three places and only landed in two. A cron armed from this prompt re-teaches whatever it says, so correct it here and not only in the skill.
+   The old "27 5 * * *" daily-review job is GONE and must not come back: Bryan asked for
+   one 7AM prep, and a 5:27 review alongside it is two briefings ninety minutes apart.
+   If you find a 5:27 job armed, delete it. The procedure lives in
+   .claude/skills/morning-digest/SKILL.md, and /daily-review keeps only its intra-day
+   triggers.
 
 3. Weekly digest SURFACING (Monday 08:23 local). If a job with this weekly-surfacing prompt is present, skip. Else arm: CronCreate(cron="23 8 * * 1", recurring=true) with a prompt that wakes the peer at claude-hive stable_id b21914b86c73 — spawning its session first if it is not running, path per registry.yaml — and hands it the goal: surface the digest its own pipeline already generated this morning to Bryan, on whichever surface he is active on (Claude Remote before CLI). The peer owns how; do not prescribe commands and do not ask it for status.
 

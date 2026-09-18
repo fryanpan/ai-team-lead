@@ -4671,3 +4671,28 @@ was mid-flight and nothing was lost.
   mechanism, which held, and the instance, which did not.
 - **Being right about the danger is not evidence of being right about the event.** It is
   what makes the wrong attribution persuasive, to its author most of all.
+
+## A content scrub does not rewrite filenames, and a content scanner reports clean on one (2026-09-18)
+
+A peer built a public snapshot of a private repo: 165 files, a substitution file mapping client
+codenames to pseudonyms, and `scrub-check` run over every file. It reported clean, and it was
+telling the truth about what it read. One tracked path still carried a client codename in its
+**filename**. The file's own heading had been substituted correctly, so the term appeared nowhere
+in any file's contents — only in the path.
+
+Both of us had checked. Neither check looked at paths.
+
+- **A repo publishes its tree, not just its blobs.** Filenames, directory names and the branch name
+  are all public the moment it is pushed, and they are in history permanently the same way contents
+  are. A substitution pass written with `sed` over file bodies cannot reach any of them.
+- **Run the denylist against `git ls-files`, not only against file contents.** It is one command, it
+  is instant, and it is the entire fix. Doing it across 165 paths returned exactly one hit, which is
+  what made it a rename rather than a rebuild.
+- **The clean result was load-bearing and wrong in scope, not in fact.** This is the same shape as
+  a gate that scans whole files when it should scan a diff: the instrument answers a narrower
+  question than the one being asked of it, and the answer is honest, so nobody re-reads it.
+- **It surfaced by accident.** I found it pulling name-shaped tokens out of the research docs looking
+  for third-party people, and noticed the codename in a path in the output. No planned check would
+  have caught it, which is the part worth remembering — the near-miss, not the catch.
+- **Ask what surface each check reads before trusting a set of them.** Two checks that both read
+  contents are one check run twice, however differently they are implemented.

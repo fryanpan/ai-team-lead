@@ -4607,3 +4607,35 @@ owner was attached."
 - **Same family as the coverage summary and the per-task note count**: an
   instrument reported a real state accurately and the reading available from
   outside it was the wrong one.
+
+## A constant copied out of a rule becomes the thing that outlives it (2026-09-18)
+
+A peer reported the fleet's hands-on estimate divisor as ÷20, citing
+`team-lead-fleet 0.5.0`. The file it read says exactly that. The fleet runs 0.9.0,
+where the figure is ÷15, changed four minor versions earlier. Eleven versions sit
+in the plugin cache simultaneously and every one of them reads as a real source.
+
+Chasing where ÷20 was still being taught found **four** copies: the installed 0.5.0
+rule, this session's memory file, that memory's one-line index entry — the copy
+loaded into context on every single session — and a planning note recording the
+original proposal.
+
+- **An installed plugin version is not evidence of what is current.** The cache
+  keeps every version it has ever held, and an old directory is not marked as old
+  from inside. Read the working tree, or the highest version present, and say
+  which you read.
+- **Do not restate a constant that lives in a rule.** Point at the rule. A
+  duplicated number has no mechanism that updates it and no signal when it drifts,
+  so it silently becomes a second, older authority.
+- **The index line is the worst copy to get wrong**, because it is loaded every
+  session while the file it points at is only read on demand. It was wrong for
+  five weeks.
+- **A record of what was once proposed is not wrong, and still misleads.** The
+  planning note was accurate about 2026-08-13. It needed one line saying the
+  figure moved, not a correction.
+- **Check the direction before repeating the alarm.** The peer's reasoning was
+  sound — a larger denominator shrinks every multiplier — but its conclusion
+  ("the rule understates hands-on time") was true of ÷20 and not of the ÷15 that
+  actually ships, which still sits under the old median. The finding was a thin
+  margin, which is worth a caveat, not a wrong rule, which would have been worth
+  a change.

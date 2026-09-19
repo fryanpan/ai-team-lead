@@ -1,12 +1,17 @@
 ---
 name: token-watch
-description: Use when running the 3x/day fleet token check, when asked how the quota is trending, when asked the status of the Claude accounts, or before deciding whether to rotate pools.
+description: Use when running the scheduled fleet token check, when asked how the quota is trending, when asked the status of the Claude accounts, or before deciding whether to rotate pools.
 user-invocable: true
 ---
 
 # Token Watch
 
-Runs 3x/day (08:07, 13:07, 18:07). The contract is `docs/process/token-control.md`
+**The cadence lives on the schedule of the `Token watch` row of the Team Lead board,
+and nowhere else. Read it there; do not trust a time written in a file.** Bryan
+re-armed it to every 3h on 2026-09-19, having set 08:07/13:07/18:07 before that,
+and four files in this repo still carried the old times afterwards.
+
+The contract is `docs/process/token-control.md`
 — tiers, rotation policy, and the account-switch runbook live there and are not
 repeated here. This skill is the procedure and the **output shape**.
 
@@ -64,9 +69,20 @@ pool-a@example.com     80%   20%   100%  Thu 09-10 17:59      ~9h  idle since re
 pool-b@example.com     38%   62%    43%  Fri 09-11 04:00     ~29h  live  <- ACTIVE
 ```
 
-- **An idle pool's meter can only RISE until its reset.** So a stale reading is a
-  **floor** and its "left" is a **ceiling** — a usable bound, which an unlabelled
-  number is not. Say "80% or worse", never "80%".
+- **A stale reading is a bound, not a figure. Say "80% or worse", never "80%"** —
+  an unlabelled number reads as measured. Keep saying this; the reasoning under it
+  changed on 2026-09-17 and the phrasing did not.
+- **The old reason — "an idle pool's meter can only RISE" — is FALSE, and believing
+  it cost two hours at a wall.** The primary pool was read live at 100% (Fable
+  84%) on 09-15 and read **82% (Fable 66%) at 13:40 on 09-17 with the same reset and
+  no reset in between**, so it shed ~18 points while idle. At the 08:37 wall that
+  morning I reported "nothing to rotate to" on the strength of two 100% floors; one
+  of them had headroom the whole time.
+- **So a 100% row is a claim about a moment, never a property of the pool.**
+  **Re-read an exhausted pool before concluding the estate is empty.** A stale
+  reading bounds nothing in the direction you need when the question is whether to
+  rotate — it can be wrong high as well as low, and the panel cannot tell you which.
+  The only cure is a live read, which costs one pane drive.
 - **A reading taken while a pool was still active is an under-read**, because the
   pool kept climbing after it. Check `account_since` before quoting one.
 - **Runway is measured off the active pool's own meter** — points GAINED since

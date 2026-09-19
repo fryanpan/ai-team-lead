@@ -283,7 +283,15 @@ def parse_registry(path: str) -> Dict[str, Dict[str, str]]:
             m = re.match(r"^    ([a-z_]+):\s*(.*)$", line)
             if m:
                 key = m.group(1)
-                value = m.group(2).strip().strip('"').strip("'")
+                value = m.group(2)
+                # Strip a trailing inline comment. Without this, a value written
+                # `respawn: true   # why` parses as "true   # why" and every
+                # equality test against it silently fails -- the project vanishes
+                # from the target list, which reads exactly like "already running".
+                # Cost one silent no-op on 2026-09-16; hive_stable_id had been
+                # carrying its comment into the parsed value the whole time.
+                value = re.split(r"\s+#", value, maxsplit=1)[0]
+                value = value.strip().strip('"').strip("'")
                 if value:
                     projects[current][key] = value
     return projects

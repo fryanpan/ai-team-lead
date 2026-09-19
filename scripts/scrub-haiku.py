@@ -51,11 +51,12 @@ import base64
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import urllib.error
 import urllib.request
-from typing import Optional
+from typing import List, Optional
 
 MODEL = "claude-haiku-4-5-20251001"
 # Haiku 4.5 published rates, USD per million tokens. These are for the estimate
@@ -326,51 +327,87 @@ def daily_cap_usd() -> float:
         return DEFAULT_DAILY_USD
 
 
-def repo_author() -> Optional[str]:
-    """The name this repo's commits are signed with.
+def repo_author() -> List[str]:
+    """Every spelling this repo's owner is known by, not just one of them.
 
     Resolved at runtime, never written down here: this file is itself pushed to
     the public repo, so hardcoding the maintainer's name would put it in the one
-    place the scanner exists to keep names out of. `git config user.name` is the
-    configured signer; the most frequent author in the log is the fallback for a
-    machine where that is unset.
+    place the scanner exists to keep names out of.
 
-    Returns None on any failure — the scan then runs with no author exception,
+    **A single value is the bug this returns a list to fix.** The first version
+    took `git config user.name` and stopped. On a machine where that is set to a
+    tooling identity, the gate was told the author was that identity and had no
+    way to connect it to the person who wrote 134 of the last 200 commits —
+    so every occurrence of the owner's real name read as a third-party leak, and
+    the exception written into the prompt for exactly this case never fired. It
+    blocked three pushes in a row on 2026-09-19, including the one adding this
+    note.
+
+    Four sources, because they disagree and each is right about something
+    different: the configured signer, the dominant name in the log, the
+    local-part of the dominant commit email, and the remote's owner. A name
+    appearing in any of them is the owner under another spelling.
+
+    Returns [] on any failure — the scan then runs with no author exception,
     which is the conservative direction.
     """
-    try:
-        proc = subprocess.run(
-            ["git", "config", "user.name"],
-            capture_output=True, text=True, timeout=10,
-        )
-        if proc.returncode == 0 and proc.stdout.strip():
-            return proc.stdout.strip()
+    found: List[str] = []
 
-        proc = subprocess.run(
-            ["git", "log", "--format=%an", "-n", "200"],
-            capture_output=True, text=True, timeout=10,
-        )
-        if proc.returncode != 0:
+    def add(value: Optional[str]) -> None:
+        v = (value or "").strip()
+        if v and v not in found:
+            found.append(v)
+
+    def run(*cmd: str) -> Optional[str]:
+        try:
+            proc = subprocess.run(
+                list(cmd), capture_output=True, text=True, timeout=10,
+            )
+        except (OSError, subprocess.SubprocessError):
             return None
-        names = [n for n in proc.stdout.split("\n") if n.strip()]
-        if not names:
-            return None
-        return max(set(names), key=names.count)
-    except (OSError, subprocess.SubprocessError):
-        return None
+        return proc.stdout if proc.returncode == 0 else None
+
+    add(run("git", "config", "user.name"))
+
+    log = run("git", "log", "--format=%an|%ae", "-n", "200")
+    if log:
+        names, emails = [], []
+        for line in log.split("\n"):
+            if "|" not in line:
+                continue
+            name, _, email = line.partition("|")
+            if name.strip():
+                names.append(name.strip())
+            if "@" in email:
+                emails.append(email.split("@")[0].strip())
+        if names:
+            add(max(set(names), key=names.count))
+        if emails:
+            add(max(set(emails), key=emails.count))
+
+    url = run("git", "remote", "get-url", "origin")
+    if url:
+        m = re.search(r"[:/]([^/:]+)/[^/]+?(?:\.git)?\s*$", url.strip())
+        if m:
+            add(m.group(1))
+
+    return found
 
 
 def build_system_prompt() -> str:
     """SYSTEM_PROMPT plus the AUTHOR line its exception refers to."""
-    author = repo_author()
-    if not author:
+    names = repo_author()
+    if not names:
         return SYSTEM_PROMPT + (
             "\n\nAUTHOR: unknown — this repo's author could not be resolved, so "
             "apply the personal-name rule with no author exception."
         )
     return SYSTEM_PROMPT + (
-        f"\n\nAUTHOR: {author} — the owner of this repo, who signs its commits. "
-        "Their name appearing in this diff is not a leak, wherever it appears."
+        f"\n\nAUTHOR: {', '.join(names)} — all spellings of the ONE person who "
+        "owns this repo and signs its commits: a display name, an account name, "
+        "a tooling identity. Treat them as the same person. Their name in any of "
+        "these forms is not a leak, wherever in the diff it appears, and neither "
+        "is a home-directory path built from one of them."
     )
 
 

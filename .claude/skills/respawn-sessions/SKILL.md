@@ -73,6 +73,32 @@ This is how it happened. An account cycle was run with a hand-written `tmux new-
 
 If you must hand-roll one anyway, copy the `-e` flags out of `spawn_session_tmux` verbatim rather than writing them from memory, then run the check above before calling the cycle done.
 
+## There are TWO spawn paths, and only one of them gets updated
+
+`respawn.py` spawns every peer. `self-respawn.sh` spawns the team-lead, because the team-lead runs as a
+bare `claude --continue` and cannot be killed by the modes above. **They carry their launch env
+independently, and a variable added to one does not appear in the other.**
+
+Measured 2026-09-17. claude-workspaces 0.1.182 moved the end-of-turn note route under the board and made
+the Stop hook read that board from the launch env — `readWorkspaceId` consults `CW_WORKSPACE_ID` then
+`FEEDBACK_WORKSPACE_ID` and has no third fallback. `respawn.py` was updated and passes it for every peer.
+`self-respawn.sh` was not, so the team-lead came back carrying `CW_AGENT_NAME` and no board, and its hook
+exited 0 posting nothing on every turn for weeks. One record in 24 hours across a night of continuous work.
+
+- **The failure is silent on both sides.** The hook exits 0 by design so it can never block a turn, and a
+  session posting nothing looks exactly like a session having quiet turns. Nothing distinguishes them from
+  outside; reading the session's own env is the only check that answers it.
+- **The session it misses is the one coordinating the others.** A structural fix that covers everything
+  spawned one way cannot reach the thing spawned the other way, and here that is the team-lead.
+- **When you add anything to `spawn_session_tmux`, add it to `self-respawn.sh` in the same change.** Read
+  the value from `registry.yaml` rather than hardcoding it, so the two paths cannot drift to different
+  answers. `TL_WORKSPACE` is the worked example.
+- **Verify from inside a real session, not from the script.** `printenv CW_WORKSPACE_ID` in the running
+  team-lead is the check; the script reading correctly proves only what the next spawn will do.
+
+**Expect this to recur.** The trend is toward more per-session configuration, and each new variable breaks
+in exactly this place — the path nobody remembered was a second path.
+
 ## Misplaced session home
 
 A session's **home** is the directory whose transcript `--continue` resumes. Normally

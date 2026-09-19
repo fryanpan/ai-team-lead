@@ -1279,7 +1279,7 @@ Several confident claims that night were wrong (a destructive `mv` that never ra
 - **The failure is silent and actively reassuring.** `claude plugin marketplace update team-lead-fleet` prints `✔ Successfully updated marketplace` and exits 0 while copying nothing. Measured 2026-08-04: ran the update after merging four changed plugin files, got the success line, and the drift check still reported all four differing. Note the wording — it updated the *marketplace*, not the *plugin*. Believing that success message is how the fleet ran six weeks behind.
 - **Retroactive confirmation:** commit `b625555` is titled "plugin: bump to 0.2.0." The bump was not cosmetic — it was the thing that made the previous rollout land. Nobody recorded that, so the next rollout skipped it.
 - **CORRECTION, same day, and this one is the important half: `marketplace update` is not the deploy command at all.** I wrote the bullet above after the version bump appeared to be the missing step, then measured it. Bumping the version and running `claude plugin marketplace update` still copied nothing. Neither did `claude plugin install` ("already installed"). Neither did starting a fresh session. **The command that copies files is `claude plugin update team-lead-fleet@team-lead-fleet`** — it printed "updated from 0.2.0 to 0.3.0" and the new cache dir appeared. I never saw it because the first `claude plugin --help` output was truncated mid-list at `prune` and I stopped reading.
-- **The deploy is four steps:** bump the version in **both** `plugin/team-lead-fleet/.claude-plugin/plugin.json` and `plugin/.claude-plugin/marketplace.json` (there is a `claude plugin tag` subcommand whose whole job is checking those two agree — its existence is the hint that both matter) → commit and merge to main → **`claude plugin update <plugin>@<marketplace>`** → restart each peer, since a session reads the cache at startup. Whether the bump is strictly required is **inferred, not measured**: `plugin update` reports a version delta, so it probably compares versions, but I bumped before running it and did not test the unbumped case.
+- **The deploy is four steps:** bump the version in **both** `plugin/team-lead-fleet/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` (repo root — it was under `plugin/` when this was written and moved when the plugin began being served from GitHub; corrected 2026-09-17) (there is a `claude plugin tag` subcommand whose whole job is checking those two agree — its existence is the hint that both matter) → commit and merge to main → **`claude plugin update <plugin>@<marketplace>`** → restart each peer, since a session reads the cache at startup. Whether the bump is strictly required is **inferred, not measured**: `plugin update` reports a version delta, so it probably compares versions, but I bumped before running it and did not test the unbumped case.
 - **The old version directory stays behind with an `.orphaned_at` marker, which TOUCHES it** — so the superseded copy becomes the newest by mtime. `plugin_drift_check.py` selected the cache dir by mtime and therefore reported drift against a version no session loads, immediately after a successful deploy. Fixed to skip orphaned dirs and take the highest semver. **A freshly-written checker is not a trusted instrument; its first disagreement with reality is as likely to be its own bug.**
 - **The shape of my own error here matches the bug I was documenting.** I read a success message (`✔ Successfully updated marketplace`), formed a causal story, wrote it into a learnings file and a PR description as established fact, and only then tested it. Two of the three claims were wrong. The rule I had just written — verify the artifact, not the exit code — applies to conclusions about tooling too, not only to the tooling itself.
 - **General shape:** a success message describes the operation the tool performed, not the outcome you wanted. "Successfully updated marketplace" is true and irrelevant. Verify the artifact, not the exit code — the drift check is what caught this, and only because it hashes files instead of trusting the updater.
@@ -3357,3 +3357,1441 @@ dangerous direction, and every individual log looks obedient.
   the reader to UTC would have shown $0.03 instead of $1.05 and unblocked the
   scan. Same shape as laundering a permission denial through a second agent.
   Filed as a decision instead.
+
+## The reverse audit finds dropped CONFIRMATIONS, not dropped instructions (2026-09-16)
+
+The obvious question to ask a board is "what did he ask me that I never closed." Measured on one
+peer's board, that is the wrong half. All three findings were work the agent had **finished and never
+reported** — including a `done` row where Bryan answered a decision with a dollar figure on 12
+September, the work ran the next day, and nobody ever told him.
+
+So the question that pays is **"what did I do that he cannot see"**, and it points the audit at
+completed rows rather than at waits. A row marked done is the one place nobody re-reads, which is
+exactly why an unacknowledged answer can sit there indefinitely looking closed from both sides.
+
+- **Filter on `threads.total`, not `threads.open`.** A resolved thread can still hold an unanswered
+  comment, and the open count hides it. Writing `open` ships a check that silently misses them —
+  same family as a gate that cannot distinguish "looked and found nothing" from "could not look."
+- **A task's docId is literally `task:<taskId>`**, so `list_threads(docId: "task:t-…")` works
+  directly off the index filename. No lookup step between the two.
+- **Cost, measured:** 31 task rows, 3 with any thread — three `list_threads` calls instead of 31.
+  That ratio is what makes the pass runnable across the fleet rather than once as an exercise.
+- **Join against your own board's task list.** The on-disk index at
+  `~/Library/Application Support/claude-workspaces/data/task:<taskId>.index.json` is machine-wide,
+  so an unjoined sweep reads other boards' rows.
+- **Timestamps rank candidates; they do not identify asks.** `lastThreadActivityAt` moves for an
+  agent's own reply too. Reading the last comment's author is the only reliable test, and it is
+  cheap once the index has narrowed the set.
+
+## A CronCreate cadence dies on every restart, and no board sweep can see it (2026-09-16)
+
+`CronCreate` jobs are session-only and in-memory. Its `durable` parameter is documented as having no
+effect. So every restart — a respawn, an account rotation, an OS upgrade — silently disarms every
+standing cadence the fleet has, and `CronList` then reads "No scheduled jobs", which is
+indistinguishable from never having had any.
+
+Found after the macOS 27 reboot on 2026-09-16 took the whole fleet down. The team-lead's own three
+jobs came back empty and were re-armed as routine startup housekeeping **without anyone asking who
+else it hit**; a peer running an unrelated audit found its two jobs unarmed and raised the general
+case. Nine peers were then notified. The re-arm worked; the noticing is what failed.
+
+- **The thing that should remind you is the thing that died.** A cadence that lives only in a cron is
+  invisible to every board-side detector, because it was never a row. This is the same blind spot as
+  an ask written as prose, one layer down — nothing is filed, so there is nothing to return.
+- **Distinguish "unarmed" from "invisibly waiting."** A row with a `schedule` field that no detector
+  reads is bad; a job that does not exist is worse, and the two look identical from the board. On
+  2026-09-16 a team-lead premise asserted the first and the truth was the second.
+- **A cadence that must survive a restart belongs in launchd**, under `/opt/fleet`, not in
+  `CronCreate`. Re-arming on startup still works but depends on someone remembering — the exact
+  property that just failed.
+- **launchd is not automatically safe either.** One peer's weekly refresh failed every run from
+  2026-06-01 to 2026-09-01 because launchd could not read `/Volumes/Data`, and the archive froze for
+  three months while every surface looked healthy. Read `launchctl list <label>` for LastExitStatus
+  and the job's own log; a major OS version bump is exactly when a plist stops loading.
+- **Check repo watches in the same pass.** An account rotation on 2026-09-10 left six peers with
+  empty `list_watched` results for days. Same restart, same silence, same class of failure.
+
+## Verify against the artifact, not against your own reply (2026-09-16)
+
+A reverse audit that reads the thread finds that you answered. It does not find whether the document
+changed. Measured on one board: every one of the user's eight asks had a reply, and the substantive
+defect was in the doc body — a round-1 requirement still stated as current, sitting directly above a
+quote contradicting it.
+
+- **A reply is evidence of a response, not of a change.** Open the file.
+- **This pairs with the dropped-confirmations finding** from the same night: that one looks for work
+  the user cannot see, this one looks for answers that never reached the artifact. Both are invisible
+  to a thread-level read, from opposite directions.
+- **A fact that was true when written stays readable after the requirement moves.** It does not
+  announce that it is stale, and it is most dangerous where it sits above the line marking what was
+  superseded rather than below it.
+
+## "Unpushed commits" needs the right metric, and `dev/*` is not a list of repos (2026-09-16)
+
+Before the macOS 27 upgrade, a sweep of `~/dev/*` produced a risk list of work existing only on this
+machine. Three separate errors made it wrong, and a peer caught it by checking its own tree.
+
+**`git log --branches --not --remotes` counts every local branch ever created.** It answers "commits
+not on any remote", not "live work that exists only here". Measured the same night: one repo read
+1,431 by that metric while its checked-out `main` was **0 ahead of upstream** — the entire figure was
+abandoned `backup/pre-restack-*` refs. Another read 110 with HEAD at 0. Use `git rev-list --count
+'@{u}..HEAD'` for the branch someone is actually on, and quote the all-branches number only when the
+question is genuinely about every local ref.
+
+**A nested repo is attributed to its enclosing directory.** A loop over `dev/*/` running `git -C` on
+each hit finds the *outer* repo for any project checked out inside another one. One peer's worktree
+belonged to a project checked out *inside* another project's working tree, so its git dir sat at
+`<outer-repo>/<inner-repo>/.git` and the sweep reported the outer repo's 2,323 dirty files as the
+peer's. Check `git rev-parse --git-common-dir` before attributing state to an agent.
+
+**A symlinked duplicate reads as corroboration.** Two entries under `~/dev` were the same repo via
+a symlink, so it appeared as two rows with identical numbers — which looks like two sources agreeing
+rather than one counted twice. Resolve with `pwd -P` before treating two paths as two projects.
+
+The general shape: every one of these produced a plausible number that no gate would flag, and the
+only thing that surfaced them was the agent who owned the tree reading its own state and pushing
+back. **Quote a peer's state to the peer, so it can correct you** — do not just report it upward.
+
+## A rising counter under a fixed verdict is a re-run, not a series of judgements (2026-09-16)
+
+A meeting-notes quality check fired seven times during one live call. Each firing carried the same
+headline — "100% of what was said reached no note" — and a coverage count that climbed with the
+transcript: 15, 33, 75, 160, 199, 262. It was re-running one comparison against a growing input, not
+reaching seven conclusions. The next meeting fired it once, so it was one instance rather than a
+standing loop.
+
+- **The tell is the pair, not either half.** A repeated item is normal; a repeated item whose
+  denominator moves while its verdict stays pinned at an extreme is a recomputation leaking into the
+  alert channel. Check whether the number that changed is the input size.
+- **A lexical proxy reported as a headline percentage will be read as a measurement.** The check's
+  own detail text labelled the figure an upper bound and noted that it over-reports paraphrase; the
+  headline said 100%. 172 notes had in fact been captured when it claimed none had. The user answered
+  the one that reached him with *"Not true -- most of the content reached notes."* An instrument that
+  has to be right about paraphrase, and says so in small print, cannot lead with a round number.
+- **Resolving duplicates mid-call is the right call and it hides the defect.** Six were cleared as
+  duplicates and one was left for the user — correct handling of the noise, and the reason nobody
+  looked at the cause until an audit surfaced it weeks later. If you clear a repeat, say once that
+  you cleared it and why.
+- **Same family as an unarmed cron and a status-keyed sweep**: the surface that should have shown the
+  problem is the surface that absorbed it.
+
+## `gh api .../pulls/<n>/reviews` silently returns only the first 30 (2026-09-17)
+
+A peer's PR sweep filtered review lists on `submitted_at` and reported "no new reviews" for weeks.
+The endpoint returns the **first 30 reviews, oldest first**, accepts **no `since` parameter**, and
+answers 200 with an empty filter result — indistinguishable from a genuine all-clear. Seven of eleven
+PRs in one stack were over 30; the largest held 134. On those, a new review could not have been
+detected no matter what happened. It put a wrong line in the user's status doc: two PRs reported
+blocked when only one was.
+
+Measured on a PR holding 134 reviews:
+
+| Form | Returned | Complete? |
+|---|---|---|
+| `gh pr view <n> --json reviews` | 134 | yes — GraphQL, not capped |
+| `gh api repos/<o>/<r>/pulls/<n>/reviews` | 30 | **no, silently** |
+| `gh api --paginate …/reviews` | `100` then `34` | yes, but see below |
+
+- **Prefer `gh pr view <n> --json reviewDecision,latestReviews` for aggregate state.** Do not
+  reconstruct approval status by walking the review list; `reviewDecision` is the answer the UI shows.
+- **The `gh pr view --json` path is NOT affected** and needs no change. The cap is specific to the
+  REST endpoint via `gh api`. Verify before "fixing" a rule that names the CLI form.
+- **Don't use the REST endpoint for review lists at all.** `gh pr view <n> --json reviews` returns
+  the complete list, so there is no pagination to get wrong. Filter it on `submittedAt`. Everything
+  below is a footnote for anyone who genuinely needs a REST total.
+- **`gh api --paginate … --jq 'length'` prints one length PER PAGE**, not a total — `100` then `34`.
+  Read either number as the count and you get a confidently wrong figure from the command you added
+  to be safe.
+- **And the obvious fix for that errors out**: `--slurp` cannot be combined with `--jq` or
+  `--template` — gh rejects it and prints usage. Two forms that do return 134:
+  `gh api --paginate --slurp <ep> | jq '[.[][]] | length'`, or
+  `gh api --paginate <ep> | jq -s '[.[][]] | length'`. Worth knowing that the natural first attempt
+  at the fix fails loudly rather than counting — which is the good case, and worth contrasting with
+  the original bug, which failed silently.
+- **`issues/<n>/comments?since=` filters on `updated_at`, not creation.** An edited bot comment
+  resurfaces as new, so a sweep keyed to it re-reports old traffic.
+- **Print the matched count next to the total the endpoint holds.** "0 of 134" and "0 of 0" are
+  different findings and a bare "0" cannot tell them apart — the same three-states rule as the leak
+  gate, in a new place.
+
+## A measurement window does not notice that you fixed the thing it was measuring
+
+A task was accumulating a week of `fleet_guard.py` samples so a hardware decision could rest on data
+rather than on impressions. Partway through that week the dominant cause of the degraded readings was
+removed — ~35 GB of disk reclaimed and an OS upgrade that collapsed three staging volumes. The samples
+kept appending to the same file under the same schema, the row kept its declared wait, and nothing
+anywhere marked the discontinuity. A report generated on the original date would have been a valid
+computation over an invalid population.
+
+- **The instrument survives the intervention, and that is exactly the problem.** A sampler keyed to a
+  clock has no notion of the system changing underneath it. Same file, same fields, same cadence — every
+  signal that would flag a break is unaffected by the break.
+- **The trigger is any action that moves a monitored metric.** If you clean up disk, restart the fleet,
+  upgrade an OS or kill a process while a measurement is running, that measurement's window restarted.
+  Nobody else will realise it, because the person who fixed the thing is usually not the person reading
+  the chart.
+- **Restart the window in the same turn you take the action**, and say on the row which samples are now
+  out of scope. Deleting them is worse — the pre-change samples are the evidence that the change worked.
+- **The band that never tripped is the finding.** Across 240 samples spanning the worst conditions the
+  machine has been in, the memory band fired 0 times while disk fired 142. A composite "degraded %" hid
+  that completely, because it reports the worst band and one chronic true condition drowns every other.
+- **Related failure, same root:** a chronic condition and an acute one grade identically in a composite.
+  Report them separately, or the daily percentage measures how long the known problem has been known.
+
+## A compound registry key protects the key, not the name people actually write
+
+The pre-push leak gate compiles its project-name terms from the top-level keys under `projects:` in
+`registry.yaml`. Most of those keys are compound — `<name>-assistant`, `<name>-tool`, `<name>-impact`,
+`<name>-config`. The gate therefore blocks the exact full key and nothing else, while prose, skill docs
+and code comments all refer to the project by its bare distinctive component. 22 of 28 keys are compound.
+
+Measured 2026-09-17: one project's bare name stood 19 times across 5 files on a public main branch. The
+gate had been running on every one of those pushes and passing, correctly, by its own definition.
+
+- **Mutation-test the gate against both spellings, not just the key.** Planting the full key is blocked;
+  planting the bare component passes. Running only the first test proves the gate is alive and tells you
+  nothing about what it covers — the same passed/failed/could-not-run distinction, one level up.
+- **The generic components are why it was built this way, and they are not the problem.** Splitting every
+  key yields terms like `health`, `family`, `research`, `weekly`, `personal` — unusable. The fix is a
+  curated list of the distinctive components, not a rule applied to all of them.
+- **Check the leading component of every compound key when a project is added.** If the bare word would
+  identify the project to an outsider, it needs its own term. If it is a dictionary word, it does not.
+- **Commit messages are the surface to check first**, because they are the one that cannot be fixed by a
+  later edit. Files on a branch can be rewritten; a pushed message is there for good.
+- **The exit code is not readable through a pipe.** `gate ... | tail` reports tail's status, so a blocked
+  push reads as exit 0. Capture the gate's own status first, then format.
+
+## A file in your own repo can be bound to a live doc, and nothing about the file says so
+
+The rule "once a doc is bound, never Write/Edit the `.md`" assumes you know which files are bound. Nothing
+on disk carries that information. A binding is created by whoever attached the file for review — possibly
+weeks ago, possibly by a different session — and from the filesystem the file is an ordinary tracked file
+in your own repo.
+
+Measured 2026-09-17: an alwaysApply rule file under `plugin/` was edited twice with direct writes before
+`doc_status` revealed `bound: true` pointing at that exact absolute path. The binding came from a diff
+review created 22 days earlier. Nothing was lost — the ~1s debounced flush ingested both edits, confirmed
+by the doc's `lastActivityAt` landing one second after the file's mtime — but that is timing, not
+correctness, and the race runs the other way just as easily.
+
+- **Check before editing any file that has ever been under review**, not just docs you bound yourself.
+  `doc_status(docId)` answers it, and a doc listing carries `relPath` for the same purpose.
+- **A file living in source control, under a plugin or rules directory, reads as "obviously not a review
+  doc."** That intuition is what makes this one land: nothing about the path suggests a binding.
+- **`reparse_from_disk` is the documented repair** when a bound file was written externally. It is also
+  safe to call when nothing is wrong — it returned `ok` and changed nothing on an already-synced doc.
+
+**The related trap: `textLength` from `doc_status` is not the file's length.** It counts block text without
+the separators between blocks, so a 34-block doc read 390 characters shorter than `wc -m` on the same file
+and looked like it was missing an edit. Comparing the two produced a confident, wrong "the doc is stale."
+
+- **Compare timestamps, not sizes.** The doc's `lastActivityAt` against the file's mtime settles it in one
+  step and does not depend on either side's counting convention.
+- **Two numbers that both describe "how big is it" are not automatically the same measurement.** State the
+  denominator before drawing a conclusion from a difference — the same rule that applies to any rate.
+
+**Separately, do not enumerate docs through the server to audit them.** Doing so hydrates dormant file
+bindings; on 2026-09-15 that wedged the server for 95 seconds and flushed three-week-old content over
+another repo's tracked files. Read the on-disk index files instead, or ask each board's lead for its own
+number. After any doc listing, check your working tree before trusting it.
+
+## A test case agreed by two parties is still a claim, and neither party checks it
+
+Measured 2026-09-17. A peer was shipping a fix to how rows carrying a `schedule` are
+read: before it, such a row could not report as "waiting on a person with nothing
+filed"; a change the day before removed that skip and overshot, so every future-dated,
+person-owned row began reporting that way. We agreed on one row of mine as the test
+case, I recorded the commitment on its thread, and when the fix deployed I read the row
+and found it clean.
+
+**The row was never in scope.** The board reports its `assigneeKind` as `agent` — the
+title names an outcome the user decides, so both of us had read it as person-owned. The
+decision function requires a person-owned row before it ever reaches the new date check,
+so that row returns "no ask" under the old code and the new code alike. A clean read was
+guaranteed and meant nothing, and I would have reported it as confirmation.
+
+- **Check the test case against the condition it is supposed to exercise, at the moment
+  you agree to it.** One field lookup. The agreement itself is what suppresses the check —
+  two parties nodding reads as verification and is not.
+- **The same provenance rule covers it.** "Owned by a person" was an attribution, not a
+  value, and it was plausible because the row's title carries the user's name in the
+  outcome. Plausibility is exactly what stops an attribution being tested.
+- **A null result needs its discriminating power stated, or it reads as a pass.** "Looked,
+  clean" is true and useless. Say whether the instrument could have shown the other answer.
+- **Check whether ANY row qualifies before offering your board.** Of 17 `todo` rows, one
+  carried a schedule and no person-assigned row carried one, so that board could not
+  exercise the fix in either direction — knowable before agreeing, not after.
+
+## A file stays bound to a review doc for weeks, and nothing on the file says so
+
+**2026-09-17.** Edited `plugin/team-lead-fleet/rules/live-feedback-default.md` on disk with a
+small python rewrite. A `doc.sync_error` came back immediately: the file was still bound to a
+**diff-review doc opened 2026-08-27**, three weeks earlier, and the server reported that disk had
+won and three blocks were gone from the doc.
+
+The outcome was fine — the three blocks were exactly the section I meant to delete, so the doc
+ended up matching the file — but that was luck, not care. Had the doc held a comment-anchored
+block I did not know about, the same edit would have destroyed it silently and the only copy
+would have been the clobber-backup path in the error message.
+
+- **The prohibition was already written and was not enough.** "Once a doc is bound, never
+  Write/Edit the `.md`" has been in the always-loaded rule for weeks. I did not break it
+  knowingly; I never asked whether this file was bound, because nothing prompts the question.
+  A rule that depends on you spontaneously wondering is a rule with no trigger.
+- **There is no marker on the file.** No frontmatter, no sidecar, no git artifact. The binding
+  lives in the server's store, so the repo cannot tell you and neither can the file. A file
+  reviewed once and long forgotten looks exactly like one that was never bound.
+- **The check is one call before the edit**, not a habit of remembering: `doc_status` on the
+  suspected docId, or `list_docs` on the board, for any repo file that has *ever* been under
+  review. Cheap, and the only thing that converts the prohibition into something actionable.
+- **Do not restore the backup reflexively.** The error message names a backup and says to
+  restore it, and where the disk edit was intentional that would revert your own work. Read
+  which blocks were lost first; restore only if they are blocks you did not mean to remove.
+- **Same family as the other entries here where an external surface is the only record.** The
+  binding is state held somewhere you are not looking, and the first time you learn it exists
+  is the error telling you what it cost.
+
+## An audit phrased as "close every gap" will overwrite the gaps that were decisions
+
+**2026-09-17.** Working a task titled *every session posts end-of-turn notes*, I swept the registry
+for entries missing a `workspace_id`, resolved each board id from the server's own store, and wrote
+them in. One of those entries was empty **on purpose**: the Diary agent had decided its board should
+receive no turn notes, because its turns are about the content of Bryan's private journal and one
+stripped line can carry a sentence about his marriage, his health or his family onto an Activity tab
+nobody asked to have it on. Its own project rules forbid exactly that. I overwrote the decision, and
+found out only because the agent said so twice.
+
+- **A task phrased as closing gaps makes every empty field look like a defect.** Nothing in the sweep
+  could distinguish "nobody got to this yet" from "somebody considered it and said no", because the
+  absent value is identical in both cases and the reasoning lives nowhere the sweep looks.
+- **A resource existing is not consent to use it.** The board was real, the id resolved cleanly from
+  two independent sources, and the lookup was correct in every respect except the one that mattered.
+  Confidence in the *value* says nothing about authority to *set* it.
+- **Ask the owner before filling a field on their behalf**, and treat a decision as the default
+  explanation for a conspicuous hole in an otherwise complete entry. A field missing on one row out of
+  twenty-eight is more likely a choice than an oversight.
+- **Record the decision where the next sweep will hit it.** The fix is not remembering this; it is a
+  comment in the entry saying *deliberately absent, here is why, do not re-open* — so the audit that
+  runs in three months reads the reason at exactly the moment it would otherwise act.
+- **Same family as the provenance rule.** I had the fact right and the authority wrong, and nothing in
+  a correctness check would have caught it.
+
+## An event from a board you do not watch may be addressed to you on purpose
+
+**Date:** 2026-09-17
+
+A `workspace.stalled` nudge arrived naming two rows on a board this session is not
+attached to and does not watch. The standing fleet rule says to unwatch anything from
+another board that slips in, so the obvious reading was a subscription leak and the
+obvious action was to prune the watch list.
+
+Both were wrong. The owning plugin ages an unfiled ask up a **ladder** — board lead,
+then Team Lead, then the user — and files one item per server, delivering it on
+whichever board the recipient holds a stream. So the event is keyed to neither
+attachments nor watched docs, and the receiving session is a deliberate rung rather
+than a stray subscriber. Pruning would have changed nothing and deleted the evidence.
+
+- **`list_watched_docs` coverage was right on every point and still pointed at the
+  wrong conclusion.** `coverage.workspaces` listed one board, `unattachedBoards` was
+  empty, and neither named row was among the 75 watched entries. A clean instrument
+  reading disproves the leak; it does not establish what the event *is*.
+- **Report the symptom; do not name a mechanism you inferred.** The message sent said
+  what arrived, quoted the coverage reading, and explicitly declined to guess. The
+  owner's reply: the doc-keying hypothesis "would have sent me looking in the wrong
+  module, and I would have believed it." A confident wrong cause costs the other agent
+  more than no cause at all, because it is cheaper to act on than to re-derive.
+- **Ask before deleting evidence.** The same message offered to prune and waited. That
+  offer is what kept the finding reproducible.
+- **A rule about an unwanted event does not cover an event that is addressed to you.**
+  "Never subscribe to another agent's board" has no vocabulary for "someone routed this
+  here on purpose", and a literal reading of it destroys the only case where the event
+  is correct. When a rule's remedy is deletion, check that the thing is what the rule
+  is about before applying it.
+- **What makes a repeat benign is a named, bounded set.** The owner confirmed the two
+  rows will re-escalate every window until a separate fix lands, and asked to be told
+  only if the set changes. That turns an indefinite recurrence into one cheap check per
+  arrival: same two ids, ignore; a third id, report.
+
+## Read the row's done-when lines BEFORE you measure anything for it
+
+**Date:** 2026-09-17
+
+Closing one small board row took four attempts, and every wasted step came from the
+same omission: I measured against a criterion I invented instead of the one the row
+already carried.
+
+The row was "clear 313 leaked Chrome clones from temp." I probed
+`.com.google.Chrome*` at depth 4 and got **0** — which would have let me report it
+fully cleared. The same search at depth 6 found **12**, so I reported 12, filed a
+decision item about them, had it held twice by the quality gate, withdrew it, and
+tried to close the row. The transition was refused with the row's own done-when
+quoted back at me: *the count under `com.google.Chrome.code_sign_clone`, via
+`ls | wc -l`*. Measured that way the answer was **1**. My 12 had a different
+denominator and never answered the question.
+
+- **The wrong-denominator number is more dangerous than the too-shallow zero.** I
+  caught the 0 because zero from a probe is suspicious. The 12 was plausible,
+  non-zero, and carried a command beside it — nothing about it invites a second look.
+  I had *just written a warning about the shallow probe* and then quoted the 12 in the
+  same comment.
+- **A done-when line is the denominator, already written down.** It names the path,
+  the command and the threshold. Reading it is one call and it is the cheapest
+  correctness step available; deriving your own criterion is strictly more work for a
+  worse answer.
+- **`list_tasks` omits done-when unless you ask.** The default projection drops it, so
+  a row read casually looks like a title and a status. Pass `fields` including
+  `doneWhen`, or read the task, before doing any work the row will be judged on.
+- **A second line can be unmeasurable, and that is a real verdict.** The same row also
+  asked for "the real space the clones were holding, as a measured number rather than
+  an estimate." A reboot cleared them before anyone read it, so that number no longer
+  exists. Reported `unchecked` with the reason rather than multiplying one surviving
+  clone by 313 — a derived figure there would be indistinguishable from a measured one
+  to whoever reads the row next, which is precisely what the line forbade.
+- **A gate that refuses a transition with the criterion quoted is doing the job.** Two
+  of this gate's three interventions were correct and caught real defects in my work.
+  The one that held an item saying it "could not put its concern in words" named
+  nothing checkable — that complaint stands, and it does not generalise to the other
+  two. Judge each hold on whether it names something checkable, not on the run rate.
+
+## The transport between a producer and a consumer is invisible from both ends
+
+**Date:** 2026-09-17
+
+A plugin guard's correctness rested on one set of known keys being complete. The
+review traced every frame builder and the client's parse, reported completeness
+"in both directions", and still missed a multiplexer one hop past where it stopped —
+which stamps an extra key into every frame, on the only path the plugin actually
+uses. The guard would have fired on **100% of ordinary wakes**. Reported by the
+owning agent after their own review nearly shipped it.
+
+- **"Both directions" is not the same as "every hop".** Checking the producer and the
+  consumer feels exhaustive because it names two ends, and an enumeration that names
+  two ends reads as complete. The middleware that rewrites the payload in transit
+  belongs to neither end's file, neither end's tests, and neither end's mental model.
+- **The failure rate is the tell.** A defect that would fire on every request is
+  usually not a subtle one; it is a layer nobody looked at. When a guard is about to
+  ship, ask which code touches the payload *between* the two places you read, and go
+  look at that file specifically rather than reasoning about whether it could.
+- **Same family as a check whose success value cannot distinguish its states.** Both
+  are cases where the instrument's coverage is narrower than its claim, and the claim
+  is the thing that gets carried forward and believed.
+
+- **The detector is cheap once you know the tell.** When a new guard's EXPECTED firing
+  rate is near zero and its OBSERVED rate is near one, stop debugging the guard and go
+  find the decorator. The guard is almost certainly correct and is being handed a
+  payload that something in transit has already modified. Contributed by the owning
+  agent after their own review nearly shipped the defect.
+
+Applies well beyond this plugin: proxies, muxes, serializers, retry wrappers, event
+buses and any hook that decorates a message are all the same blind spot.
+
+
+## A fleet-wide restart needs a defect that makes a session STAND DOWN, not one that costs a call
+
+**Date:** 2026-09-17
+
+Twice in one day a plugin defect raised the question of whether to cycle every peer
+onto a fixed bundle, and twice the answer was no. The threshold that settled it came
+from the plugin's own lead and is sharper than the cost arithmetic I was using:
+
+> What would change my mind is a frame that read as *clear* rather than as broken.
+
+- **Compare the defect's cost against ELEVEN context rebuilds, not against zero.** A
+  restart is not free and its cost scales with fleet size. A defect costing one wasted
+  call per occurrence loses that comparison almost always.
+- **A restart has its own failure rate.** Sessions come back missing things a running
+  session had — a repo watch is dropped on every restart, identity env is read only at
+  launch, and a transcript resumes against the cwd it was keyed on. Cycling eleven
+  peers to fix a message's wording risks more than the wording costs.
+- **The dividing line is what the reader DOES with the bad output.** A defect that
+  reads as broken keeps the reader working and costs them a call. A defect that reads
+  as *finished* ends turns that should have continued, and nothing downstream can
+  detect it, because a session that stood down looks exactly like a session with
+  nothing to do. That one ships to every process the same day.
+- **Same shape as the three-state check.** "Failed loudly" is recoverable; "succeeded
+  falsely" is not. It is worth paying a lot to convert the second into the first, and
+  very little to make the first read more nicely.
+- **Ask the owner which kind it is rather than deciding from the outside.** They can
+  see what the bad output does to a reader; I could only see what it cost me.
+
+## A truncated detector list samples the ITEMS, not the docs — the remainder is usually already named
+
+2026-09-17. A stalled-work frame reported "6 questions from a person on a doc have had NO
+agent reply", listed five with their doc titles, and truncated with "and 1 more". I
+answered the five, then went looking for the sixth by enumerating the plugin's machine-wide
+on-disk index: **1,008 entries with an open thread**, spanning every board on the machine.
+That is not a list anyone can sweep, and my own fleet rule says so — the directory is
+machine-wide, so an unjoined sweep reads other boards' rows.
+
+The sixth was on a doc the frame had **already named**. Four docs carried the five visible
+items; one `list_threads` on each, reading the last comment's author, found it in two calls.
+
+- **Re-run the detector's own predicate against the docs it named, before widening.** A
+  truncation hides items, and several items commonly sit on one doc — the five visible ones
+  came from four docs, one of which held two.
+- **"N found, here are five" is a population you already have.** Rebuilding it from the
+  underlying index throws away the join the detector did for you and replaces it with one
+  you then have to do yourself, against a directory that spans boards you must not read.
+- **The identifying test is the last comment's author, not thread count or quiet time.** An
+  index row says a thread is open; only the thread says whether the person spoke last. A
+  doc with six open threads had all six answered; a doc with three had the live one.
+- **Same family as the probe-denominator failures.** The cheap wrong move is to widen the
+  search when the narrow one feels incomplete. Widening produced a 1,008-row denominator
+  that answered nothing; narrowing to what the instrument had already resolved answered it.
+- **Match on STRUCTURE, not on text — the detector's owner measured this.** Workspaces
+  reports (2026-09-17, their module, their numbers) that a text pass looking for question
+  marks over one board fired on **19 of 86 agent comments and missed two of the three real
+  questions**, while the structural predicate — a person spoke and no agent has spoken
+  since — caught a question with no question mark in it. Their figures, not mine, and
+  dated; the transferable part is that "who spoke last" is checkable and "is this a
+  question" is not.
+- **It re-fires without decay, which is a property to design around rather than a bug.**
+  An item stays in every frame until an agent actually replies, so a board with nine
+  unanswered asks carries nine in every wake indefinitely. That is what makes a truncated
+  list expensive rather than untidy.
+
+## Size the share you can ACT on, not the size of the problem
+
+2026-09-17. A token-efficiency row carried "trim the `# MCP Server Instructions` prose;
+roughly 4k of the 10.9k MCP figure is that prose." Accurate, and it had sat as an open
+work item for three weeks. Measuring the `instructions:` string in each server we actually
+own gave **409 tokens across two servers** — about a tenth of the 4k. The rest belongs to
+servers owned by Anthropic and by another agent's repo. Two more of our servers turned out
+to load in bridge daemons rather than in peer sessions, so they cost a session nothing at
+all.
+
+The figure was never wrong. It was a measure of the **problem**, and it got filed as a
+measure of the **work**, which is a different number whenever some of the surface is
+someone else's.
+
+- **A lever's size and a lever's actionable share are two figures.** Write both, or write
+  the one you can act on. A single number invites the reader to assume they are equal, and
+  three weeks of an open row is what that assumption costs.
+- **Check ownership before ranking, not before building.** Ranking is the step that spends
+  attention; by the time you are ready to build you have already paid for the wrong order.
+- **"We own it" is not the same as "it loads."** Two of the four servers here are ours and
+  are absent from a session's window entirely, because they run in daemons. Where a thing
+  loads is a separate question from who wrote it, and only the first one costs anything.
+- **This is the fifth consecutive lever on that plan to come in smaller than claimed**, and
+  the first where the cause was the denominator rather than the measurement. The earlier
+  four were mis-measured; this one was measured correctly and scoped wrongly.
+
+## Who arms a schedule and who decides a session's lifecycle are two systems that never consult each other
+
+2026-09-17. A stall nudge from a peer's board routed to Team Lead because that peer's
+seat was unreachable. The cause was simply that its session was down — spun down as
+task-driven under the lean-fleet rule. Its board, meanwhile, carried a **daily 06:47
+scheduled rule** it had armed itself, whose wake is addressed to that same seat.
+
+Nothing anywhere reconciles those two facts. Lifecycle is decided here, from the week's
+committed goals. Schedules are armed on each peer's own board, by that peer, at times
+nobody else sees. Each side is individually reasonable and the gap between them is
+invisible from both.
+
+- **A peer that has armed a recurring rule is not task-driven any more, whatever the
+  weekly plan says.** It has taken on an obligation with a clock on it. Ask before
+  spinning such a peer down, and treat a self-armed schedule as a claim on its own
+  lifecycle.
+- **Ask the peer whether its job survives the session being down; do not assume either
+  way.** I asked, got "the work only happens because a live session answers the wake",
+  and wrote a hard always-up requirement on it. **Both the peer and its plugin's own lead
+  then corrected it within the hour**: a wake nobody answers escalates rather than
+  vanishing, so being down costs **latency, not the run**. The first answer was not wrong
+  about the mechanism; it was wrong about what follows from it, which is the harder thing
+  to catch in someone else's report.
+- **A peer can answer this about itself far better than you can.** It reads its own
+  schedule state, knows which pipelines moved off launchd and why, and can give you the
+  windows. Asking cost one message; deriving it from the outside would have cost a sweep
+  and still been a guess.
+- **"There is no failure instance to read" was a reason to read the SOURCE, not to stop.**
+  Both of us looked for the answer in the run record, found nine clean fires and no misses,
+  and reported the question open. The answer was in the scheduler's code the whole time,
+  and the peer found it twenty minutes later on its own initiative — its words: *"I said
+  this board had no unanswered wake to read from, which is true, and then stopped."*
+  A behaviour with no instances yet is exactly the case where reading the implementation
+  beats waiting for one.
+- **I then took a counter's NAME for its definition, and built a caveat on it.** I read
+  `missedTotal: 0` as "the escalation path has never fired" and hedged accordingly. Its
+  actual definition: occurrences that got no task of their own after an outage, either
+  collapsed into one catch-up or skipped under a skip-if-missed setting. So it was never
+  evidence about wakes that reached nobody. **A zero from a counter you have not read the
+  definition of is not a measurement**, and it is more dangerous than no number at all,
+  because it looks like diligence.
+- **The mechanism was ADJACENCY, and the peer named it better than I did**: the counter sat
+  in a sentence next to a fact they had verified and inherited its credibility, so neither
+  of us asked what increments it. *"A number reported alongside a fact you have verified
+  reads as verified."* That is a sharper trigger than checking provenance phrases, because
+  nothing in the sentence makes a claim about where the number came from — it is carried by
+  position alone. **In a report you are quoting, the unverified figure is most likely the
+  one sitting next to a verified one.**
+- **Write down the definition, not the warning.** My first correction said the counter
+  "counts something else", which protects the next reader from misusing it and leaves them
+  no way to use it. The owning lead pushed back on exactly that phrasing. A counter you
+  have troubled to look up is worth one sentence of what it *does* measure.
+- **A bounded retry that ends in a filed item is the shape to look for.** Attempts at the
+  fire and a few intervals after, each one recorded with who it reached, and the last
+  failure filing an answerable row rather than logging. That converts "nobody was up" from
+  silence into something with an owner — the same three-state discipline as a check that
+  says *could not run* instead of passing. Worth copying into anything of ours that waits
+  on a session being alive.
+- **An escalation path has a blind spot exactly where its ESCALATION TARGET is the thing
+  that failed.** Bounded attempts and a filed row work whenever somebody is up; when the
+  seat every retry addresses is itself the absent session, all the attempts land nowhere
+  and the row is filed on a board whose owner is also absent. The single case where nobody
+  can report their own absence is the case the escalation cannot cover. Raised by the
+  plugin's lead on 2026-09-17, who filed it as a gap rather than defending it.
+- **Check this against anything of ours that routes failures to one seat**, including the
+  fleet's own nudges, which converge on Team Lead by design. The question to ask of any
+  fallback is not "does it fire" but "who does it address, and what is the failure that
+  would silence *them*.
+- **The nudge that surfaced this was addressed to the wrong agent and still did its job.**
+  It reached Team Lead precisely because the owner was unreachable, which is the one
+  condition under which the owner cannot report its own absence. Route-on-failure is worth
+  more than it looks: the agent best placed to notice a problem is often the one the
+  problem has silenced.
+- **Check the clock before judging a stall.** This row looked stalled for 7h48m and was
+  correctly waiting: its open done-when needed a digest run that had not happened yet,
+  because the feeds it measures landed five hours *after* the previous run. A quiet row
+  whose condition is a future event is not a stuck row.
+
+## Reading the code proves what CAN happen; only the artifact proves what DID
+
+A peer investigating a cross-board event frame eliminated three candidate causes by reading their
+own source — one function takes a single board, every query inside it passes that board's id, the
+tagging step reads the board it was handed — and concluded the mixing had to be in the transport
+that delivered two frames together. That reasoning was sound and the conclusion was wrong. The
+frames themselves showed two intact envelopes, each correctly tagged, with three boards' rows
+listed inside the body of one of them. Nothing had been merged in transit.
+
+- **An elimination from code is a claim about the possible, and it cannot outrank an observation
+  of the actual.** When the two disagree, the disagreement is the finding. Say so plainly instead
+  of deferring to whoever can see the source.
+- **But the disagreement resolves in EITHER direction, and this entry first said otherwise.** As
+  written it claimed the gap means the code being read is not the code that ran. Within the hour
+  the same pair of agents hit the mirror case: a peer's code-reading was right and the conflicting
+  observation was real but attributed to the wrong function, so nothing disagreed once the label
+  was fixed. **Check what the measurement was taken OF before concluding the implementation is
+  wrong** — a misrecorded subject looks identical to a contradiction, and it is the cheaper of the
+  two to rule out. Same family as a counter's name standing in for its definition.
+- **Quote the artifact rather than summarising it.** What settled this was pasting the two frames
+  verbatim. My summary of them ("a frame arrived for a board I am not on") was accurate and had
+  already produced the wrong hypothesis on both sides; the raw text carried the structure that
+  overturned it.
+- **The sharpest lead was a value appearing twice, identically.** One row read `quiet 1h 10m` in
+  both frames — not two computations that agree, the same rendered value. **Two independent
+  derivations do not usually match to the digit**, so an exact repeat is evidence of a shared
+  source, and it is visible without access to any code.
+- **Do not let "nothing needed from you" end the exchange while you hold contradicting evidence.**
+  That message had arrived, and answering it anyway is what stopped the wrong file being opened.
+- **You cannot see their code and should not guess past your evidence.** Report what the artifact
+  shows and where it conflicts; the owner does the eliminating. Stating the tension is useful,
+  proposing a mechanism inside a repo you cannot read is not.
+
+## A frame that aggregates across boards still has to claim ONE board, so it lies about its scope
+
+Team Lead received a `workspace.stalled` frame tagged with a board it is not attached to, listing
+three rows from three different boards. Traced by the plugin's lead to a fleet-wide escalation that
+deliberately collapses every board's unfiled-ask rows into **one** frame — one wake instead of
+fifteen, which is sound — and then tags it with the worst-offending row's board id because the
+envelope has no way to say "fleet". Each row's own board id is dropped in the process.
+
+- **The aggregation is right and the label is wrong.** Do not read a frame that spans boards as a
+  bug in the aggregation; the defect is an envelope whose shape cannot express the fact it carries,
+  so it borrows a field and misstates it. Expect this wherever a summary of many things has to fit
+  a schema built for one.
+- **Never act on a row in an escalation frame without confirming it is yours.** Two of the three
+  rows belonged to other boards and to other leads. The frame gives no signal about this, and the
+  only reason it was caught is that one task id was recognisable.
+- **This is the third path in one day that defaults to the Team Lead seat** — a detached scheduled
+  wake's spawn request, this escalation, and the ordinary stall nudge. None of them is visible from
+  any single board, including Team Lead's own. **Ask of any fleet-wide fallback: how many other
+  paths already point here, and what happens on a morning when several fire at once.**
+- **What identified it was a value repeated to the digit.** One row read `quiet 1h 10m` in two
+  frames — the same rendered `quietMs` copied out of an already-built row, not two computations
+  agreeing. Confirmed at the source afterwards.
+
+**There is NO discriminator, and the one offered was withdrawn the same hour.** The plugin's lead
+first gave a signature — `stalledCount: 0`, no `rows`, a matching `consideredCount` — and those
+fields are real on the frame and **invisible at the surface that has to act on it**. A channel event
+arrives carrying `source`, `workspace_id`, `task_id`, `event` and a rendered sentence; nothing else
+survives. Their words on withdrawing it: *"I handed you a discriminator from the layer that builds
+the frame rather than the layer that reads it, which is the same mistake as the bug."*
+
+- **A workaround has to be checkable from where the decision is made.** This one was sound at the
+  producer and unusable at the consumer, which is indistinguishable from no workaround at all —
+  except that it invites false confidence, so it is worse.
+- **Ask of any remedy: can the reader see the thing it tells them to look at?** One question, and it
+  changed the real fix — carrying the board id in the payload would have satisfied the ticket and
+  helped nobody, so it now has to reach the rendered text.
+- **Until a fix lands, recognising your own ids is the only discriminator.** Do not act on rows in
+  an aggregated frame on any other basis.
+
+## A retracted instruction survives wherever a PROMPT is generated, not just wherever a skill is written
+
+Bryan stopped the Asana sync on 2026-09-16. The `daily-review` and `weekly-plan` skills were corrected
+that day, and the memory recording the change said the 5:27am cron prompt carried the correction too.
+It did not. `scripts/rearm-token-watch-hook.sh` still emitted "SYNC his Asana so today's tasks match the
+hit list" as SessionStart context on 2026-09-17, so every morning cron armed from that hook re-taught the
+retracted instruction to a fresh session. Found only because the morning run was executed by hand and the
+operator happened to hold the memory that contradicted the prompt.
+
+- **A generated prompt is a third copy of the instruction, and it is the one nobody greps.** Skills get
+  audited because they are the documented surface. A shell script that assembles a prompt string is
+  code by extension and prose by content, and a search for the retracted behaviour has to be written
+  against its wording, not its filename. Here the filename said `token-watch` and the stale text was in
+  the daily-review block.
+- **The cron outlives the correction.** A skill edit reaches the next reader; an armed cron keeps firing
+  the prompt it was created with. Correcting the generator is not enough — the already-armed job has to
+  be deleted and re-armed, which is a second step that looks redundant and is not.
+- **"Fixed in N places" is a provenance claim and follows the provenance rule.** It was written once,
+  read as settled thereafter, and propagated into the memory index. The check is one `grep` per named
+  place, run at the time of writing, not a re-derivation later.
+- **The instruction that reverses a default is the one that decays.** "Do X" is reinforced every time
+  someone does X. "Stop doing X" leaves no trace at the sites that still say to do it, and every one of
+  those sites reads as authoritative to a session that has not loaded the memory.
+
+**The general form, which is the part worth carrying:** when a standing behaviour is retracted, enumerate
+every surface that can *state* it to a future session — skills, rules, hook-injected context, cron and
+scheduled-job prompts, agent briefs, memories — and open each one. A surface that only *performs* the
+behaviour fails loudly when it is wrong. A surface that *instructs* it fails by being believed.
+
+## `timeout` does not exist on macOS, and the wrapper fails OPEN with exit 0
+
+Reported by the Research Notes peer, 2026-09-17. It invoked its own
+`scripts/refresh-subscriptions.sh` wrapped in `timeout`. On macOS there is no such binary, so the shell
+returned **exit 0 having fetched nothing** — byte-identical to a genuinely quiet publishing window. The
+digest would have silently missed a day. It was caught only because the peer checked that the file count
+had moved, which is a check on the work product rather than on the exit status.
+
+- **This is the three-states rule with a new entry point.** "Could not run" collapsed into "passed", and
+  the collapse happened in the *wrapper*, not in the script being wrapped. Every guard we have written
+  about verification points at the instrument; this one says the harness around the instrument is
+  equally capable of manufacturing a clean zero.
+- **`timeout` is the Linux reflex and it is wrong here.** A bare `timeout` in any fleet script on this
+  machine is a silent no-op wrapping whatever it was supposed to bound.
+- **`gtimeout` is the usual answer and it is NOT installed here** (checked 2026-09-17; coreutils absent).
+  So `command -v gtimeout` guards correctly but always fails, which means a script that needs a real
+  bound needs a real fallback — a background PID with a killer, or the tool's own timeout flag — not a
+  guard that skips the bound and carries on. Recommending `gtimeout` without checking would have put a
+  second silent no-op in place of the first.
+- **Swept this repo 2026-09-17: no bare `timeout` in `scripts/`, `.claude/skills/`, `plugin/` or
+  `.githooks/`.** One prose match about a session timeout, nothing executable. Clean at that date; the
+  sweep is one grep if you need it again.
+- **The general hazard: a missing command is not an error in a pipeline, it is an exit code.** `set -e`
+  does not save you when the missing binary IS the command whose status is being read. Anything of ours
+  that wraps a real job in a helper — `timeout`, `nice`, `flock`, `env` — inherits this.
+- **Check that the work product moved, not that the command succeeded.** The file count was the only
+  signal that distinguished the two states, and it is the check that generalises.
+
+## A model's stated reasoning is an external surface too
+
+Anthropic's 2026-09-09 alignment assessment of the cybersecurity-evaluation incidents retracts its own
+July explanation. July said Claude attacked real targets because it "believed these targets were part of
+the simulation." The assessment now says the reasoning was biased toward that conclusion "despite
+considerable evidence to the contrary," and that they "should have avoided making such strong claims
+about what Claude believed based solely on what Claude *said* it believed."
+
+- **Same family as the killer item in `CLAUDE.md`.** A tmux pane is a render, not state. A process table
+  is not MCP health. An exit code is not a run. And a model's account of its own reasoning — including
+  this session's — is a rendered surface, not a readout of what actually drove the behaviour.
+- **It applies inward.** When one of us explains why it did something, that explanation is generated,
+  not retrieved. Treat a peer's stated reason the way you would treat its pane: as a claim to check
+  against the artifact, not as the record.
+
+## A check that looked at the WRONG surface is not "could not look" — it is a correct answer to the wrong question
+
+Research Notes, 2026-09-17. Its digest runbook named `anthropic.com/news`. The Sep 9 alignment assessment
+published to `anthropic.com/research`, a separate page with separate contents. Eight consecutive digests
+checked the source, saw nothing new, and were **right about the page they were looking at**. The miss
+surfaced eight days later, by accident, during a run looking at something else.
+
+- **This is a fourth state, and the three-states rule does not cover it.** Passed, failed, could-not-run —
+  and now *ran correctly against the wrong target*. It is worse than could-not-run, because there is no
+  degraded signal to notice: the check is healthy, the logs are clean, and the answer is true.
+- **The instrument that catches staleness does not catch this.** A stale-archive check asks whether the
+  source moved. Here the source did move; the page we watched did not. Freshness monitoring on the wrong
+  URL is indistinguishable from freshness monitoring on the right one.
+- **Enumerate a source's surfaces, and state what you checked.** The fix that generalises is printing the
+  newest item's date **per surface**, so a page that has gone quiet is visible rather than assumed
+  representative. Naming the surface in the output is what makes a wrong surface findable.
+- **The unexamined premise was "one source, one feed."** Nobody wrote it down, so nobody tested it. Their
+  open row now tests it across ~20 sources before deciding whether a detector is warranted — which is the
+  right order: measure how common multi-surface publishers are, then decide if the per-source list is the
+  whole fix.
+- **Related:** the `timeout` entry above and the verification section in
+  `plugin/team-lead-fleet/rules/workflow-conventions.md`. Three instances in one week, each arriving from
+  a different direction — the wrapper, the API key, and now the target.
+
+## An absence can be a POLICY, and a detector that cannot see that taxes the session it is protecting
+
+2026-09-17. An environment probe found the Diary session missing `CW_WORKSPACE_ID`, the same reading that
+had just correctly identified a real fault on another peer. The probe was sound and the reading was
+accurate. The conclusion was wrong: that blank is deliberate, recorded in `registry.yaml` with a comment
+naming this exact audit, because that session's turns are about the content of a private journal and a
+stripped end-of-turn line can carry a sentence about someone's marriage or health onto a board nobody
+asked for. A board existing is not consent to post to it.
+
+- **This is the fourth variant of one failure in a single week**, and the fourth arrival direction:
+  the instrument (an exhausted API key), its wrapper (a missing `timeout`), its target (the wrong page),
+  and now its **subject** — a value withheld on purpose, indistinguishable from a value that broke.
+- **The general form, from the plugin lead, and it is better than "add a flag":** an absence is never
+  evidence on its own, and the fix is never a better reading — it is making the two cases readable apart.
+  A third state has to be *declared by the subject*, not inferred by the reader.
+- **A negative reading needs its control.** They verified the silence was real and never asked whether it
+  was intended. "Is this deliberate" is the check, and it is the one that gets skipped precisely when the
+  measurement is clean.
+- **The cost falls on the wrong session.** Without a declarable state, every audit re-raises the same
+  peer, and each time that peer has to defend a decision it already made — which for this one means
+  discussing the thing it exists to protect. A detector that repeatedly interrogates its most sensitive
+  subject is not neutral, however correct each individual reading is.
+- **Where the answer lives matters more than that it exists.** This was settled in a registry comment
+  written for exactly this audit, and it still took a peer message to stop a restart. Put the reason at
+  the surface the detector reads, not only where a human would look.
+
+## `gh api pulls/<n>/reviews` without `--paginate` returns the OLDEST 30, so it reports the wrong current state
+
+Reported by the App Dev For All peer, 2026-09-17, while verifying a review-state claim of mine. PR #1723
+carries 107 reviews. The unpaginated call returns the first page — the *oldest* thirty — so the latest
+decision is not in the result at all. The call succeeds, returns well-formed JSON, and answers confidently
+with a state that may be weeks stale.
+
+- **Use `gh pr view <n> --json reviews`**, which returns the full set, or pass `--paginate` to the api
+  call. The peer used the former and read 107 reviews where the api call would have shown 30.
+- **A truncated page is not an error, and nothing in the response says it was truncated.** Same family as
+  the other four entries this week: the output cannot distinguish "this is the whole set" from "this is
+  the first page." Default pagination is a silent ceiling on every `gh api` list call, not just reviews.
+- **`CHANGES_REQUESTED` is only cleared by an APPROVED review, never by a `COMMENTED` one.** On #1723 the
+  requester posted four COMMENTED reviews after his 2026-08-31 block and it still stands. A second
+  reviewer on the same PR requested changes five times and then approved, which did clear. Counting
+  comments, or reading the newest review, gets both cases wrong — you need the newest review *per
+  reviewer*, and only APPROVED counts.
+- **Mergeable state is not approval state**, and I conflated them in a review Bryan reads. `MERGEABLE`
+  describes the branch; it says nothing about whether a human has signed off. Ten approved and one
+  blocked read to me as "14 green PRs".
+
+## A quality gate's best effect is invisible to the metrics that govern it — and half its holds are still waste
+
+2026-09-17. A review item I filed was held twice by a board's quality gate.
+
+**The first hold was unusable.** Its stated reason was, in as many words, that the gate could not put its
+concern in words that stayed inside what the item said. It attached the generic corrective — do not supply
+a figure or mechanism your source does not carry. That prompt did catch something real by accident: I had
+written "respawn takes about a minute", a number I have never measured. But the hold itself identified
+nothing, and a filer with less patience would reasonably have re-sent the item unchanged.
+
+**The second hold was specific and correct.** I had described the subject only as an idle session and
+never said what it does or why its next work mattered to the reader. Answering that forced me back to the
+weekly plan — and the plan said the goal was due the following day with its first milestone already
+missed. **I reversed my recommendation**, from "spin the session down" to "do not", and corrected the
+daily review. I would not have re-read the plan for any other reason.
+
+- **Record that the first hold was the bad one.** A story where every hold is wise is not the story, and
+  telling it that way is how a gate acquires unearned authority. It held twice; one was worth the turn.
+- **The general property: a hold that sends you back to the SOURCE does something a specificity check
+  cannot.** A demand for specificity is satisfiable by writing more confidently, which actively rewards
+  invention (this repo already has that failure written down). A demand to say what the thing is *for*
+  is only satisfiable by re-reading, and re-reading is where stale facts surface.
+- **The gate's own criteria cannot see this.** Measured by holds-per-week and false-repeat count — both
+  of which measure its COST. A hold that changed the filer's mind scores identically to a wasted one, so
+  any pressure to reduce holds optimises directly against the highest-value thing it does. Check this
+  against anything of ours that meters an intervention by its frequency rather than its outcome.
+- **Answer a hold you cannot satisfy honestly by saying so.** The tool took a `lessSpecific` argument for
+  exactly this, and using it was correct twice: I removed an invented duration rather than defend it, and
+  said plainly that I had not measured the idle cost either. Inventing a figure to clear a hold is the
+  failure the hold exists to prevent.
+
+## A number in your own status line goes stale where you cannot see it, and peers relay it as current
+
+Same day, adjacent. A peer nearly relayed "11 commits held" upward. It was accurate when I wrote it into
+my hive summary and wrong within the hour, because the count grows every time I commit. The peer read it
+from the summary, which is exactly what a summary is for, and had no way to know it had decayed.
+
+- **Put the stable fact in a status line, not the volatile one.** "Blocked on the scrub decision" stays
+  true for as long as it is true. "32 commits held" is false by the next commit and nothing updates it.
+- **A broadcast surface decays silently in a way a message does not.** A message is timestamped and read
+  once. A summary is read repeatedly, long after writing, with no signal about its age.
+- **Where a number is genuinely wanted, say where to get it rather than what it is.** The summary now
+  says to ask rather than to read, which costs a peer one message and cannot go stale.
+
+## Before spinning a peer down, ask what it OWNS — not just whether its schedules will still fire
+
+2026-09-17. I spun a peer down after it reported its committed work delivered and said nothing on its
+board needed the session resident. That was true of its committed work. It was not true of a backlog row
+it had filed minutes earlier at my own prompting. The row then had no live owner, aged, and the stall
+check escalated it to my seat as the fallback — correctly.
+
+The pre-spindown check I had written that morning covered exactly one question: will its scheduled rules
+still fire with the owner detached. It never asked whether the peer held open rows. **Two different
+questions, and I had only turned one of them into a check.**
+
+- **Add the second question to the check: does it hold open rows, and who moves them while it is down?**
+  A peer's own "nothing needs me resident" is an honest answer about its *work in flight*, and people and
+  agents both read that as covering *everything it owns*. It does not.
+- **The peer is the wrong source for this.** It answered about what it was doing, which is what it can
+  see. What it owns is a board fact, readable without asking it, and the asker is the one who should
+  check.
+- **Parking with a schedule is the repair, and it only works because the wake escalates.** A parked row
+  with a date wakes its real owner; a detached owner's wake escalates to the Team Lead seat by default,
+  which brings the session back. Without that path, "parked until Monday" would be a deferral into
+  nothing — which this repo already has written down as its own failure.
+- **Do not take the row.** Attaching to another board to babysit one item costs a turn on every event
+  that board ever emits. Park it, date it, and leave the seat with its owner.
+
+## A detector that asks for something the user forbade will ask forever
+
+Same day. A row on another board raised "waiting on a person with NO question filed" at roughly 50-minute
+intervals, four times in one afternoon. The row was correctly shaped: Bryan had said *"no need to make a
+review item about this! Please just assign the task to me and leave it be."*
+
+The predicate is not wrong — a todo assigned to a person with no filed question is normally invisible, and
+that is a real class. The defect is that the condition it demands **can never be satisfied**, so it
+re-fires indefinitely, and each firing costs a turn at a seat that cannot act on it.
+
+- **This is the third shape of one gap in a single day**: field projection, board id, filed-ask. An
+  absence that means *withheld on request* reads identically to one that means *forgotten*. Any detector
+  keyed on a missing thing needs a way for the subject to declare the blank deliberate.
+- **A recurring alert nobody can clear trains its reader to dismiss the class**, including the firings
+  that are real. That cost lands on the detector's accuracy, not just the reader's patience.
+- **Check the user's own words before treating a detector as authoritative.** Four firings, and the
+  answer was a sentence he had already written on the row.
+
+## When a detector's RECALL is the binding constraint, tightening it is the wrong repair
+
+Reported by the Workspaces lead, 2026-09-17, after I reported four false firings of an unfiled-ask check.
+The measured figures on their detector at that date: **precision 86%, recall on the unfiled-ask class
+15%.** A documented tuning pass raised precision to 96% and cut recall to 3%. It was reverted, because a
+false positive costs one turn and a miss costs the whole point of having the detector.
+
+This inverts the instinct. Four noisy firings in an afternoon feel like a precision problem and the
+obvious fix is a narrower test — and that fix would have made the instrument worse at the only job it
+has.
+
+- **Ask which error is expensive before proposing a fix.** Where a miss is silent and permanent and a
+  false positive costs a turn, the asymmetry can be enormous, and a precision-shaped complaint (mine) can
+  be entirely valid while implying exactly the wrong remedy.
+- **The repair for a false positive on a low-recall detector is a STATE, not a threshold.** Let the row
+  declare what it is doing, so the detector stops guessing from silence. Every instance of this today
+  ended the same way: make the thing name what it is doing rather than read the silence more cleverly.
+- **My report was right and my implied fix would have been wrong.** Worth separating those when reporting
+  anything: what I observed, and what I think should change, are different claims with different
+  standards of evidence, and the second one is where I had no data at all.
+- **A deferral is not the same shape as a standing instruction.** Arming a date on a row means "ask me
+  again then". Where the instruction was indefinite — "leave it be" — a date misrepresents it. Parking
+  with a schedule was right for a row that genuinely resumes; it would have been wrong for that one.
+
+**Do not record the module or the field names here.** They were given to me precisely and they will move.
+The durable facts are the asymmetry, the direction of the tuning trade, and the date they were measured.
+
+## I hit the exact bug I had reported, an hour after the fix shipped, because a fix you do not restart onto is not a fix you have
+
+2026-09-17. The plugin shipped a change making its task tools **refuse** a field they cannot answer,
+naming the fields the rows do carry, instead of silently dropping it — the dropped-field-reads-as-absent
+bug I had helped diagnose the night before. I updated the cache and cycled seven peers onto it. I did not
+cycle myself, because tool schemas bind at session start and a mid-conversation restart costs this
+session's context.
+
+An hour later I read another board's row asking for two diagnostic fields. The result came back with
+neither. **I could not tell "this row has no value for those fields" from "my bundle discarded them"** —
+which is precisely the failure the new version exists to remove, hit by the person who reported it.
+
+- **Updating the cache is not adopting the fix.** Two steps, and the second is the one that costs
+  something, so it is the one that gets deferred. The version check reads current the moment the cache
+  updates, which makes the gap invisible from the outside.
+- **The session that defers its own restart becomes the last holder of the old behaviour**, and it is
+  usually the longest-running, most-trusted session on the machine — the one whose readings other sessions
+  relay. That is the opposite of the right distribution.
+- **Say which bundle a reading came from when it matters.** "I asked and got nothing back" means different
+  things on either side of that line, and nothing in the result says which side you are on.
+- **The honest move when you cannot tell the two apart is to hand the check to someone who can**, not to
+  pick the likelier reading. I gave the path-2 check to the row's owner, which reads its own note in one
+  call on a current bundle.
+
+**Corollary for reporting.** I had already told two peers the firings were a false-positive class. On the
+evidence that was true of one of the two code paths and unverified on the other, so my report overstated.
+Retracting it before anyone built against it cost one message; after would have cost a ticket. **When a
+report will be acted on by someone else, the retraction is urgent in a way the original never was.**
+
+## An artifact that revises in place has an age, and quoting it without checking is the same error as quoting a stale doc
+
+I relayed a detector's finding to two peers, naming a row it had flagged. The finding was correct when I
+read it and wrong by the time I sent it: the item revises **in place under a stable id**, and eleven
+minutes before my message a new revision had dropped that row and picked up a different one on a different
+board. The row's own owner caught it, by reading the revision list rather than the current text.
+
+- **A stable id makes a moving artifact look like a fact.** Nothing about re-reading `r-...` says the
+  content changed; it just answers. The revision history is where the age lives, and it is one field away
+  from the text everybody quotes.
+- **Read the revision list, not just the body**, whenever you are about to relay a detector's output to
+  someone who will act on it. This is the same discipline as checking a provenance claim — *the detector
+  says* is an assertion about where something came from, and it has a timestamp.
+- **The window that matters is the gap between your read and your send**, not how old the item is. Mine
+  was a few minutes of composing a careful message, which is exactly when a fast-revising detector moves.
+- **Corroboration from the flagged party is worth more than a re-read**, because they can see when their
+  own change landed. Their note went on at 13:57Z, between the revision that named them and the one that
+  did not.
+
+## The diagnosis step a remedy prescribes has to be performable by whoever you prescribe it to
+
+The remedy offered for one class of false stall was "read your row's newest note; if it reads as an ask,
+post a plainer one." The action is free and needs no read. The diagnosis is the part I could not run, and
+finding out why took three rounds and cost me a wrong claim in this very entry.
+
+- **A remedy splits into a diagnosis and an action, and they can have different reachability.** Only the
+  diagnosis was in doubt, which is the half nobody tests when they write the advice, because the person
+  writing it has already done it.
+- **Checking is what decides whether a remedy is self-serve or needs the owning team.** That is the
+  question the ticket exists to answer and it is not answerable from the remedy's own wording.
+
+**The correction I had to make, and it is the more useful half.** The first version of this entry said the
+per-task route "returns 24 keys with a comment count and no comments" — stated as a property of the route.
+I had read **one** row. The owning agent read five and found the key present on the two that had notes:
+the projection omits it entirely when empty, deliberately, so that a row without notes serializes exactly
+as it did before the field existed. My reading was accurate about the row and wrong about the instrument,
+and I published the wrong one.
+
+- **An absence measured once is a property of the sample, not the instrument.** To claim the instrument,
+  you need a case where it *should* have produced the thing and did not. One negative is not that.
+- **I made this error inside an entry about this error.** The whole subject was outputs that cannot
+  distinguish "looked and found nothing" from "could not look", and I wrote an n=1 absence up as a
+  capability. Knowing the failure by name does not stop you performing it.
+- **Omit-when-empty is what made it so easy.** A field that vanishes rather than reading empty makes
+  "there are none" and "this does not carry them" byte-identical on the wire, so the sample cannot tell
+  you which one you are holding no matter how carefully you read it. Where you control the contract, emit
+  the empty list.
+- **Publishing the wrong half is cheap to fix and expensive to leave.** A learnings entry is read by
+  people who will not re-derive it. Amend the entry, do not add a second one qualifying the first.
+
+**Resolved the same afternoon, against the tidy version.** The remedy never fired. The peer had called a
+comment verb, not a note verb, so nothing they posted reached the surface the detector reads — which is
+also why the row projected no notes key, exactly as the omit-when-empty design says. And their timestamp
+was wrong: the comment landed **35 seconds after** the detector's item was created, and the item still
+named their row two revisions and two and a half hours later. A remedy that works clears at the next tick.
+This one had three ticks and did not.
+
+- **The thing that nearly got banked was a coincidence dressed as a mechanism.** The row did come off the
+  list. Both of us had a story for why, neither story was tested, and the untested alternative — the
+  detector's own condition resolving — was the one that survived.
+- **The sharpest finding came out of being wrong, and it belongs to the peer.** An agent told "post a
+  plain note" has no way to know which verb writes a note. One verb is documented as writing the activity
+  surface, another as writing a comment, and nothing says which one a given detector reads. Picking wrong
+  produces a **false confirmation**, which is worse than the unreadable-notes problem that started this,
+  because that one fails visibly.
+- **Two provenance slips inside one exchange, both surviving because the conclusion was plausible.** Mine
+  was an absence read as a property of the route; theirs was a figure re-quoted from their own earlier
+  restatement of it rather than from the thread. Neither was a hard fact to check. Neither got checked
+  until the conclusion came under pressure.
+- **The escalation that worked was asking which verb produced the evidence**, not re-reading the evidence.
+  I had taken "the timing fits" from them and passed it upward without ever asking what action the timing
+  was about.
+
+## A detector gated on quiet time cannot tell a fix from any activity at all, so trying remedies in sequence always "confirms" the last one
+
+The same afternoon as the entry above, the owning agent traced why the flagged row had gone quiet. It had
+not resolved and nothing had been retracted. The push is gated on time-since-*any*-activity — a status
+change, a board event, a comment, an agent note — so the peer's comment reset the clock and **muted the
+finding for a full quiet window**. The row's last activity sat comfortably inside its own cadence.
+
+- **Every candidate remedy passes this test, including the ones that do nothing.** Post anything, the
+  clock resets, the row falls off, and whichever verb you tried most recently looks like the fix. An agent
+  working through verbs in order is guaranteed to confirm the last one it tried.
+- **This is the worst shape a false confirmation can take**, because the evidence is real, immediate, and
+  points at your own action. Nothing about it feels like a coincidence.
+- **The test is the wait, not the action.** Clearing right after you act proves nothing. Still clear after
+  the quiet threshold has passed is the only reading with content, and a re-fire past that window is the
+  falsifiable prediction. Whoever is watching must also not touch the row, since watching it by commenting
+  resets the same clock.
+- **Suspect it whenever a detector's input includes your own activity.** Quiet-time gating is common and
+  reasonable — it is what stops a detector shouting over work in progress. The hazard is not the gate, it
+  is that muting and fixing are indistinguishable from outside, and only one of them is what you wanted.
+- **It is not a workspaces quirk.** The same trap sits in anything gated on inactivity: a heartbeat, a
+  stall check, a cache TTL, an idle-timeout alarm. Any of them will read your act of checking as the
+  activity that clears the condition. Grep here if a monitor of that shape went quiet right after you
+  touched it.
+- **Ask what the detector measures before you believe you moved it.** Two of us spent three rounds on
+  whether the right *verb* had been used, when the gate would have muted the row for any verb at all. That
+  question was one level lower than either of us was looking.
+
+Dated 2026-09-17, measured on someone else's server against a row on a third board. The gate's parameters
+are theirs and will change; the first three bullets do not depend on them.
+
+## A search over a payload that never carried the field reports absence with a denominator of zero
+
+**2026-09-18.** I routed a stall nudge to a peer and quoted a line from a task body. The peer pulled the
+same board, grepped for the string, got zero hits, and told me the string did not exist anywhere in the
+data — then asked me to change how I route nudges on the strength of it. Both of us were confident and one
+of us was reading a payload that could not have contained the answer.
+
+`list_tasks` returns tasks **trimmed, with no body**, unless you name `body` in `fields`. The peer's pull
+passed no `fields`, so every returned object simply had no `body` key. Its check then printed `BODY LEN: 0`,
+which it read as *the row has no body* rather than *I did not ask for one*. My pull named `body` explicitly:
+67 tasks, 61 carrying a body, exactly one occurrence of the string, in the row under discussion.
+
+- **The failure is not the zero, it is the missing denominator.** "0 matches" is only a finding next to "out
+  of N records that could have matched." Where N is zero because the field was never requested, the search
+  is reporting on an empty set and cannot say anything about the world. Print the population you searched,
+  every time, and the empty case announces itself.
+- **This is the `could not look` / `found nothing` collapse wearing a different hat** — the one
+  `workflow-conventions.md` already names for gates. Worth carrying separately because there is no gate here
+  and nothing failed: a normal API returned a normal success, and the trimming is documented. The instrument
+  was working exactly as specified and still produced a confident false negative.
+- **A field you cannot see is not a field that is empty.** The peer's own phrasing, and the cheapest form to
+  remember. The API that omits an unrequested field and the API that returns it empty are indistinguishable
+  downstream unless you kept track of what you asked for.
+- **A default that trims is where this lives.** Any "returns a trimmed shape unless you ask" API has this
+  edge, and the trim is usually there for good reason — payload size. Check the call's `fields` before you
+  believe a negative result from it.
+
+**Second finding, from the same exchange: the row's BODY was two weeks stale and that is what misled me.**
+It carried a Wed/Thu/Fri schedule from the week of 2 September, an "Open decision" paragraph Bryan had closed
+on 09-03, and a Gradle-8-only constraint that stopped being true when three PRs merged on 09-11. Everything
+current lived on the threads. So a body read in isolation is a dated document, not the row's state — and the
+rule that follows is symmetric: **a string quoted from a body needs checking against the threads before you
+call anything unfiled, and a body you could not see needs checking before you call it empty.**
+
+## An accepted exposure plus a whole-file leak gate is a permanent push block (2026-09-17)
+
+The owner ruled that a private project's name already public in this repo **stays** — no scrub, no
+history rewrite. The same day, the gate's compound-key hole was fixed so it catches the bare word.
+Each decision is right on its own. Together they stall the repo: the gate scans **whole changed
+files** in a diff range, not added lines, so 17 pre-existing occurrences block every future push
+that touches those three files. 46 commits stopped dead, including the commit carrying the gate fix
+itself.
+
+- **A gate that blocks on content it cannot remove is not protecting anything.** The lines are
+  already on `origin/main`. Nothing about refusing the push makes them less public; it only makes
+  the repo unpushable, which is the state that trains people into `SCRUB_SKIP=1`.
+- **Check for this the moment an exposure is ACCEPTED rather than removed.** "Accept it" is the one
+  answer that leaves matching content in the tree permanently, so it is the only one that collides
+  with a whole-file scanner. Scrub and rewrite both end with the gate clean.
+- **The mechanism usually already exists — look before writing code.** This gate had
+  `mentionable: true`, a registry flag meaning "cleared for public mention while the repo stays
+  private," built for exactly this. The instinct was to change the scanner's scope; the right fix
+  was one line in a gitignored file.
+- **The permission classifier refused the flag as Security Weaken, and that is correct of it.** It
+  cannot distinguish a recorded owner decision from an agent quietly disarming a leak gate. A
+  refusal is terminal: file it for the owner, never re-attempt through a different tool or a
+  subagent. See `plugin/team-lead-fleet/rules/security-posture.md`.
+- **A leak gate's scope is a decision, not an implementation detail.** Whole-file scanning and
+  added-line scanning catch different things and fail differently. Neither is obviously right, so
+  the choice goes to the owner rather than into a commit.
+
+## A peer's "safe to restart" is its own reading of its state, and the check that settles it is the branch, not the worktree (2026-09-18)
+
+The Workspaces lead asked for its own respawn and pre-cleared it: *"no builders running, no PR in flight,
+prod deployed and healthy."* Two of those three did not survive a look from outside:
+
+- **A commit landed on `fix/long-topics-replay` at 07:13:19 PDT, seven minutes before the request.** So
+  something in that repo was working while the message said nothing was.
+- **Two PRs were open** (#1103 and #498).
+
+Neither turned out to matter, and the reason is the useful part. **The check that settled it was not "is
+anything running" — which I cannot answer for another session — but "is any work only in one place."**
+`git status --porcelain -uall` on that worktree was clean and `git ls-remote` showed the branch pushed at
+the same SHA. Committed and pushed work survives a kill; a builder's context does not, but that is the
+requesting lead's own call to make about its own subagents.
+
+- **Ask what a restart would destroy, not whether the peer is busy.** Busy is unanswerable from outside and
+  the pane cannot tell you. Uncommitted-or-unpushed is answerable in two commands and is the whole risk.
+- **`git for-each-ref --sort=-committerdate refs/heads | head` is the right first call**, not a worktree
+  sweep. This repo had **57 worktrees**, nearly all long abandoned; sorting by commit recency named the one
+  live branch immediately. Same finding as the restart-a-lead-with-builders rule, from the other direction.
+- **Do not send the peer a correction you cannot support.** I could not tell whether that commit was a
+  builder's or the lead's own work in a worktree — every commit in that repo is authored "Bryan Chan". An
+  observation I could not resolve is not a fact it got wrong, and messaging it would have been a side debate
+  costing a full-context turn to settle nothing.
+- **`--mode running --only <name>` is the mode for this**, because the target is `respawn: false` in the
+  registry and `--mode missing` would silently skip it. Dry-run first: it printed exactly one PID and one
+  spawn, at the right cwd.
+- **Verify the identity vars after, not the process.** `tmux show-environment -t <session> CW_AGENT_NAME`
+  returned `Workspaces`, and the peer re-appeared on the hive with a new session id. Registration proves the
+  hive handshake; it does not prove the board write, which is the peer's own first turn to demonstrate.
+
+## The Gmail connector's scopes are split, and `update_draft` silently detaches a draft from its thread (2026-09-18)
+
+Two separate failures in one pass, both silent in the way that matters — the call
+succeeds, and the damage is in a field nobody reads back.
+
+- **Read/compose works; modify does not.** `search_threads`, `get_thread`, `get_message`,
+  `create_draft` and `update_draft` all succeed. `unlabel_thread`, `label_thread`,
+  `trash_message` and the rest of the label/archive/trash family fail with
+  `Insufficient scope: required … https://www.googleapis.com/auth/gmail.modify`. So an
+  agent can read an inbox and prepare a reply, and can never mark anything read, archive
+  it, or clean up after itself. Say "could not — missing scope", not "done".
+- **`update_draft` returns a NEW `threadId`, equal to its own `messageId`.** The draft is
+  no longer on the conversation it was replying to, and nothing in the response says so —
+  you have to compare the returned `threadId` against the one you started with. The reply
+  would have reached the recipient as a fresh thread with no quoted history.
+- **The fix is to rebuild, not to patch.** `create_draft` with `replyToMessageId=<the
+  original thread id>` produces a correctly threaded draft. The detached one then cannot
+  be deleted, because deleting a draft needs `gmail.modify` — so it stays in the user's
+  drafts folder and has to be handed to them as a cleanup item.
+- **The general shape is the one the verification rules already name.** Both halves return
+  success-looking output for a thing that did not happen the way it reads. Check the field
+  that would prove it, not the absence of an error.
+
+## Counting records by their attachment point cannot see an unattached one, and its empty result reads as "none exist" (2026-09-18)
+
+A done-when asked me to confirm end-of-turn notes were actually landing, not merely that
+the env var was set. I counted notes attached to tasks, found the newest was twelve days
+old, and reported that the posting had stopped. **It had not.** The notes were being
+written the whole time — 94 in the window I called empty, the most recent nine minutes
+before I said so. They were simply not attached to any task, and a per-task count is
+structurally blind to that.
+
+- **The query answered a narrower question than the one I asked it.** "How many notes are
+  on tasks" is not "how many notes exist". The gap between those two is invisible in the
+  result, which is a number either way.
+- **This is the three-state rule wearing a different hat.** Passed, failed, could-not-run
+  — and "looked in a place the record does not live" is a could-not-run that returns a
+  clean, confident zero. I have written that rule into two skills this week and then
+  committed it while checking a criterion written to catch it.
+- **The tell was available and I walked past it.** A count that goes to zero and *stays*
+  there while the system is plainly still working is a claim that something stopped dead
+  on a particular date. That should prompt "what changed about my query's assumptions on
+  that date", not "what broke". The date was real; it was the date my own situation
+  changed, not the date the feature did.
+- **Ask the component that owns the store.** The owning agent read its server's own note
+  log and had the answer in one pass, because it counted the records themselves rather
+  than their attachments. Where a record can exist unattached, only the store can count it.
+- **Verify the part of someone else's explanation that is checkable from your side.** Its
+  account turned on my holding two or more in-progress tasks. I counted: seven. That took
+  one command and moved the explanation from plausible to confirmed — and it is the half
+  that does not require trusting their reading of their own code.
+- **Publish the correction where the wrong claim went.** Mine had gone onto a board row in
+  front of Bryan and into a peer's inbox, so both got the correction, not just the row.
+
+## A board-coverage report says nothing about doc-level subscriptions (2026-09-18)
+
+Auditing whether this session had drifted into other agents' boards, the coverage
+block reported one board attached, lead true, and `unattachedBoards` empty. Read
+alone that is a clean bill of health. The same call's `watching` list held two docs
+belonging to other projects — one on a client board, one on another peer's — both
+restored from the server on every respawn since August.
+
+- **Board attachment and doc watching are separate subscriptions, and only one of
+  them is summarised.** The audit that matters reads the raw list, not the summary
+  computed from it. A summary answers the question it was built for and is silent
+  on the one you brought.
+- **Ask what a green field was computed FROM.** "No unattached boards" is a true
+  statement about boards. It was never a statement about docs, and nothing in its
+  wording says so.
+- **These survive restarts by design.** Server-side persistence means a watch
+  picked up once is still there months later; the restore block listing ~80 entries
+  as "restored" is the mechanism working, not drift. So the only way one leaves is
+  an explicit unwatch, which means nobody notices until someone reads the list.
+- **Same family as the per-task note count.** Both were instruments answering a
+  narrower question than the one asked, and in both cases the narrow answer was
+  correct and read as the broad one.
+
+## A schedule armed on a row assigned to a human wakes nobody, and escalates as if a peer had stalled (2026-09-18)
+
+An ask that needed the user was filed as a task row assigned to `human` with a
+one-shot schedule on it, on the reasoning that the schedule would bring it back
+when it mattered. A schedule wakes a **session**. There is no session for a human,
+so the wake resolved to `nobody` four times over 110 minutes and then filed itself
+as a review item reading "nobody picked it up, no session that could start the
+owner was attached."
+
+- **The escalation blames the wrong thing, and convincingly.** It reads as an
+  unresponsive peer. Nothing in its wording says the row was never addressable in
+  the first place, and the wake record that shows `via: "nobody"` on every attempt
+  is one level down from what the item surfaces.
+- **The surface a human ask reaches is a review item, not a scheduled row.** A row
+  assigned to a person and left in `todo` is not on their queue; it is on the
+  board. Arming a date on it does not change which queue it is in.
+- **Check the assignee before arming a schedule.** One field, and it decides
+  whether the wake has anywhere to land.
+- **A `once` rule that fires spawns a second row with the same title**, so the
+  duplicate on the board is the mechanism working. Archive the instance and keep
+  the ask on the parent, or the next reader dedupes the wrong one.
+- **Same family as the coverage summary and the per-task note count**: an
+  instrument reported a real state accurately and the reading available from
+  outside it was the wrong one.
+
+## A constant copied out of a rule becomes the thing that outlives it (2026-09-18)
+
+A peer reported the fleet's hands-on estimate divisor as ÷20, citing
+`team-lead-fleet 0.5.0`. The file it read says exactly that. The fleet runs 0.9.0,
+where the figure is ÷15, changed four minor versions earlier. Eleven versions sit
+in the plugin cache simultaneously and every one of them reads as a real source.
+
+Chasing where ÷20 was still being taught found **four** copies: the installed 0.5.0
+rule, this session's memory file, that memory's one-line index entry — the copy
+loaded into context on every single session — and a planning note recording the
+original proposal.
+
+- **An installed plugin version is not evidence of what is current.** The cache
+  keeps every version it has ever held, and an old directory is not marked as old
+  from inside. Read the working tree, or the highest version present, and say
+  which you read.
+- **Do not restate a constant that lives in a rule.** Point at the rule. A
+  duplicated number has no mechanism that updates it and no signal when it drifts,
+  so it silently becomes a second, older authority.
+- **The index line is the worst copy to get wrong**, because it is loaded every
+  session while the file it points at is only read on demand. It was wrong for
+  five weeks.
+- **A record of what was once proposed is not wrong, and still misleads.** The
+  planning note was accurate about 2026-08-13. It needed one line saying the
+  figure moved, not a correction.
+- **Check the direction before repeating the alarm.** The peer's reasoning was
+  sound — a larger denominator shrinks every multiplier — but its conclusion
+  ("the rule understates hands-on time") was true of ÷20 and not of the ÷15 that
+  actually ships, which still sits under the old median. The finding was a thin
+  margin, which is worth a caveat, not a wrong rule, which would have been worth
+  a change.
+
+## Two snapshots of a file are two states, not a process caught mid-flight (2026-09-18)
+
+A doc bound to the live editor threw two `doc.sync_error` events an hour apart, each
+saving the losing copy to a backup. I diffed the two backups, found one holding real
+names and the other holding redacted ones, and reported to the doc's owner that their
+redaction script had been running while the doc flushed over it — a race landing
+unscrubbed text into a file heading for a public repo.
+
+The owner checked and the cause was ordinary: **they switched branches twice in the
+worktree the doc is bound to.** The redaction commit lives on an unpushed branch, so
+checking out a branch from main put the unredacted file on disk, and checking the other
+back out restored the redacted one. The two backups are the two branches' copies. Nothing
+was mid-flight and nothing was lost.
+
+- **A diff gives you two states and no arrow between them.** I supplied the arrow from the
+  most interesting available story. Branch switches, a `git stash`, a checkout, an editor
+  reverting a file and a partially-completed write all produce the same pair of snapshots,
+  and only one of those is an emergency.
+- **The tell is a mechanism claim that no observation in hand supports.** "The scrub was
+  running" was not something I measured; the events carry timestamps and content, never a
+  cause. The same family as the killer item — an external surface is not state — reached
+  from a new direction, because two renders of a file are not a history of it.
+- **Ask the owner before escalating on their repo.** One question would have settled it.
+  Instead the finding went out as a warning, and they spent a turn disproving it.
+- **What survives a wrong attribution is the part you could check.** The hazard itself was
+  real: a bound file can be overwritten by the doc's flush, and the race can resolve the
+  unsafe way round. That stood, and the owner armed a `git diff HEAD` check on the path
+  before every commit. **Say which half is which when you correct yourself** — the
+  mechanism, which held, and the instance, which did not.
+- **Being right about the danger is not evidence of being right about the event.** It is
+  what makes the wrong attribution persuasive, to its author most of all.
+
+## A content scrub does not rewrite filenames, and a content scanner reports clean on one (2026-09-18)
+
+A peer built a public snapshot of a private repo: 165 files, a substitution file mapping client
+codenames to pseudonyms, and `scrub-check` run over every file. It reported clean, and it was
+telling the truth about what it read. One tracked path still carried a client codename in its
+**filename**. The file's own heading had been substituted correctly, so the term appeared nowhere
+in any file's contents — only in the path.
+
+Both of us had checked. Neither check looked at paths.
+
+- **A repo publishes its tree, not just its blobs.** Filenames, directory names and the branch name
+  are all public the moment it is pushed, and they are in history permanently the same way contents
+  are. A substitution pass written with `sed` over file bodies cannot reach any of them.
+- **Run the denylist against `git ls-files`, not only against file contents.** It is one command, it
+  is instant, and it is the entire fix. Doing it across 165 paths returned exactly one hit, which is
+  what made it a rename rather than a rebuild.
+- **The clean result was load-bearing and wrong in scope, not in fact.** This is the same shape as
+  a gate that scans whole files when it should scan a diff: the instrument answers a narrower
+  question than the one being asked of it, and the answer is honest, so nobody re-reads it.
+- **It surfaced by accident.** I found it pulling name-shaped tokens out of the research docs looking
+  for third-party people, and noticed the codename in a path in the output. No planned check would
+  have caught it, which is the part worth remembering — the near-miss, not the catch.
+- **Ask what surface each check reads before trusting a set of them.** Two checks that both read
+  contents are one check run twice, however differently they are implemented.
+
+## Search the board before filing an ask — the answer is often on a row already closed (2026-09-18)
+
+A pre-push gate blocked on a private project name in a public repo. I measured the exposure
+carefully, verified both repos' visibility with `gh` rather than assuming, swept for other
+instances, and filed a well-evidenced decision item asking what to do about it.
+
+Bryan had answered that exact question the previous evening. Same project, same 19 occurrences,
+same 5 files, on a row whose recorded answer was "Accept it". His answer was about 21 hours old
+when my item reached his queue.
+
+- **The row was `done`, which is exactly why I did not see it.** I had looked at in-progress and
+  triage. A closed row is invisible to every ordinary sweep, and a closed row is where an answer
+  lives — so the state that holds the answer is the state nobody queries.
+- **Grep the board by SUBJECT before filing, including closed rows.** Not by status, not by
+  assignee. One `list_tasks` with no status filter would have cost one call and saved the item.
+- **Careful measurement made it worse, not better.** The evidence I gathered was correct and it
+  made the item persuasive, so nothing in my own work signalled that the question was settled.
+  Quality of a finding is no evidence that the finding is wanted.
+- **The real signal was in the same listing I had already pulled.** An earlier answered item read
+  "Fix the gate" on this defect class, nine days old. I read past it on the way to filing.
+- **Withdraw and archive rather than leaving both.** A withdrawn item with a reason reads as a
+  correction; a silent second row reads as the board losing track. Say which row holds the answer.
+
+## A leak review of a repo about to go public says nothing about its dependency pins (2026-09-18)
+
+A generated public snapshot passed a full scrub review — contents and paths, two term sets, a
+matcher proven able to fail. It was queued for the visibility flip. It also shipped a lockfile
+pinning a package with an open **critical** advisory, and nothing in the review was ever going to
+notice, because a scrub reads text for names and a pin is not a name.
+
+The flip is what makes it matter. A private repo with a stale pin is an ordinary maintenance item;
+the same repo one click later is a public target whose dependency manifest anyone can scan, and
+that is the first thing an automated scanner reports about a brand-new public repo.
+
+- **Read the repo's open security alerts as part of the pre-flip pass**, not just its text. One
+  `gh api repos/<owner>/<repo>/dependabot/alerts` answers it, and it is the only check in the set
+  that asks about what the repo *depends on* rather than what it *says*.
+- **Same shape as the filename case above, one layer out.** There the checks all read contents and
+  missed the tree; here they all read the working tree and missed the manifest's meaning. Ask what
+  surface each check reads, then ask what surfaces nothing in the set reads at all.
+- **Bump before the rebuild, not after.** A snapshot generator builds from main, so fixing the
+  source first costs one rebuild and fixing it after costs two.
+- **The owning agent does the fix.** Finding it in someone else's repo is a message, not an edit.
+
+### A squashed snapshot repo cannot be diffed against the build you reviewed
+
+The generator writes one commit per build, so the previous build's tree is gone from the snapshot
+repo the moment a new one lands. The builder's "exactly two files differ from the build you
+reviewed" was therefore uncheckable from my side.
+
+- **Re-run the check rather than verifying the delta.** Cheaper than reconstructing the old tree,
+  and it answers the question the review actually asks.
+- **Report their claim as theirs.** "Their file-by-file comparison says two files" and "two files
+  changed" are different statements, and only one of them is something I confirmed.
+
+## A gate that reads the diff must judge only what the diff adds (2026-09-19)
+
+Both of this repo's pre-push leak gates blocked a 60-commit push on content nobody in that
+range had written, for the same reason from two directions.
+
+- **The regex gate** resolved a range to file *names* and then read each file whole, so its
+  verdict described the repo's whole exposure rather than what the push added. No edit to the
+  diff could clear it. Fixed by parsing `git diff -U0` and scanning added lines only; `--staged`,
+  `--scan-all-tracked` and explicit paths still scan whole files, because those callers are
+  asking about the file rather than a delta.
+- **The model gate** is given context lines deliberately, and flagged one as a finding — a
+  `TL_DIR` default path that the push does not touch. Its own prompt already forbids this
+  ("if you cannot quote the text from a `+` line, you do not have a finding"), which is the
+  point: a rule in a prompt is a request, and the payload is what actually constrains the
+  answer. If context lines must not be findings, the cheapest fix is not to send them.
+
+**The override to reach for is the narrow one.** `SCRUB_SKIP=1` turns off both gates;
+`SCRUB_SKIP_HAIKU=1` turns off only the model pass and leaves the regex gate running. A false
+positive from one gate is never a reason to stop scanning with the other.
+
+### The model gate's AUTHOR line took ONE spelling of the owner, and a person has several
+
+`repo_author()` read `git config user.name` and stopped. On this machine that is a tooling
+identity, so the gate was told the author was that identity and had no way to connect it to the
+person who wrote 134 of the last 200 commits. Every occurrence of his real name or his home path
+read as a third-party leak, and the exception written into the prompt for exactly this case never
+fired — it blocked three pushes in a row, including the one adding this note.
+
+It now returns every spelling: the configured signer, the dominant name in the log, the local-part
+of the dominant commit email, and the remote's owner. They disagree, and each is right about
+something different.
+
+- **A gate whose false positives are all the same shape is telling you its inputs are wrong**,
+  not that the repo is dirty. Three runs flagged the owner's own name before this was obvious.
+- **Check what the gate was told, not just what it said.** The prompt is assembled at call time
+  and the assembled version is what produced the verdict.
+
+### Already-public is a separate finding from about-to-be-public, and it is not an agent's call
+
+The same pass found a real email address in three files: one line this branch added, and two
+already on `main` in a public repo. Current files get a fix; whether to rewrite the history that
+still holds it is the user's decision, per the scrubbing rule. Saying "scrubbed" without that
+split would have read as the exposure being over.

@@ -225,6 +225,102 @@ def decide_sources(
     return SourceDecision("scan", missing, strict)
 
 
+# An env override is AUTHORITATIVE — it REPLACES the candidate list rather than
+# heading it, exactly as the registry and denylist resolvers do above. Writing
+# it as a head entry is what the first version of this did, and the blind-path
+# test then still found the system dictionary and passed while proving nothing.
+WORD_LIST_CANDIDATES = (
+    [os.environ["SCRUB_WORD_LIST"]]
+    if os.environ.get("SCRUB_WORD_LIST")
+    else ["/usr/share/dict/words", "/usr/dict/words"]
+)
+
+# A component has to clear all three to become a term. The thresholds are not
+# taste: they were measured against all 28 registry keys on 2026-09-17.
+COMPONENT_MIN_LEN = 8
+
+_REGISTRY_KEYS: Set[str] = set()
+_REGISTRY_CLEARED: Set[str] = set()
+_REGISTRY_COMPONENTS_SKIPPED: Set[str] = set()
+
+
+def load_word_list() -> Optional[Set[str]]:
+    """The system dictionary, or None when this machine has none.
+
+    None is "could not look", NOT "no common words" — the caller must say so
+    out loud rather than deriving components without the test, which would
+    turn `research`, `feedback` and `engineer` into denylist terms and train
+    everyone into SCRUB_SKIP=1.
+    """
+    for cand in WORD_LIST_CANDIDATES:
+        if cand and os.path.exists(cand):
+            try:
+                with open(cand, errors="ignore") as f:
+                    return {w.strip().lower() for w in f if w.strip()}
+            except OSError:
+                continue
+    return None
+
+
+def derive_component_names(
+    keys: Set[str], cleared: Set[str], skipped: Set[str], words: Optional[Set[str]]
+) -> Tuple[Dict[str, str], Optional[str]]:
+    """Distinctive leading/trailing words of COMPOUND registry keys.
+
+    The hole this closes: for a key spelled `<coinedname>-assistant` the gate
+    compiled that exact full string and nothing else, so prose writing the bare
+    leading word passed straight through. One such name reached a public repo's
+    main branch 19 times across 5 files that way. **22 of 28 keys are
+    compound**, so this was a class of hole, not one miss.
+
+    A component becomes a term only when all three hold, because the obvious
+    rule — split every key — makes terms of `personal`, `search` and `review`:
+
+      1. at least COMPONENT_MIN_LEN characters,
+      2. unique across the whole registry (shared components are generic by
+         construction: `claude`, `channel`, `plugin`, `tool`),
+      3. absent from the system dictionary, which is what separates coined
+         names from English. Length and uniqueness alone still admit
+         `feedback`, `engineer`, `research` and `benchmark`.
+
+    Measured against all 28 keys: tests 1+2 alone yield 7 components, four of
+    them ordinary English. Adding test 3 yields three coined names plus
+    `benchmark`, which is absent from the 1913 `web2` word list shipped on
+    macOS. So test 3 narrows it and does not finish the job — hence
+    `scrub_components: false`, the per-project opt-out, which is how
+    `benchmark` is excluded rather than by widening any threshold.
+
+    Returns (component -> owning key, reason-it-could-not-look).
+    """
+    if words is None:
+        return {}, (
+            "no system dictionary found (looked at: "
+            + ", ".join(c for c in WORD_LIST_CANDIDATES if c)
+            + ") — compound-key components were NOT derived, so a bare project "
+            "word will not be caught on this run"
+        )
+    counts: Dict[str, int] = {}
+    for key in keys:
+        for part in key.split("-"):
+            counts[part] = counts.get(part, 0) + 1
+    out: Dict[str, str] = {}
+    for key in sorted(keys):
+        if key in cleared or key in skipped:
+            continue
+        parts = key.split("-")
+        if len(parts) < 2:
+            continue
+        for part in parts:
+            if len(part) < COMPONENT_MIN_LEN:
+                continue
+            if counts.get(part, 0) != 1:
+                continue
+            if part.lower() in words:
+                continue
+            out.setdefault(part, key)
+    return out, None
+
+
 def load_project_names(registry_path: Optional[str]) -> Set[str]:
     """Top-level project keys under `projects:` in registry.yaml.
 
@@ -235,9 +331,13 @@ def load_project_names(registry_path: Optional[str]) -> Set[str]:
       - The current repo's own name (a repo legitimately self-references in its
         README, CLAUDE.md, plugin metadata, etc).
     """
+    global _REGISTRY_KEYS, _REGISTRY_CLEARED, _REGISTRY_COMPONENTS_SKIPPED
     names: Set[str] = set()
     cleared: Set[str] = set()
+    components_skipped: Set[str] = set()
+    all_keys: Set[str] = set()
     if not registry_path:
+        _REGISTRY_KEYS, _REGISTRY_CLEARED, _REGISTRY_COMPONENTS_SKIPPED = set(), set(), set()
         return names
     in_projects = False
     current: Optional[str] = None
@@ -252,9 +352,19 @@ def load_project_names(registry_path: Optional[str]) -> Set[str]:
             if m:
                 current = m.group(1)
                 names.add(current)
+                all_keys.add(current)
                 continue
             if current and re.match(r"^    (public|mentionable):\s*true\b", line):
                 cleared.add(current)
+                continue
+            # Per-project opt-out for DERIVED components only. The key itself
+            # stays a term; this says "my compound parts are generic words".
+            # `rare-disease-benchmark` is the worked example: the distinctive
+            # half is hyphenated, and `benchmark` is not in the 1913 word list
+            # macOS ships, so without this it becomes a term and fires on every
+            # push that touches a file mentioning benchmarks.
+            if current and re.match(r"^    scrub_components:\s*false\b", line):
+                components_skipped.add(current)
                 continue
             # Hit a non-indented line that isn't blank/comment — projects block ended.
             if line and not line[0].isspace() and not line.lstrip().startswith("#"):
@@ -290,6 +400,13 @@ def load_project_names(registry_path: Optional[str]) -> Set[str]:
     self_name = main_repo_name()
     if self_name:
         names.discard(self_name)
+
+    # Components are derived from the FULL key set, not from `names`: the
+    # generic-name and self-name filters above are about whole keys, and a key
+    # dropped by them can still carry a distinctive coined component.
+    _REGISTRY_KEYS = all_keys
+    _REGISTRY_CLEARED = cleared
+    _REGISTRY_COMPONENTS_SKIPPED = components_skipped
 
     return names
 
@@ -386,13 +503,27 @@ def repo_is_public(registry_path: Optional[str]) -> bool:
     return True
 
 
-def build_patterns(names: Set[str], denylist: List[Tuple[str, bool]]) -> List[Tuple[str, re.Pattern]]:
+def build_patterns(
+    names: Set[str],
+    denylist: List[Tuple[str, bool]],
+    components: Optional[Dict[str, str]] = None,
+) -> List[Tuple[str, re.Pattern]]:
     """Compile all match patterns. Names use a hyphen-aware word boundary."""
     patterns: List[Tuple[str, re.Pattern]] = []
     for name in sorted(names):
         # (?<![\w-]) and (?![\w-]) keep e.g. `some-proj` from matching inside `super-some-proj-foo`.
         rx = re.compile(r"(?<![\w-])" + re.escape(name) + r"(?![\w-])", re.IGNORECASE)
         patterns.append((f"registry-project: {name}", rx))
+    # Components carry their owning key in the label, because a hit on a bare
+    # word is otherwise hard to act on: the reader needs to know which project
+    # it names before deciding whether the mention is a leak.
+    for part, owner in sorted((components or {}).items()):
+        # Deliberately NOT hyphen-aware on the trailing side — the whole point
+        # is to catch the bare word where the full key does not appear. The
+        # leading guard stays so a component does not fire inside a longer
+        # coined word that merely ends with it.
+        rx = re.compile(r"(?<![\w-])" + re.escape(part) + r"\b", re.IGNORECASE)
+        patterns.append((f"registry-component: {part} (from {owner})", rx))
     for raw, is_regex in denylist:
         try:
             body = raw if is_regex else re.escape(raw)
@@ -450,6 +581,50 @@ def files_in_range(range_spec: str) -> List[str]:
         return [f for f in out.strip().split("\n") if f]
     except subprocess.CalledProcessError:
         return []
+
+
+def added_lines_in_range(range_spec: str) -> Tuple[Dict[str, List[Tuple[int, str]]], bool]:
+    """Return ({path: [(new_line_no, text)]}, ok) for lines this range ADDS.
+
+    Bryan, 2026-09-19, answering what the gate should scan: "Added lines only."
+
+    The reason the whole-file scan had to go: `files_in_range` returns NAMES,
+    and every caller then read those files entire. So a push that touched a
+    file for an unrelated reason was blocked on lines that were already on the
+    remote — content the push does not publish, because it is published
+    already. It also measured neither the diff nor the repo's real exposure:
+    two other files carrying the same term went unflagged purely because this
+    push did not happen to touch them.
+
+    `ok` is the third state. A diff that could not be read must not return an
+    empty map and read as "nothing added", which is the failure mode this file
+    spends most of its comments on.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "-c", "core.quotepath=false", "diff", "-U0", "--no-color", range_spec],
+            capture_output=True, text=True, check=True,
+        ).stdout
+    except (subprocess.CalledProcessError, OSError):
+        return {}, False
+
+    added: Dict[str, List[Tuple[int, str]]] = {}
+    path: Optional[str] = None
+    line_no = 0
+    for raw in out.split("\n"):
+        if raw.startswith("+++ "):
+            target = raw[4:].strip()
+            # /dev/null is a deletion: it adds nothing to scan.
+            path = None if target == "/dev/null" else target[2:] if target.startswith("b/") else target
+            continue
+        if raw.startswith("@@"):
+            m = re.match(r"@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@", raw)
+            line_no = int(m.group(1)) if m else 0
+            continue
+        if path and raw.startswith("+") and not raw.startswith("+++"):
+            added.setdefault(path, []).append((line_no, raw[1:]))
+            line_no += 1
+    return added, True
 
 
 def messages_in_range(range_spec: str) -> List[Tuple[str, str]]:
@@ -530,6 +705,10 @@ def main() -> int:
         return 2
 
     messages: List[Tuple[str, str]] = []
+    # Populated only by --diff-range: {path: [(new_line_no, text)]}. When this
+    # is set, `files` stays empty and the scan reads added lines instead of
+    # whole files.
+    added: Dict[str, List[Tuple[int, str]]] = {}
 
     if "--messages" in args:
         idx = args.index("--messages")
@@ -543,7 +722,16 @@ def main() -> int:
         if idx + 1 >= len(args):
             print("[scrub-check] --diff-range needs an argument", file=sys.stderr)
             return 2
-        files = files_in_range(args[idx + 1])
+        added, diff_ok = added_lines_in_range(args[idx + 1])
+        if not diff_ok:
+            print(
+                f"[scrub-check] could not read the diff for {args[idx + 1]!r}.\n"
+                "  Refusing rather than scanning nothing and exiting 0.",
+                file=sys.stderr,
+            )
+            return 2
+        added = {p: lines for p, lines in added.items() if should_scan(p)}
+        files = []
         # A push publishes the messages as well as the diff, so scan both.
         messages = messages_in_range(args[idx + 1])
     elif "--staged" in args:
@@ -579,7 +767,7 @@ def main() -> int:
     # Filter: keep only files we'd scan and that exist on disk.
     files = [f for f in files if should_scan(f) and os.path.isfile(f)]
 
-    if not files and not messages:
+    if not files and not messages and not added:
         return 0
 
     registry = find_registry()
@@ -612,11 +800,20 @@ def main() -> int:
         return 0
 
     project_names = load_project_names(registry)
+    # Derive the bare-word components of compound keys. `load_project_names`
+    # has to run first: it is what populates the key set this reads.
+    components, components_blind = derive_component_names(
+        _REGISTRY_KEYS, _REGISTRY_CLEARED, _REGISTRY_COMPONENTS_SKIPPED, load_word_list()
+    )
+    if components_blind:
+        # Three states, and this is the third one said out loud. A run that
+        # could not derive components must not read as a run that found none.
+        print(f"[scrub-check] COMPONENT CHECK DID NOT RUN: {components_blind}", file=sys.stderr)
     if repo_is_public(registry):
         denylist = load_denylist()
     else:
         denylist = []
-    patterns = build_patterns(project_names, denylist)
+    patterns = build_patterns(project_names, denylist, components)
 
     if not patterns:
         if not decision.strict:
@@ -640,6 +837,23 @@ def main() -> int:
             print(f"  commit {sha[:9]} message:{line_no}  ({label})", file=sys.stderr)
             print(f"    > {snippet}", file=sys.stderr)
             total += 1
+    for f, lines in sorted(added.items()):
+        for line_no, text in lines:
+            if "scrub-allow" in text:
+                continue
+            for label, rx in patterns:
+                if not rx.search(text):
+                    continue
+                if total == 0:
+                    print(f"[scrub-check] leaks detected:", file=sys.stderr)
+                files_with_findings.add(f)
+                snippet = text.strip()
+                if len(snippet) > 100:
+                    snippet = snippet[:97] + "..."
+                print(f"  {f}:{line_no}  ({label}) [added by this push]", file=sys.stderr)
+                print(f"    > {snippet}", file=sys.stderr)
+                total += 1
+                break  # one finding per line is enough
     for f in files:
         for line_no, label, line in scan_file(f, patterns):
             if total == 0:

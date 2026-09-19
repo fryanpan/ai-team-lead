@@ -4795,3 +4795,43 @@ The same pass found a real email address in three files: one line this branch ad
 already on `main` in a public repo. Current files get a fix; whether to rewrite the history that
 still holds it is the user's decision, per the scrubbing rule. Saying "scrubbed" without that
 split would have read as the exposure being over.
+
+## A skill file in a public repo is a publishing surface, and a rule written from private data leaks it (2026-09-19)
+
+Fixing the capacity derivation meant writing down *why* it was wrong, and the why came from a
+peer's private data about the user's health. The first draft of the new section named the
+condition, the episode statistics and the tracking denominator — all of it accurate, all of it
+load-bearing for the rule, and all of it about to be pushed to a public repo. The Haiku gate
+blocked the push and was right.
+
+The trap is that the leak arrives through the part of the work that is going *well*. Writing a
+rule with its evidence is the habit this project asks for everywhere else; the evidence is what
+makes a rule survive contact with the next reader who disagrees with it. Here that same instinct
+put medical detail in a file the whole internet can read, and nothing about the writing felt
+careless while it was happening.
+
+- **Ask what the file IS before asking whether the sentence is true.** `.claude/skills/` and
+  `plugin/` in this repo are published. A true, well-sourced, genuinely useful sentence is still a
+  leak there.
+- **The generalisable half is what belongs in the rule.** "The owning agent holds the data, a raw
+  measurement is not hours of lost capacity, a rate over tracked days is not a rate over calendar
+  days" survives without a single private fact, and is the part a future reader actually needs.
+  The specifics went on the board, which is private and is where they were always due.
+- **Evidence for a rule does not have to sit next to the rule.** A pointer to the private row it
+  came from does the same job for anyone entitled to follow it.
+- **A reserve, a constraint or a capacity figure is personal by default.** Health, family, money,
+  a commitment the user has not made public. Name the slot in the public file and keep the value
+  on the board.
+
+### The gate caught what the author did not, which is the whole argument for having it
+
+Same session, the regex gate had been narrowed to added lines only and the model gate's author
+resolution had just been fixed — both changes that make the gates quieter. It would have been
+easy to read this block as one more false positive from a gate that had produced three that
+morning. It was not.
+
+- **A gate's recent false positives are not evidence about the next finding.** Read the quoted
+  span every time; that is the whole cost, and it is seconds.
+- **Reach for the narrow override.** `SCRUB_SKIP_HAIKU=1` disables only the model pass and leaves
+  the regex gate running. Using the blanket `SCRUB_SKIP=1` for a model-gate false positive turns
+  both off, and the one that would have caught the real thing is the one you did not think about.

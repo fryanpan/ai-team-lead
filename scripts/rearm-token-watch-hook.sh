@@ -1,37 +1,44 @@
 #!/usr/bin/env bash
-# SessionStart hook (team-lead only — lives in ai-team-lead/.claude/settings.json,
+# SessionStart hook (team-lead only — registered in ai-team-lead/.claude/settings.json,
 # so it never fires for peer sessions).
 #
-# Why this exists: the team-lead runs standing in-session CronCreate jobs — the
-# weekly-usage token-watch (3x/day) and the automated morning daily-review +
-# Asana sync. CronCreate is session-scoped, so both die whenever the team-lead
-# respawns (--continue fires SessionStart `resume`). On 2026-07-11->14 a dead
-# token-watch blacked out the trend log for 3 days. A shell hook CANNOT call
-# CronCreate (it's an in-session tool), so instead this injects a standing
-# directive that makes the model re-arm both at the top of every session. The
-# re-arms are idempotent: each says check CronList first and skip if armed.
-# (Filename is legacy — it now re-arms both crons, not just the token-watch.)
+# Why this exists NOW: it used to re-arm session-scoped CronCreate jobs, which die on
+# every respawn. On 2026-09-18 all three moved to BOARD SCHEDULES, which survive a
+# respawn. So this hook no longer re-arms anything — its remaining job is to stop a
+# fresh session from "helpfully" re-creating the crons it no longer finds.
+#
+# It is registered in settings.json and can only be unregistered by Bryan. Until then
+# it stays, emitting the directive below. Filename is legacy.
 
 set -euo pipefail
 
 read -r -d '' DIRECTIVE <<'EOF' || true
-[Team-lead session-cron re-arm — startup check]
-Three session-scoped CronCreate jobs die on respawn. Ensure ALL THREE are armed now — idempotent: call CronList first and skip any already present. Do this silently as startup housekeeping; note only if a job was found dead.
+[Team-lead startup check — recurring jobs]
+**Do NOT arm any CronCreate job. There are none left to re-arm.** All three recurring
+jobs moved to board schedules on 2026-09-18, on the Team Lead board. A board schedule
+survives the respawn that kills a session cron, which is the whole reason they moved.
 
-1. Token-watch (weekly usage, 3x/day). If a job with a token-watch prompt (pulls /usage, appends to docs/process/token-control.md trend log) is present, skip. Else arm: CronCreate(cron="7 8,13,18 * * *", recurring=true) with the token-watch prompt documented in docs/process/token-control.md — pulls /usage via an idle fleet session, runs the burn + context scripts, appends one trend-log line (all-models % + Fable sub-meter % + %-elapsed + verdict), applies Tier 0/1, pings Bryan only on a Tier 2 call, AND on the first run after a weekly reset runs the end-of-week quota retro (docs/process/token-control.md, "End-of-week quota retro").
+**Verify with list_tasks on those rows, not with CronList.** CronList returning nothing
+is now the CORRECT state, not a dead job.
 
-2. Automated morning daily-review + Asana sync (5:27am). If a job with the daily-review morning prompt (invokes the /daily-review automated morning run) is present, skip. Else arm: CronCreate(cron="27 5 * * *", recurring=true) with a prompt that invokes the /daily-review skill's "Automated morning run" — gather fleet status, write today's review doc under live-feedback, produce Bryan's status + today's hit list, and SYNC his Asana so today's tasks match the hit list (mark done what shipped overnight; keep today's items dated today; shift other tasks for the week to later days to respect the weekly Capacity block; add any newly-surfaced must-do). Then send one "Good morning — today: <2-4 items>" PushNotification. Asana ref: workspace ASANA_WORKSPACE_GID, project "Bryan's Projects" ASANA_PROJECT_GID, Bryan (assignee) ASANA_ASSIGNEE_GID, non-premium so use asana_get_tasks not search_tasks. Leave family and other people's tasks + Bryan-Medical self-care items alone.
+1. Token watch — cadence is whatever the row's own schedule says; Bryan re-armed it
+   to every 3h on 2026-09-19. Read the schedule, do not trust this line. Runs the
+   /token-watch skill; the contract is docs/process/token-control.md.
+2. Morning digest — daily at 06:47 America/Los_Angeles. The procedure lives in
+   .claude/skills/morning-digest/SKILL.md. /daily-review keeps only its intra-day triggers.
+3. Weekly digest surfacing — Mondays at 08:23 America/Los_Angeles. Read-and-relay only;
+   never ask the peer to run a refresh, which re-scrapes a paid aggregator.
 
-3. Weekly digest SURFACING (Monday 08:23 local). If a job with this weekly-surfacing prompt is present, skip. Else arm: CronCreate(cron="23 8 * * 1", recurring=true) with a prompt that wakes the peer at claude-hive stable_id b21914b86c73 — spawning its session first if it is not running, path per registry.yaml — and hands it the goal: surface the digest its own pipeline already generated this morning to Bryan, on whichever surface he is active on (Claude Remote before CLI). The peer owns how; do not prescribe commands and do not ask it for status.
+**If CronList shows any of these armed as a cron, delete it** — a cron and a board
+schedule both firing means two runs. In particular the old "27 5 * * *" daily-review job
+is gone and must not come back: Bryan asked for ONE 7AM prep, and a 5:27 review alongside
+it is two briefings ninety minutes apart.
 
-   Do NOT ask it to run a refresh, and do NOT assume one has run. Corrected 2026-09-01: there is no daily pipeline. The peer owns ONE launchd agent, a weekly subscriptions refresh at Mon 08:00 — the "07:00 daily" claim that stood here since 2026-08-11 was never true and sent a session looking for a run that does not exist. That job then failed every run from 2026-06-01 to 2026-09-01 (launchd could not read /Volumes/Data), so the archive froze at Aug 21.
-
-   **The job is FIXED and running — do not repeat the stale-archive warning that stood here until 2026-09-08.** Bryan installed the plist; the peer's weekly refresh agent is loaded and ran Mon 2026-09-07 08:00:53 PT, rc=0, adding 10 posts across 7 publishers and pushing them. Report the archive as current unless you have checked and found otherwise — the peer's own refresh log under `~/Library/Logs/` carries the last run and its exit code, and `launchctl list <label>` carries LastExitStatus. Ask the peer for the label and the log path rather than guessing them. A warning asserted from this prompt rather than from that log is the failure this line now exists to prevent.
-
-   This job stays read-and-relay: a refresh here would re-scrape and re-pull a paid aggregator.
+**This hook is itself scheduled for removal.** Its registration in .claude/settings.json
+is Bryan's to delete; a review item on the Team Lead board carries the snippet.
 EOF
 
-# Emit as SessionStart additionalContext. jq -Rs slurps the raw directive and
-# JSON-encodes it safely (handles newlines/quotes without hand-rolled escaping).
+# Emit as SessionStart additionalContext. jq -n --arg JSON-encodes the raw directive
+# safely (handles newlines/quotes without hand-rolled escaping).
 jq -n --arg ctx "$DIRECTIVE" \
   '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: $ctx}}'

@@ -4772,12 +4772,17 @@ range had written, for the same reason from two directions.
 `SCRUB_SKIP_HAIKU=1` turns off only the model pass and leaves the regex gate running. A false
 positive from one gate is never a reason to stop scanning with the other.
 
-### The model gate's AUTHOR line is derived from `git user.name`, which may be a machine identity
+### The model gate's AUTHOR line took ONE spelling of the owner, and a person has several
 
-`repo_author()` takes the most common committer name. On this machine that is `Selftest`, so
-the gate is told the author is Selftest and has no way to know Bryan is the same person. Every
-occurrence of his name or his home path then reads as a third-party leak, and the exception
-written into the prompt for exactly this case never fires.
+`repo_author()` read `git config user.name` and stopped. On this machine that is a tooling
+identity, so the gate was told the author was that identity and had no way to connect it to the
+person who wrote 134 of the last 200 commits. Every occurrence of his real name or his home path
+read as a third-party leak, and the exception written into the prompt for exactly this case never
+fired — it blocked three pushes in a row, including the one adding this note.
+
+It now returns every spelling: the configured signer, the dominant name in the log, the local-part
+of the dominant commit email, and the remote's owner. They disagree, and each is right about
+something different.
 
 - **A gate whose false positives are all the same shape is telling you its inputs are wrong**,
   not that the repo is dirty. Three runs flagged the owner's own name before this was obvious.

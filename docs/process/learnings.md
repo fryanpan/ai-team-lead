@@ -4873,3 +4873,41 @@ superseded version of a line rewritten since. The state had also been committed 
 - **The rule against force-removing a worktree with uncommitted files still holds** — it is what
   made all of the above worth doing rather than skipping. The check is cheap; the rule is not a
   reason to leave the worktree in place forever.
+
+## Two instruments read one ledger entry and published answers 14 hours apart (2026-09-19)
+
+The morning digest said the active pool's wall was "around 10:30 this morning". The estate panel,
+run two hours later off the same stored reading, said the pool exhausts ~Sun 00:34 — sixteen hours
+out. Neither output mentioned that the other number existed, and both were derived from a single
+ledger entry: `fryanpan@gmail.com`, 59% used, read Fri 18:09.
+
+The entry was 14.1h old. The panel took the 59% at face value and divided the remainder by the
+measured rate. The digest carried the 59% forward at that same rate first, reaching ~94%, and
+divided what was left. **Both steps are defensible; the answers differ by 14 hours**, and nothing
+in either instrument said which had been done.
+
+Bryan caught it from the outside, on a live reading: *"We're still under 70% and it's already
+8:15am in the morning."* That puts the overnight burn under 0.78 points/h against the 2.51 the
+projection used.
+
+- **A label that says the reading is stale, followed by arithmetic that treats it as current,
+  spends the label and then ignores it.** The panel's own TRUST column read `UNDER-READ, still
+  burning` on the row it was about to take at face value.
+- **Report the span, not an end of it.** The runway column now prints `~2-16h` when the active
+  reading is stale. The width is the finding: it is the panel saying the meter needs reading, and
+  it is information that neither single number carried.
+- **When the two ends straddle the next pool's reset, there is no verdict to give.** The GAP line
+  now says so in those words rather than picking an end and sounding certain.
+
+### A rate is a property of the window it was measured over
+
+2.51 points/h was correct — as an average over the 23.5h since the pool's Thursday reset. Inside
+that window the last measured five hours ran at **0.6 points/h** (56% → 59%, Fri 13:10 → 18:09).
+Projecting the 23.5h average across a quiet overnight is what produced a wall four hours after
+the question was asked.
+
+- **The skill already warned about this in the opposite direction** — a quiet 5h window read a
+  third of the sustained rate and projected 99h against a real 29h. It is the same error; only
+  the sign changes. A rate carries its window or it carries nothing.
+- **State the window whenever you state the rate.** "2.51 points/h over 23.5h spanning an
+  overnight" is checkable. "a measured 2.51 points/h" is not, and it is what shipped.

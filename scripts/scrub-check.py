@@ -583,6 +583,50 @@ def files_in_range(range_spec: str) -> List[str]:
         return []
 
 
+def added_lines_in_range(range_spec: str) -> Tuple[Dict[str, List[Tuple[int, str]]], bool]:
+    """Return ({path: [(new_line_no, text)]}, ok) for lines this range ADDS.
+
+    Bryan, 2026-09-19, answering what the gate should scan: "Added lines only."
+
+    The reason the whole-file scan had to go: `files_in_range` returns NAMES,
+    and every caller then read those files entire. So a push that touched a
+    file for an unrelated reason was blocked on lines that were already on the
+    remote — content the push does not publish, because it is published
+    already. It also measured neither the diff nor the repo's real exposure:
+    two other files carrying the same term went unflagged purely because this
+    push did not happen to touch them.
+
+    `ok` is the third state. A diff that could not be read must not return an
+    empty map and read as "nothing added", which is the failure mode this file
+    spends most of its comments on.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "-c", "core.quotepath=false", "diff", "-U0", "--no-color", range_spec],
+            capture_output=True, text=True, check=True,
+        ).stdout
+    except (subprocess.CalledProcessError, OSError):
+        return {}, False
+
+    added: Dict[str, List[Tuple[int, str]]] = {}
+    path: Optional[str] = None
+    line_no = 0
+    for raw in out.split("\n"):
+        if raw.startswith("+++ "):
+            target = raw[4:].strip()
+            # /dev/null is a deletion: it adds nothing to scan.
+            path = None if target == "/dev/null" else target[2:] if target.startswith("b/") else target
+            continue
+        if raw.startswith("@@"):
+            m = re.match(r"@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@", raw)
+            line_no = int(m.group(1)) if m else 0
+            continue
+        if path and raw.startswith("+") and not raw.startswith("+++"):
+            added.setdefault(path, []).append((line_no, raw[1:]))
+            line_no += 1
+    return added, True
+
+
 def messages_in_range(range_spec: str) -> List[Tuple[str, str]]:
     """Return [(sha, commit_message)] for commits in the range.
 
@@ -661,6 +705,10 @@ def main() -> int:
         return 2
 
     messages: List[Tuple[str, str]] = []
+    # Populated only by --diff-range: {path: [(new_line_no, text)]}. When this
+    # is set, `files` stays empty and the scan reads added lines instead of
+    # whole files.
+    added: Dict[str, List[Tuple[int, str]]] = {}
 
     if "--messages" in args:
         idx = args.index("--messages")
@@ -674,7 +722,16 @@ def main() -> int:
         if idx + 1 >= len(args):
             print("[scrub-check] --diff-range needs an argument", file=sys.stderr)
             return 2
-        files = files_in_range(args[idx + 1])
+        added, diff_ok = added_lines_in_range(args[idx + 1])
+        if not diff_ok:
+            print(
+                f"[scrub-check] could not read the diff for {args[idx + 1]!r}.\n"
+                "  Refusing rather than scanning nothing and exiting 0.",
+                file=sys.stderr,
+            )
+            return 2
+        added = {p: lines for p, lines in added.items() if should_scan(p)}
+        files = []
         # A push publishes the messages as well as the diff, so scan both.
         messages = messages_in_range(args[idx + 1])
     elif "--staged" in args:
@@ -710,7 +767,7 @@ def main() -> int:
     # Filter: keep only files we'd scan and that exist on disk.
     files = [f for f in files if should_scan(f) and os.path.isfile(f)]
 
-    if not files and not messages:
+    if not files and not messages and not added:
         return 0
 
     registry = find_registry()
@@ -780,6 +837,23 @@ def main() -> int:
             print(f"  commit {sha[:9]} message:{line_no}  ({label})", file=sys.stderr)
             print(f"    > {snippet}", file=sys.stderr)
             total += 1
+    for f, lines in sorted(added.items()):
+        for line_no, text in lines:
+            if "scrub-allow" in text:
+                continue
+            for label, rx in patterns:
+                if not rx.search(text):
+                    continue
+                if total == 0:
+                    print(f"[scrub-check] leaks detected:", file=sys.stderr)
+                files_with_findings.add(f)
+                snippet = text.strip()
+                if len(snippet) > 100:
+                    snippet = snippet[:97] + "..."
+                print(f"  {f}:{line_no}  ({label}) [added by this push]", file=sys.stderr)
+                print(f"    > {snippet}", file=sys.stderr)
+                total += 1
+                break  # one finding per line is enough
     for f in files:
         for line_no, label, line in scan_file(f, patterns):
             if total == 0:

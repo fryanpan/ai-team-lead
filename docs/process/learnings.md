@@ -4751,3 +4751,42 @@ reviewed" was therefore uncheckable from my side.
   and it answers the question the review actually asks.
 - **Report their claim as theirs.** "Their file-by-file comparison says two files" and "two files
   changed" are different statements, and only one of them is something I confirmed.
+
+## A gate that reads the diff must judge only what the diff adds (2026-09-19)
+
+Both of this repo's pre-push leak gates blocked a 60-commit push on content nobody in that
+range had written, for the same reason from two directions.
+
+- **The regex gate** resolved a range to file *names* and then read each file whole, so its
+  verdict described the repo's whole exposure rather than what the push added. No edit to the
+  diff could clear it. Fixed by parsing `git diff -U0` and scanning added lines only; `--staged`,
+  `--scan-all-tracked` and explicit paths still scan whole files, because those callers are
+  asking about the file rather than a delta.
+- **The model gate** is given context lines deliberately, and flagged one as a finding — a
+  `TL_DIR` default path that the push does not touch. Its own prompt already forbids this
+  ("if you cannot quote the text from a `+` line, you do not have a finding"), which is the
+  point: a rule in a prompt is a request, and the payload is what actually constrains the
+  answer. If context lines must not be findings, the cheapest fix is not to send them.
+
+**The override to reach for is the narrow one.** `SCRUB_SKIP=1` turns off both gates;
+`SCRUB_SKIP_HAIKU=1` turns off only the model pass and leaves the regex gate running. A false
+positive from one gate is never a reason to stop scanning with the other.
+
+### The model gate's AUTHOR line is derived from `git user.name`, which may be a machine identity
+
+`repo_author()` takes the most common committer name. On this machine that is `Selftest`, so
+the gate is told the author is Selftest and has no way to know Bryan is the same person. Every
+occurrence of his name or his home path then reads as a third-party leak, and the exception
+written into the prompt for exactly this case never fires.
+
+- **A gate whose false positives are all the same shape is telling you its inputs are wrong**,
+  not that the repo is dirty. Three runs flagged the owner's own name before this was obvious.
+- **Check what the gate was told, not just what it said.** The prompt is assembled at call time
+  and the assembled version is what produced the verdict.
+
+### Already-public is a separate finding from about-to-be-public, and it is not an agent's call
+
+The same pass found a real email address in three files: one line this branch added, and two
+already on `main` in a public repo. Current files get a fix; whether to rewrite the history that
+still holds it is the user's decision, per the scrubbing rule. Saying "scrubbed" without that
+split would have read as the exposure being over.

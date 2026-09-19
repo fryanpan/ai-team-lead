@@ -64,22 +64,40 @@ The user had to say this twice in one session, the second time watching it happe
 
 ## Capacity block (required)
 
-Every plan page opens with a capacity estimate, placed directly under the one-sentence theme and above `## Committed goals`. It is **not optional** — it's the frame the whole plan is judged against (committed hours vs. available hours).
+Every plan page opens with a capacity estimate, placed directly under the one-sentence theme and above `## Committed goals`. It is **not optional** — it's the frame the whole plan is judged against (committed hours vs. plannable hours).
 
 Format: a `## Capacity: ~Xh` heading carrying the week total, then a clean per-day bullet breakdown Mon→weekend (include the weekend even when it's small), with a short context note where a day is unusually light or heavy.
 
 ```
-## Capacity: ~15–21h
+## Capacity: ~15–21h available, ~13–19h plannable
 - Mon 2h
 - Tue 2h or 8h (depends on Tim)
 - Wed 4h
 - Thu 3h
 - Fri 2h
 - Weekend 2h (kayak camping)
+- **Reserved: 2h personal (his) + one more, not yet quantified** — see the board's capacity row
 ```
 
 - Per-day bullets carry a short reason wherever a day deviates from a normal full day, so the total is legible at a glance.
-- After the plan is set, sanity-check committed hours (sum of goal Estimates) against this total and surface the gap: under-committed leaves headroom (say what the slack is for); over-committed means something must drop or defer.
+- **Two totals, never one.** Available is what the calendar allows; plannable is what is left after the reserves. Goals are sized against **plannable**. A single number cannot say which it is, and the reader defaults to the larger one.
+- After the plan is set, sanity-check committed hours (sum of goal Estimates) against the **plannable** total and surface the gap: under-committed leaves headroom (say what the slack is for); over-committed means something must drop or defer.
+
+### Reserves: time that is lost but is not on the calendar (set 2026-09-19)
+
+**Every subtraction in the derivation below is a calendar event.** So anything that takes the user's week without being an event is invisible to the method — not underestimated, absent. That is a defect in the instrument, and it does not announce itself: the totals look careful, the arithmetic is right, and the number is wrong in the same direction every week.
+
+**This repo is public, so the reserves themselves are named on the board, not here.** A reserve is often personal — health, family, a commitment he has not made public — and a skill file is the wrong place for any of it. Read the current set off the Team Lead board's capacity row. What follows is how to handle them, which is the part that generalises.
+
+- **Take reserves off BEFORE sizing goals**, not as leftover slack. A reserve applied at the end is a reserve that gets spent.
+- **Each reserve is owned by the agent that holds its data**, and the figure reaches the plan only on the user's word. Do not compute someone else's reserve for them.
+- **Never convert a raw measurement into hours of lost capacity.** The owning agent's figure usually bounds a window rather than measuring lost output, and the two differ by however much of that window was still workable. Ask the owner what their number means before it enters an arithmetic.
+- **Check the denominator before quoting any rate.** A rate over the days something was tracked is not a rate over calendar days, and the plan needs the second one.
+
+**Until a figure exists, say the reserve is unset rather than picking one.** A block reading "Reserved: not yet quantified" — with a link to the board row that owns the figure — is honest and costs nothing. A plausible number invented to fill the line becomes his number the moment someone reads it back.
+
+- **Write what he said and what you derived as two separate lines.** A derived reserve is fine; a derived reserve recorded as his is not, and the block cannot tell them apart a week later.
+- **One signal already points at the total size of the reserves.** The calendar derivation typically yields ~30h, and his observed delivery ceiling is ~20–22h/week. That gap is **derived, not measured**, and it is a reason to expect the reserves to be substantial — not a quantification of any one of them. Do not put it in a block as a reserve.
 
 ### Compare against last week's PLANNED number too, not just capacity (set 2026-08-17)
 
@@ -106,6 +124,7 @@ Mechanics:
 - Only count hours **inside 9am–5pm**. An early or evening call does not reduce the number; the 7h baseline already reserves that time.
 - **A medication or self-care reminder is not a meeting.** Don't subtract for it.
 - **Weekend is always 2h, unless he is booked on a trip.** Not zero, and not derived from meetings.
+- **This derivation produces AVAILABLE hours, not plannable ones.** It can only see calendar events, so it cannot subtract the reserves above. Take those off afterwards and report both totals.
 - **Prorate the current day.** Planning usually happens Monday partway through — a 7h Monday that starts at noon is really ~4h. Check the clock (`date`), don't assume a full day.
 - **Travel, PTO, and all-day events zero out the day.** Say which event did it.
 - Show the derivation in the doc, not just the total, so he can correct the inputs rather than argue with the output.
@@ -155,7 +174,7 @@ Mechanics:
    - Irreducible user time — his reading, his judgement calls, his voice pass — is **not divided**. Neither is waiting on a third party.
 
 6. **the user picks.**
-   - Tell the user the capacity you derived from his calendar (see `## Capacity block`) and show the derivation — don't ask him for the number.
+   - Tell the user both totals you derived (see `## Capacity block`) and show the derivation — don't ask him for the number. Available comes from the calendar; plannable is what is left after the reserves, and it is the one goals are sized against.
    - the user tags each goal: ✅ commit / ❌ drop / 📦 defer (with target week).
    - Drop the dropped + defer the deferred. Keep the page lean — only commits show in the final plan.
 
@@ -166,7 +185,7 @@ Mechanics:
    - Do NOT pre-fill a daily hitlist. The `daily-review` skill handles the day-by-day surface.
 
 8. **Confirm + commit.**
-   - Read the page back to the user: "Week of YYYY-MM-DD: N goals, ~Xh committed against ~Yh capacity. Top 3: ..." — always state committed-vs-capacity, not just the goal count.
+   - Read the page back to the user: "Week of YYYY-MM-DD: N goals, ~Xh committed against ~Yh plannable (~Zh available). Top 3: ..." — always state committed-vs-plannable, not just the goal count, and never quote available alone.
    - Wait for confirmation. Adjust if needed. Then move on.
 
 9. **Mirror the committed goals onto the workspace board.**

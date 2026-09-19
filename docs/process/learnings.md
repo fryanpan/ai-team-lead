@@ -4719,3 +4719,35 @@ when my item reached his queue.
   "Fix the gate" on this defect class, nine days old. I read past it on the way to filing.
 - **Withdraw and archive rather than leaving both.** A withdrawn item with a reason reads as a
   correction; a silent second row reads as the board losing track. Say which row holds the answer.
+
+## A leak review of a repo about to go public says nothing about its dependency pins (2026-09-18)
+
+A generated public snapshot passed a full scrub review — contents and paths, two term sets, a
+matcher proven able to fail. It was queued for the visibility flip. It also shipped a lockfile
+pinning a package with an open **critical** advisory, and nothing in the review was ever going to
+notice, because a scrub reads text for names and a pin is not a name.
+
+The flip is what makes it matter. A private repo with a stale pin is an ordinary maintenance item;
+the same repo one click later is a public target whose dependency manifest anyone can scan, and
+that is the first thing an automated scanner reports about a brand-new public repo.
+
+- **Read the repo's open security alerts as part of the pre-flip pass**, not just its text. One
+  `gh api repos/<owner>/<repo>/dependabot/alerts` answers it, and it is the only check in the set
+  that asks about what the repo *depends on* rather than what it *says*.
+- **Same shape as the filename case above, one layer out.** There the checks all read contents and
+  missed the tree; here they all read the working tree and missed the manifest's meaning. Ask what
+  surface each check reads, then ask what surfaces nothing in the set reads at all.
+- **Bump before the rebuild, not after.** A snapshot generator builds from main, so fixing the
+  source first costs one rebuild and fixing it after costs two.
+- **The owning agent does the fix.** Finding it in someone else's repo is a message, not an edit.
+
+### A squashed snapshot repo cannot be diffed against the build you reviewed
+
+The generator writes one commit per build, so the previous build's tree is gone from the snapshot
+repo the moment a new one lands. The builder's "exactly two files differ from the build you
+reviewed" was therefore uncheckable from my side.
+
+- **Re-run the check rather than verifying the delta.** Cheaper than reconstructing the old tree,
+  and it answers the question the review actually asks.
+- **Report their claim as theirs.** "Their file-by-file comparison says two files" and "two files
+  changed" are different statements, and only one of them is something I confirmed.

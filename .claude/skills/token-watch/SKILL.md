@@ -100,6 +100,13 @@ pool-b@example.com     38%   62%    43%  Fri 09-11 04:00     ~29h  live  <- ACTI
   equally wrong.** The 2.51 points/h measured over 23.5h on 2026-09-19 was 0.6 points/h across
   the last five of those hours, and under 0.78 overnight. Quote the window the rate came from
   every time you quote the rate.
+- **The 5h window is a statement about the last five hours, in BOTH directions.** The
+  skill has long warned that a quiet window under-reads; a busy one over-reads the same
+  way, and that is the half that keeps costing a pass. Three consecutive runs in
+  September 2026 printed BREACH while the same panel's own last-hour figure projected
+  the window to single-digit percent, because the burst that caused the breach had
+  already finished. **Read the last-hour line before you report the verdict** — when the
+  two disagree, the backward-looking number is describing work that is over.
 - **The GAP line is the finding.** Whether the active pool outlasts the next
   pool's reset, or dies before it and leaves hours to bridge.
 - **Check the meters separately.** Blended and Fable exhaust independently, and

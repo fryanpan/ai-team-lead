@@ -73,7 +73,7 @@ pool-b@example.com     38%   62%    43%  Fri 09-11 04:00     ~29h  live  <- ACTI
   an unlabelled number reads as measured. Keep saying this; the reasoning under it
   changed on 2026-09-17 and the phrasing did not.
 - **The old reason — "an idle pool's meter can only RISE" — is FALSE, and believing
-  it cost two hours at a wall.** `fryanpan@gmail.com` was read live at 100% (Fable
+  it cost two hours at a wall.** The primary pool was read live at 100% (Fable
   84%) on 09-15 and read **82% (Fable 66%) at 13:40 on 09-17 with the same reset and
   no reset in between**, so it shed ~18 points while idle. At the 08:37 wall that
   morning I reported "nothing to rotate to" on the strength of two 100% floors; one

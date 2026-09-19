@@ -436,7 +436,7 @@ def session_context(path, recent_cutoff):
 
 
 # Claude Code meters each model family separately, so a fleet can exhaust one
-# sub-meter with the others barely touched. On 2026-09-03 `fryanpan@gmail.com`
+# sub-meter with the others barely touched. On 2026-09-03 the primary pool
 # reached 100% on Fable while its all-models bar read 58%, and nothing here saw
 # it: every figure this script produced summed the models together. Anything not
 # in the map prints verbatim rather than being folded into "other" -- a model we

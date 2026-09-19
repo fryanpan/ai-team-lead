@@ -389,6 +389,65 @@ def check_prepush_range() -> list[str]:
     return failures
 
 
+def check_added_lines_scope() -> None:
+    """The scope Bryan set on 2026-09-19: a push is judged on what it ADDS.
+
+    The pre-push range case above stubs the scanner out to watch which range the
+    hook picks, so it says nothing about what the scanner then does with it.
+    This one runs the real scanner end to end, because the question "can the
+    gate still see, now that it sees less" is not answerable from the hook side.
+
+    Both halves are required. The negative alone would pass against a scanner
+    that had stopped looking entirely, which is the exact failure the narrowed
+    scope could have introduced.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        clean = clean_git_env()
+        g = lambda *a: subprocess.run(  # noqa: E731
+            ["git", *a], cwd=tmp, capture_output=True, text=True, env=clean)
+
+        registry = os.path.join(tmp, "fixture-registry.yaml")
+        denylist = os.path.join(tmp, "fixture-denylist.txt")
+        with open(registry, "w") as f:
+            f.write(REGISTRY)
+        with open(denylist, "w") as f:
+            f.write(DENYLIST)
+
+        g("init", "-q", "-b", "main")
+        g("config", "user.email", "selftest@example.invalid")
+        g("config", "user.name", "Selftest")
+
+        notes = os.path.join(tmp, "notes.md")
+        # The baseline already carries the term. A whole-file scan blocks on
+        # this line forever, and no edit to any later commit can clear it.
+        with open(notes, "w") as f:
+            f.write(f"Baseline line naming {PRIVATE_PROJECT}.\n")
+        g("add", "-A")
+        g("commit", "-q", "-m", "baseline")
+        base = g("rev-parse", "HEAD").stdout.strip()
+
+        with open(notes, "a") as f:
+            f.write("A clean line this push adds.\n")
+        g("add", "-A")
+        g("commit", "-q", "-m", "clean change")
+
+        r = run(["--diff-range", f"{base}..HEAD"], registry, denylist, cwd=tmp)
+        expect("added-lines scope: a pre-existing term does not block", r.returncode, 0, r.stderr)
+
+        with open(notes, "a") as f:
+            f.write(f"A line this push adds, naming {PRIVATE_PROJECT}.\n")
+        g("add", "-A")
+        g("commit", "-q", "-m", "leaky change")
+
+        r = run(["--diff-range", f"{base}..HEAD"], registry, denylist, cwd=tmp)
+        expect("added-lines scope: a planted leak on an added line still blocks",
+               r.returncode, 1, r.stderr)
+
+        r = run(["--diff-range", "no-such-ref..also-missing"], registry, denylist, cwd=tmp)
+        expect("added-lines scope: an unreadable range refuses rather than passing",
+               r.returncode, 2, r.stderr)
+
+
 def main() -> int:
     check_git_env_isolation()
     check_decision_table()
@@ -568,6 +627,7 @@ def main() -> int:
         expect("a clone with no fleet config still pushes (local registry present)", r.returncode, 0, r.stderr)
 
     failures.extend(check_prepush_range())
+    check_added_lines_scope()
 
     if failures:
         print(f"\n{len(failures)} self-test failure(s): {', '.join(failures)}")

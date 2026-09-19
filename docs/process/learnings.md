@@ -4879,7 +4879,7 @@ superseded version of a line rewritten since. The state had also been committed 
 The morning digest said the active pool's wall was "around 10:30 this morning". The estate panel,
 run two hours later off the same stored reading, said the pool exhausts ~Sun 00:34 — sixteen hours
 out. Neither output mentioned that the other number existed, and both were derived from a single
-ledger entry: `fryanpan@gmail.com`, 59% used, read Fri 18:09.
+ledger entry: the active pool, 59% used, read Fri 18:09.
 
 The entry was 14.1h old. The panel took the 59% at face value and divided the remainder by the
 measured rate. The digest carried the 59% forward at that same rate first, reaching ~94%, and

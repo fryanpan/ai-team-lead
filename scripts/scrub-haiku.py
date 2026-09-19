@@ -391,6 +391,23 @@ def repo_author() -> List[str]:
         if m:
             add(m.group(1))
 
+    # A person referred to by first name alone is still that person. The four
+    # sources above yield full names, so an owner signing "Ada Lovelace" got an
+    # exception for the pair and none for either half — and prose almost never
+    # uses the pair. Measured 2026-09-19: the gate blocked a learnings entry on
+    # the owner's own first name one day after the list was widened to fix the
+    # same class of miss, because widening it to more FULL spellings could not
+    # reach this one.
+    for whole in list(found):
+        parts = whole.split()
+        if len(parts) < 2:
+            continue
+        for part in parts:
+            # Three characters, so an initial or a particle ("de", "van")
+            # does not become a blanket exception on its own.
+            if len(part) >= 3 and part.isalpha():
+                add(part)
+
     return found
 
 

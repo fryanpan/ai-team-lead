@@ -541,6 +541,7 @@ def estate_rows(ledger, active, now):
             used_eff = used
         rows.append(dict(pool=k, used=used_eff, fable=e.get("fable"),
                          reset=reset, quality=quality, active=is_active,
+                         age=age,
                          hours_to_reset=((reset - now).total_seconds() / 3600.0
                                          if reset else None)))
     return rows
@@ -559,6 +560,43 @@ def _runway_hours(used, pph, tokens_per_hour=None):
     if used is None or not pph:
         return None
     return (100 - used) / pph
+
+
+def _runway_span(row, pph, tokens_per_hour=None):
+    """(low, high) runway hours for one pool.
+
+    They differ only for the ACTIVE pool read more than an hour ago, and the
+    gap between them is the point. The row is already labelled UNDER-READ
+    because the pool kept burning after the reading; computing runway from
+    that reading anyway spends the label and then ignores it. On 2026-09-19
+    the panel said the wall was 16h away while the morning digest, decaying
+    the same ledger entry forward, said 2h -- a 14h disagreement off one set
+    of numbers, with nothing in either output admitting the other existed.
+
+    Neither end is the answer. The LOW end assumes the measured rate held
+    through the unobserved hours, which on a quiet overnight runs about four
+    times too fast; the HIGH end assumes the pool did not move at all, which
+    is false whenever the fleet took a turn. A wide span is not noise to be
+    collapsed -- it is the panel saying the meter needs reading.
+    """
+    hi = _runway_hours(row.get("used"), pph, tokens_per_hour)
+    if hi is None:
+        return None, None
+    age = row.get("age") or 0.0
+    if not row.get("active") or age < 1 or not pph:
+        return hi, hi
+    lo = _runway_hours(min(100.0, row["used"] + age * pph), pph,
+                       tokens_per_hour)
+    return max(0.0, lo if lo is not None else hi), hi
+
+
+def _fmt_runway(lo, hi):
+    """`~16h` when the ends agree, `~2-16h` when the reading is stale."""
+    if hi is None:
+        return "?"
+    if lo is None or abs(hi - lo) < 1:
+        return f"~{hi:.0f}h"
+    return f"~{lo:.0f}-{hi:.0f}h"
 
 
 HISTORY_KEEP = 24     # readings kept per pool; three passes a day covers a week
@@ -734,8 +772,7 @@ def print_estate(ledger, active, now, tokens_per_hour, account_since=None,
         left = "?" if r["used"] is None else f"{100 - r['used']:.0f}%"
         fable = "?" if r["fable"] is None else f"{r['fable']:.0f}%"
         reset = r["reset"].strftime("%a %m-%d %H:%M") if r["reset"] else "?"
-        runway_h = _runway_hours(r["used"], pph, tokens_per_hour)
-        runway = f"~{runway_h:.0f}h" if runway_h is not None else "?"
+        runway = _fmt_runway(*_runway_span(r, pph, tokens_per_hour))
         mark = " <- ACTIVE" if r["active"] else ""
         print(f"  {r['pool']:<24}{used:>6}{left:>6}{fable:>7}  "
               f"{reset:<17}{runway:>9}  {r['quality']}{mark}")
@@ -762,20 +799,33 @@ def print_estate(ledger, active, now, tokens_per_hour, account_since=None,
                and r["hours_to_reset"] > 0),
               key=lambda r: r["hours_to_reset"], default=None)
     if act and act["used"] is not None and nxt:
-        act_h = _runway_hours(act["used"], pph, tokens_per_hour)
-        if act_h is None:
+        lo_h, hi_h = _runway_span(act, pph, tokens_per_hour)
+        if hi_h is None:
             return
-        gap = nxt["hours_to_reset"] - act_h
         # `now` is UTC-aware; the reset column is rendered local. Printing this
         # one in UTC put the exhaustion 7h after a reset it actually precedes.
-        when = ((now + datetime.timedelta(hours=act_h))
-                .astimezone().strftime("%a %m-%d %H:%M %Z"))
-        if gap > 0:
-            print(f"  ** GAP: active pool exhausts ~{when}, {gap:.1f}h BEFORE "
-                  f"{nxt['pool']} resets. Bridge it or slow down. **")
+        def when(h):
+            return ((now + datetime.timedelta(hours=h))
+                    .astimezone().strftime("%a %m-%d %H:%M %Z"))
+        # Positive means the pool runs out first. `best` takes the optimistic
+        # end of the runway, `worst` the pessimistic one; they are equal when
+        # the reading is fresh, and then this collapses to the old two cases.
+        best = nxt["hours_to_reset"] - hi_h
+        worst = nxt["hours_to_reset"] - lo_h
+        if best > 0:
+            print(f"  ** GAP: active pool exhausts ~{when(hi_h)} at the "
+                  f"latest, {best:.1f}h BEFORE {nxt['pool']} resets. Bridge "
+                  f"it or slow down. **")
+        elif worst > 0:
+            print(f"  ** UNRESOLVED: the active pool exhausts somewhere "
+                  f"between ~{when(lo_h)} and ~{when(hi_h)}, and "
+                  f"{nxt['pool']} resets inside that span. Whether there is a "
+                  f"gap at all turns on a reading nobody has taken -- its "
+                  f"meter was last read {act['age']:.1f}h ago. **")
         else:
-            print(f"  handoff OK: active pool reaches ~{when}, "
-                  f"{-gap:.1f}h past {nxt['pool']}'s reset.")
+            print(f"  handoff OK: active pool reaches ~{when(lo_h)} even on "
+                  f"the pessimistic end, {-worst:.1f}h past "
+                  f"{nxt['pool']}'s reset.")
 
 
 def _mem_to_mb(tok):

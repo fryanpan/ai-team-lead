@@ -91,6 +91,15 @@ pool-b@example.com     38%   62%    43%  Fri 09-11 04:00     ~29h  live  <- ACTI
   read as 5.05 pts/h against a real 1.7 and produced a false Tier 2 on 09-10. Never project multiple days off the current
   5h window: on a quiet morning it read a third of the sustained rate and
   projected 99h of runway against a real 29h.
+- **A stale active reading makes the RUNWAY column a span, like `~2-16h`.** The high end
+  takes the reading at face value; the low end carries it forward at the measured rate. Neither
+  is the answer, and the width is the point — a wide span means go read the meter. On 2026-09-19
+  this panel and the morning digest each silently picked one end off the same ledger entry and
+  published answers **14 hours apart**.
+- **A rate averaged across an idle stretch is not the rate for a busy one, and the reverse is
+  equally wrong.** The 2.51 points/h measured over 23.5h on 2026-09-19 was 0.6 points/h across
+  the last five of those hours, and under 0.78 overnight. Quote the window the rate came from
+  every time you quote the rate.
 - **The GAP line is the finding.** Whether the active pool outlasts the next
   pool's reset, or dies before it and leaves hours to bridge.
 - **Check the meters separately.** Blended and Fable exhaust independently, and

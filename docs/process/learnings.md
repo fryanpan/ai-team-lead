@@ -4835,3 +4835,41 @@ morning. It was not.
 - **Reach for the narrow override.** `SCRUB_SKIP_HAIKU=1` disables only the model pass and leaves
   the regex gate running. Using the blanket `SCRUB_SKIP=1` for a model-gate false positive turns
   both off, and the one that would have caught the real thing is the one you did not think about.
+
+## A test fixture that borrows a real branch name outlives the test (2026-09-19)
+
+The leak gate's diff-range tests once built their fixture **inside this repo** instead of a temp
+dir. They left local `main` pointing at a two-file synthetic commit — `base moves on`, authored
+`selftest@example.invalid`, 2026-09-16 — checked out in a worktree at `.claude/worktrees/pr29-merge`.
+
+Three days later the primary tree could not check out `main`: `fatal: 'main' is already used by
+worktree at ...`. Nothing failed and nothing alerted, because `origin/main` was correct the whole
+time and every push, PR and merge went through it. The only symptom was one checkout, and the
+obvious reading of that error is that someone is working in the worktree.
+
+- **Build a fixture repo in a temp dir.** `tests/test_scrub_added_lines.py` does, which is why it
+  leaves nothing behind. A fixture that shares the real repo also shares its refs.
+- **Never give a fixture branch the name of a real one.** The cost is not a wrong commit — it is
+  that the real branch becomes unreachable, in a way that reads as someone else's in-progress work.
+- **A dirty worktree is a question, not an answer.** This one showed 136 modified and untracked
+  entries, which is exactly what a worktree holding lost work looks like. It held none.
+
+### Ask whether the content is unique before treating a worktree as work
+
+Staging the whole thing and diffing it against the remote answers this in two commands, and
+`git reset` puts it back:
+
+```
+git add -A && git diff --cached origin/main --numstat
+```
+
+It gave **190 insertions against 6,498 deletions**, and every insertion turned out to be a
+superseded version of a line rewritten since. The state had also been committed to
+`wip/pr29-merge-worktree-20260916` on the day it was made, so there was nothing to lose either way.
+
+- **Check the direction, not just the size of the diff.** Grep for a feature the current file has
+  and the old one cannot: absence proves the copy predates it, which is faster and surer than
+  reading 200 lines of diff.
+- **The rule against force-removing a worktree with uncommitted files still holds** — it is what
+  made all of the above worth doing rather than skipping. The check is cheap; the rule is not a
+  reason to leave the worktree in place forever.

@@ -51,7 +51,9 @@ Resolution mode can also be established positively: put a side effect in the rep
 ## Steps
 
 1. **Probe resolution mode** for the peers you care about. It is per-session, not fleet-wide.
-2. **If any peer is cache-resolved:** publish (scrub + squash onto main — this repo is public), bump the version in **both** `plugin/team-lead-fleet/.claude-plugin/plugin.json` and `plugin/.claude-plugin/marketplace.json`, then `claude plugin update team-lead-fleet@team-lead-fleet`. The two manifests have fallen out of step before; an unbumped version makes every later step a silent no-op.
+2. **If any peer is cache-resolved:** publish (scrub + squash onto main — this repo is public), bump the version in **both** `plugin/team-lead-fleet/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` **at the repo root**, then `claude plugin update team-lead-fleet@team-lead-fleet`. The two manifests have fallen out of step before; an unbumped version makes every later step a silent no-op.
+
+   **The marketplace manifest is at the repo root, not under `plugin/`.** It moved there when the plugin started being served from GitHub, and this step named the old path for weeks afterwards — a path that does not exist, in the one step whose whole purpose is keeping the two versions in step. Following it literally bumps `plugin.json` alone, which is precisely the silent no-op the sentence warns about. Corrected 2026-09-17, both manifests confirmed at 0.9.0. **Check the path resolves before you edit it**; the file has moved once and can move again.
 3. **Deliver into the session.** Rules arrive only through the SessionStart hook, so the peer needs a real SessionStart event: restart, `--continue` resume, `/clear`, or `/compact`. Verified from the hook payload log — it fires on `startup`, `resume`, `compact`, and `clear`, and nothing else.
 4. **Re-probe.** Report shipped only after a peer's own injected context contains the new text.
 

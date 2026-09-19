@@ -44,6 +44,23 @@ DENY_TOKEN = "quokkaburra"
 DENY_RX_BOTH = "quokkatrope"   # written /<pattern>/ in the fixture
 DENY_RX_OPEN = "quokkavane"    # written /<pattern>  (no closing delimiter)
 
+# Compound-key components. The gate used to compile the whole key and nothing
+# else, so the exact string was protected while prose wrote the bare leading
+# word -- which passed. Each of these fixtures pins one arm of the rule that
+# closed it, and the arms matter as much as the catch: split every key and
+# `personal`, `search` and `review` all become denylist terms.
+COMPONENT_PROJECT = "quollstack-notes"      # `quollstack` IS derived
+COMPONENT_WORD = "quollstack"
+OPTOUT_PROJECT = "wallaroodle-notes"        # opted out; derives nothing
+OPTOUT_WORD = "wallaroodle"
+DICTWORD_PROJECT = "numbat-engineering"     # `engineering` is English; not derived
+DICTWORD_WORD = "engineering"
+# `platypuser` is long and coined but appears in TWO keys, which is what a
+# generic component looks like in this registry (`claude`, `channel`, `plugin`).
+SHARED_A = "platypuser-alpha"
+SHARED_B = "platypuser-beta"
+SHARED_WORD = "platypuser"
+
 REGISTRY = f"""\
 projects:
   {PRIVATE_PROJECT}:
@@ -54,6 +71,17 @@ projects:
   {MENTIONABLE_PROJECT}:
     path: ~/dev/{MENTIONABLE_PROJECT}
     mentionable: true
+  {COMPONENT_PROJECT}:
+    path: ~/dev/{COMPONENT_PROJECT}
+  {OPTOUT_PROJECT}:
+    path: ~/dev/{OPTOUT_PROJECT}
+    scrub_components: false
+  {DICTWORD_PROJECT}:
+    path: ~/dev/{DICTWORD_PROJECT}
+  {SHARED_A}:
+    path: ~/dev/{SHARED_A}
+  {SHARED_B}:
+    path: ~/dev/{SHARED_B}
 """
 
 DENYLIST = (
@@ -401,6 +429,37 @@ def main() -> int:
         # and every other result in this file is worthless.
         r = run([leaky], registry, denylist)
         expect("catches a private registry project name", r.returncode, 1, r.stderr)
+
+        # --- compound-key components -------------------------------------
+        # The positive control for the whole rule. Before it existed this file
+        # read as clean, which is how a private name reached a public repo's
+        # main branch 19 times across 5 files.
+        comp = fixture("comp.md", f"The bare word {COMPONENT_WORD} names the project.\n")
+        r = run([comp], registry, denylist)
+        expect("catches a bare component of a compound key", r.returncode, 1, r.stderr)
+
+        # Each negative arm below is a false positive the naive rule produces.
+        # They are not politeness: a gate that fires on ordinary prose trains
+        # everyone into SCRUB_SKIP=1, which is worse than the hole it closed.
+        optout = fixture("optout.md", f"The bare word {OPTOUT_WORD} is opted out.\n")
+        r = run([optout], registry, denylist)
+        expect("scrub_components: false suppresses the component", r.returncode, 0, r.stderr)
+
+        dictword = fixture("dictword.md", f"Some {DICTWORD_WORD} was involved.\n")
+        r = run([dictword], registry, denylist)
+        expect("an English-word component is not a term", r.returncode, 0, r.stderr)
+
+        shared = fixture("shared.md", f"Something about {SHARED_WORD} in general.\n")
+        r = run([shared], registry, denylist)
+        expect("a component shared by two keys is not a term", r.returncode, 0, r.stderr)
+
+        # Third state, said out loud. A machine with no dictionary cannot run
+        # this rule, and that must not read as "looked and found nothing" --
+        # the same failure as the leak gate whose API key was exhausted.
+        r = run([comp], registry, denylist, SCRUB_WORD_LIST="/nonexistent/no/words")
+        expect("no dictionary: the run says so out loud",
+               "COMPONENT CHECK DID NOT RUN" in r.stderr, True, r.stderr)
+        expect("no dictionary: it genuinely did not run", r.returncode, 0, r.stderr)
 
         # The denylist is only enforced when the pushing repo is public, and
         # "which repo" is resolved from cwd. Inherit the host's cwd and these

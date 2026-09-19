@@ -41,6 +41,15 @@ SELF_PID="${1:?usage: self-respawn.sh <team-lead-claude-pid>}"
 TL_DIR="${TL_DIR:-/Volumes/Data/Users/bryanchan/dev/ai-team-lead}"
 TL_SESSION="${TL_SESSION:-team-lead}"
 TL_NAME="${TL_NAME:-Team Lead}"
+# The board this session posts end-of-turn notes to. claude-workspaces 0.1.182 moved
+# the note route under the board and made the Stop / PermissionDenied hooks read it
+# from the LAUNCH ENV: readWorkspaceId consults CW_WORKSPACE_ID then
+# FEEDBACK_WORKSPACE_ID and has no third fallback. respawn.py passes it for every
+# peer; this script did not, so the team-lead came back named but board-less and its
+# hook exited 0 posting nothing -- silent by design, and indistinguishable from a
+# session that simply had quiet turns. Measured 2026-09-17: 1 record in 24h on this
+# board across a night of continuous work. Read from the registry so it cannot drift.
+TL_WORKSPACE="${TL_WORKSPACE:-$(sed -n '/^  ai-team-lead:/,/^  [a-z0-9_-]*:$/p' "$TL_DIR/registry.yaml" 2>/dev/null | sed -n 's/^    workspace_id:[[:space:]]*\([^[:space:]#]*\).*/\1/p' | head -1)}"
 TMUX_BIN="${TMUX_BIN:-/opt/homebrew/bin/tmux}"
 # 1 = answer the resume dialog with "Resume full session as-is" (keep full context).
 # 0 = take the default "Resume from summary" (compacts on resume).
@@ -52,6 +61,17 @@ ARMED="/tmp/tl-selfrespawn.armed.$$"
 [ -x "$TMUX_BIN" ] || { echo "ABORT: tmux not executable at $TMUX_BIN — not killing self."; exit 1; }
 [ -d "$TL_DIR" ]   || { echo "ABORT: TL_DIR does not exist: $TL_DIR — not killing self."; exit 1; }
 command -v python3 >/dev/null 2>&1 || { echo "ABORT: python3 required for the detach — not killing self."; exit 1; }
+# An EMPTY board id is worse than a missing one: `-e CW_WORKSPACE_ID=''` sets the
+# variable rather than leaving it unset, and readWorkspaceId's fallback chain only
+# moves on when the first name is absent. So a registry edit that breaks this
+# lookup would come back looking exactly like the bug we just fixed, and the only
+# symptom is an Activity tab that quietly stays empty. Fail here, where failing is
+# free, rather than after the session is gone.
+case "$TL_WORKSPACE" in
+  w-*) ;;
+  "")  echo "ABORT: no workspace_id found for ai-team-lead in $TL_DIR/registry.yaml — respawning without it would come back board-less and silent. Not killing self."; exit 1 ;;
+  *)   echo "ABORT: workspace_id '$TL_WORKSPACE' is not a w- board id — refusing to post this session's notes to whatever that names. Not killing self."; exit 1 ;;
+esac
 kill -0 "$SELF_PID" 2>/dev/null || { echo "ABORT: pid $SELF_PID is not alive (wrong PID?) — not killing anything."; exit 1; }
 
 rm -f "$ARMED"
@@ -75,7 +95,7 @@ for _ in \$(seq 1 60); do
 done
 sleep 3
 $TMUX_BIN kill-session -t $TL_SESSION 2>/dev/null
-$TMUX_BIN new-session -d -s $TL_SESSION -e CW_AGENT_NAME='$TL_NAME' -e FEEDBACK_AGENT_NAME='$TL_NAME' -c '$TL_DIR' /bin/zsh -ic "claude --continue -n '$TL_NAME' --remote-control '$TL_NAME'"
+$TMUX_BIN new-session -d -s $TL_SESSION -e CW_AGENT_NAME='$TL_NAME' -e FEEDBACK_AGENT_NAME='$TL_NAME' -e CW_WORKSPACE_ID='$TL_WORKSPACE' -e FEEDBACK_WORKSPACE_ID='$TL_WORKSPACE' -c '$TL_DIR' /bin/zsh -ic "claude --continue -n '$TL_NAME' --remote-control '$TL_NAME'"
 echo "[\$(date)] spawned tmux:$TL_SESSION (rc=\$?)" >> $LOG
 # Auto-accept startup dialogs.
 # The resume dialog's DEFAULT option is "Resume from summary" — a bare Enter there

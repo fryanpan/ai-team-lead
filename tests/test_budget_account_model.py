@@ -3,7 +3,7 @@
 2026-09-03: Bryan had to read three /usage meters to Team Lead by hand because
 the watcher knew neither. It reported raw tokens with no account label, so a
 reading taken across an account switch looked like a continuation of the same
-series; and it summed every model together, so `fryanpan@gmail.com` reached
+series; and it summed every model together, so the primary pool reached
 100% on its Fable sub-meter without anything noticing.
 
 Neither gap is closed by reading a meter -- the script cannot, meters live

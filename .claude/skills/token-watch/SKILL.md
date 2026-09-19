@@ -1,12 +1,17 @@
 ---
 name: token-watch
-description: Use when running the 3x/day fleet token check, when asked how the quota is trending, when asked the status of the Claude accounts, or before deciding whether to rotate pools.
+description: Use when running the scheduled fleet token check, when asked how the quota is trending, when asked the status of the Claude accounts, or before deciding whether to rotate pools.
 user-invocable: true
 ---
 
 # Token Watch
 
-Runs 3x/day (08:07, 13:07, 18:07). The contract is `docs/process/token-control.md`
+**The cadence lives on the schedule of the `Token watch` row of the Team Lead board,
+and nowhere else. Read it there; do not trust a time written in a file.** Bryan
+re-armed it to every 3h on 2026-09-19, having set 08:07/13:07/18:07 before that,
+and four files in this repo still carried the old times afterwards.
+
+The contract is `docs/process/token-control.md`
 — tiers, rotation policy, and the account-switch runbook live there and are not
 repeated here. This skill is the procedure and the **output shape**.
 

@@ -21,7 +21,8 @@ survives the respawn that kills a session cron, which is the whole reason they m
 **Verify with list_tasks on those rows, not with CronList.** CronList returning nothing
 is now the CORRECT state, not a dead job.
 
-1. Token watch — 3x daily at 08:07 / 13:07 / 18:07 America/Los_Angeles. Runs the
+1. Token watch — cadence is whatever the row's own schedule says; Bryan re-armed it
+   to every 3h on 2026-09-19. Read the schedule, do not trust this line. Runs the
    /token-watch skill; the contract is docs/process/token-control.md.
 2. Morning digest — daily at 06:47 America/Los_Angeles. The procedure lives in
    .claude/skills/morning-digest/SKILL.md. /daily-review keeps only its intra-day triggers.

@@ -292,11 +292,19 @@ BASE_CHECKS = [
     {"type": "trend_log", "name": "quota trend log",
      "why": "a dead token-watch reads exactly like a fleet that is fine",
      "path": os.path.join(REPO, "docs/process/token-control.md"),
-     # 16h, not 8h. The token-watch fires at 8:07, 13:07 and 18:07, so the
-     # OVERNIGHT gap is structurally ~14h. An 8h bound therefore went RED every
-     # single morning no matter how healthy the meter was -- furniture, and the
-     # kind that trains a reader to skip the whole section.
-     "max_age_hours": 16},
+     # 8h. Bryan re-armed the token-watch to every 3h on 2026-09-19, and the
+     # schedule on its board row is the only authority for the cadence -- read
+     # it rather than trusting this number. Under the 7 daily fires he set, the
+     # largest structural gap is the 00:00 -> 06:00 one, so 8h leaves a run's
+     # worth of headroom and still catches two consecutive misses.
+     #
+     # 8h was previously REJECTED here, and a reader who remembers that needs
+     # the reason it is now correct: under the old 8:07/13:07/18:07 cadence the
+     # overnight gap was ~14h, so 8h went RED every morning on a healthy meter
+     # and the bound was widened to 16. The midnight run is what removed that
+     # gap. 16h under the new cadence stays green through two and a half missed
+     # runs, which is the failure this check exists to catch.
+     "max_age_hours": 8},
 
     # --- the monitor auditing itself. Editing the repo copy changes nothing;
     #     launchd execs the deployed copy. Without this, a forgotten redeploy

@@ -250,9 +250,11 @@ required."* A percentage is not an instruction, and he should not have to derive
 the table he was just handed. If the answer is that nothing needs doing, write **all
 clear** — that is a verdict, and an absent one reads as an unfinished section.
 
-**This digest does not drive a pane for `/usage`.** The live read belongs to `/token-watch`
-at 08:07, an hour later. Run `scripts/fleet_budget_watch.py` and report the estate panel as
-it stands.
+**This digest does not drive a pane for `/usage`.** The live read belongs to `/token-watch`,
+on whatever schedule its board row carries. Since 2026-09-19 that is every 3h, so the nearest
+run is usually shortly BEFORE this digest rather than after it — which makes the panel fresher
+than it used to be, and does not make it live. Run `scripts/fleet_budget_watch.py` and report
+the estate panel as it stands.
 
 **So the reading here is stale by construction, and must be labelled.** Say **"82% or
 worse"**, never "82%". A stale figure is a bound, not a measurement — and it can be wrong

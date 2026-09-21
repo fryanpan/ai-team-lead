@@ -251,10 +251,11 @@ the table he was just handed. If the answer is that nothing needs doing, write *
 clear** — that is a verdict, and an absent one reads as an unfinished section.
 
 **This digest does not drive a pane for `/usage`.** The live read belongs to `/token-watch`,
-on whatever schedule its board row carries. Since 2026-09-19 that is every 3h, so the nearest
-run is usually shortly BEFORE this digest rather than after it — which makes the panel fresher
-than it used to be, and does not make it live. Run `scripts/fleet_budget_watch.py` and report
-the estate panel as it stands.
+on whatever schedule its board row carries. As armed on 2026-09-19 that row fires at 06:00,
+47 minutes BEFORE this digest — which makes the panel fresher than it used to be, and does not
+make it live. Do not restate the cadence as an interval: the armed gaps are not uniform, and
+deriving one is what made the board's own stall detector file a false alarm on 2026-09-21.
+Run `scripts/fleet_budget_watch.py` and report the estate panel as it stands.
 
 **So the reading here is stale by construction, and must be labelled.** Say **"82% or
 worse"**, never "82%". A stale figure is a bound, not a measurement — and it can be wrong

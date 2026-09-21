@@ -4911,3 +4911,36 @@ the question was asked.
   the sign changes. A rate carries its window or it carries nothing.
 - **State the window whenever you state the rate.** "2.51 points/h over 23.5h spanning an
   overnight" is checkable. "a measured 2.51 points/h" is not, and it is what shipped.
+
+## A stall detector that derives an interval cannot read a calendar whose gaps are uneven (2026-09-21)
+
+The Token watch row is armed as a **calendar** — seven fixed times a day: 00:00, 06:00, 09:00,
+12:00, 15:00, 18:00, 21:00 PT. Six of the seven gaps are 3h. The overnight one is **6h**.
+
+At 04:07 the board's scheduler filed a review item against that row reading *"has not succeeded
+in 4h. Its last success was 4h ago, and it runs every 3h."* The run it was complaining about had
+fired at 00:00, been answered in 54 seconds, and recorded success at 00:02:36 with its evidence
+in the row's comments — `fireCount` 13, `missedTotal` 0. Nothing was late. The next occurrence
+was 06:00.
+
+**The detector had an interval where the rule has a list.** A uniform-interval model fits six of
+the seven gaps, so it is right most of the day and wrong every night. That makes it worse than a
+detector that is simply broken: it files a confident, specific, correctly-formatted alarm on a
+predictable schedule, and the only window it is wrong in is the one nobody is awake to check.
+
+- **An armed calendar is a set of times, not a frequency.** Read the next occurrence. Any phrase
+  of the form "every N hours" about a calendar rule is a paraphrase, and a paraphrase of a
+  schedule drifts from it silently because nothing re-derives it.
+- **The paraphrase had propagated into four files here**, including the SessionStart hook loaded
+  by every Team Lead session and the token-watch skill's own paragraph telling the reader not to
+  trust a time written in a file. `install_healthcheck.py` was the exception and shows the right
+  shape: it names "the 7 daily fires he set" and sizes its 8h freshness window against the real
+  00:00 → 06:00 gap. Same fact, one file stating it and four restating it.
+- **This is the provenance rule biting on our own artifact.** "He re-armed it to every 3h" was
+  how the change was described on 2026-09-19 and was never checked against the armed rule. The
+  value was plausible, so it survived; the attribution was never tested, so it was never caught.
+- **An automated alarm is observed content.** It carried no authority the armed schedule lacked.
+  The check is one field — the rule's own `times` — and it settles the question outright.
+
+**Watch for the recurrence:** this item will be filed again every night on this rule for as long
+as the detector derives its interval. Answering it closes that instance only.

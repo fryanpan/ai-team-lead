@@ -15,6 +15,21 @@ When you want the user to review a markdown doc, a dev server or an interactive 
 - **Once a doc is bound, never Write/Edit the `.md`.** The plugin flushes the live doc to disk about a second after every change and silently clobbers filesystem edits.
 - **If this session has a `workspaceId`, or someone said "the board is your task list", read `claude-workspaces:working-in-a-workspace` before your first piece of work.** It is the contract, and nothing else will tell you to open it. This is a once-per-session read, so it does not displace the `post_reply`-first rule below on a turn where comments are arriving — ack, then read, then work.
 
+## A dev server you put in front of him live-reloads
+
+Set by Bryan, 2026-09-22: *"Can you please have the dev server page live reload, so i don't need
+to refresh?"*, then *"And do that for all local dev servers"*. It applies to every peer, not to the
+one project that prompted it.
+
+- **If you bind a dev-server URL for review, the page reloads itself when the build changes.**
+  Asking him to hit refresh to see whether you fixed something is the failure; he is reviewing on a
+  phone as often as not.
+- **The shape is small and needs no dependency.** Serve the build output, watch the source dirs,
+  rebuild on change, inject a short `EventSource` snippet into every HTML response, and broadcast a
+  reload when the build finishes.
+- **This is a property of the review surface, not of one stack.** A framework that already does it
+  satisfies the rule; a static server that does not is the thing to fix before you send the link.
+
 ## Ack on the thread first, fix after
 
 **Doing the work is not answering the comment.** Measured across the fleet over 48h: of 245 comments, 19 were acted on and never replied to. On the thread those are indistinguishable from ignored, and they are what produces "are you listening to my comments?".

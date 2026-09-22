@@ -15,6 +15,12 @@ superseded 08:07/13:07/18:07 afterwards.
 of fixed times and its gaps are not uniform — measured 2026-09-21, the overnight gap was
 6h against 3h for the other six. The board's own stall detector derived the interval the
 same way and filed a false "has not succeeded in 4h" against a run that was on time.
+**Root-caused 2026-09-22 and a fix is in flight** — the scheduler took a calendar rule's
+interval as the gap between the next two occurrences plus 1h slack, so at 04:01 it measured
+06:00→09:00 and called the on-time 00:05 run stale. Two tickets are building against it. So
+treat a stale or stall signal on this row as *probably* spurious until that ships, and then
+stop: once it does, a stale signal here means something, and a skill still saying otherwise
+is the worse failure.
 
 The contract is `docs/process/token-control.md`
 — tiers, rotation policy, and the account-switch runbook live there and are not

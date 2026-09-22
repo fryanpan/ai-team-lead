@@ -4970,3 +4970,38 @@ had the same shape; one of them sat 1,013 rows under its own cap and would have 
 - **The tell that it had been broken for a while is the data, not the pipeline.** Nothing
   alerted; the series simply had a shape someone eventually looked at. A check that has
   never been proven to fail is a check with no evidence it is looking.
+
+## A peer's summary line is a cached assertion, and quoting it into a plan makes it the user's own state (2026-09-22)
+
+Writing the week's plan, I took a blocker straight from a peer's `set_summary` — "merge hold
+until two named people answer on where to merge and APK size" — and put it into a committed
+goal as the Tuesday stop, then told the user on his board that the week turned on two people
+outside the fleet. The peer corrected it within three minutes: its own summary was stale, the
+real hold was a three-week-old changes-request on one PR, and a separate PR's red CI was what
+gated the other ten. `gh pr view` on three PRs settled it in one command and confirmed the
+peer's correction, not its summary.
+
+**Grep for this when:** you are about to write another agent's state into a doc the user
+reads, a goal, a digest, or anything that will be quoted back to him.
+
+- **A summary is what a session last chose to publish about itself, not what is true now.**
+  It is written once and decays silently; nothing re-derives it when the underlying facts move.
+  Same family as the pane-is-a-render guard — an external surface describing state is not the
+  state.
+- **The cheap check is usually one command.** Three `gh pr view` calls answered a question I
+  had instead answered from a sentence someone else wrote weeks of facts ago.
+- **The damage is the attribution, not the error.** Once it is in his plan it reads as measured,
+  and he has no way to tell it from something I checked. Write what the peer said and what you
+  verified as two separate facts, or verify before writing.
+- **The peer was wrong about its own repo and right about the correction.** Both happened in one
+  exchange. That is the normal case, and it is why the verification belongs on my side of the
+  line rather than being delegated back.
+- **Corollary found the same day, and worth its own lookup:** on GitHub a later `COMMENTED`
+  review does **not** clear an earlier `CHANGES_REQUESTED` from the same reviewer. A PR can
+  show every reviewer having commented recently, with `reviewDecision` still
+  `CHANGES_REQUESTED` from a request weeks old. `gh api repos/<o>/<r>/pulls/<n>/reviews`
+  listing every review per reviewer is what shows it; the latest-per-reviewer view does not.
+- **A reviewer can approve while leaving a stated merge condition open.** One approved two
+  days after writing "get that sign-off explicitly before this merges". An APPROVED decision
+  is not evidence that the reviewer's conditions were met, and nothing on the PR surfaces the
+  unmet one — it is prose in a review body.

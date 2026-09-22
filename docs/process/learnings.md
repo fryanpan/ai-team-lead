@@ -4944,3 +4944,29 @@ predictable schedule, and the only window it is wrong in is the one nobody is aw
 
 **Watch for the recurrence:** this item will be filed again every night on this rule for as long
 as the detector derives its interval. Answering it closes that instance only.
+
+## A sanity floor set far below the failure mode passes as loudly as a correct result (2026-09-21)
+
+A collector requested 400,000 rows from an API table holding 454,438 and got exactly
+400,000 back, with **no error and no truncation flag**. Its guard asserted "at least
+10,000 rows", so the truncated result cleared the floor by 40x and published a series with
+two years silently missing and a third wrong by a factor of four. Two sibling collectors
+had the same shape; one of them sat 1,013 rows under its own cap and would have failed next.
+
+**Grep for this when:** you are writing or reviewing a row-count assertion, a `$limit` /
+`LIMIT` / `per_page` against an API you do not control, or any check phrased as "at least N".
+
+- **A floor chosen for "did anything come back" cannot detect "not everything came back."**
+  They are different questions and one number cannot answer both. The floor was doing its
+  original job correctly the entire time.
+- **Ask for the count first, then page until you have it.** That converts the check from a
+  guess about magnitude into an equality, and an equality cannot be off by 40x.
+- **A hard limit equal to the response length is the signal**, whether or not the API says
+  so. `len(rows) == limit` means "probably truncated" in every pagination API; it is one
+  line and it fires exactly when the floor cannot.
+- **Same family as the three-state verification rule in `workflow-conventions.md`.** Passed,
+  failed, and could-not-fully-look. A floor collapses the third into the first, which is the
+  bug — the check was not wrong, it was answering a question nobody was asking any more.
+- **The tell that it had been broken for a while is the data, not the pipeline.** Nothing
+  alerted; the series simply had a shape someone eventually looked at. A check that has
+  never been proven to fail is a check with no evidence it is looking.

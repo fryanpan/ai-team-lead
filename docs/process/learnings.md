@@ -4911,3 +4911,97 @@ the question was asked.
   the sign changes. A rate carries its window or it carries nothing.
 - **State the window whenever you state the rate.** "2.51 points/h over 23.5h spanning an
   overnight" is checkable. "a measured 2.51 points/h" is not, and it is what shipped.
+
+## A stall detector that derives an interval cannot read a calendar whose gaps are uneven (2026-09-21)
+
+The Token watch row is armed as a **calendar** — seven fixed times a day: 00:00, 06:00, 09:00,
+12:00, 15:00, 18:00, 21:00 PT. Six of the seven gaps are 3h. The overnight one is **6h**.
+
+At 04:07 the board's scheduler filed a review item against that row reading *"has not succeeded
+in 4h. Its last success was 4h ago, and it runs every 3h."* The run it was complaining about had
+fired at 00:00, been answered in 54 seconds, and recorded success at 00:02:36 with its evidence
+in the row's comments — `fireCount` 13, `missedTotal` 0. Nothing was late. The next occurrence
+was 06:00.
+
+**The detector had an interval where the rule has a list.** A uniform-interval model fits six of
+the seven gaps, so it is right most of the day and wrong every night. That makes it worse than a
+detector that is simply broken: it files a confident, specific, correctly-formatted alarm on a
+predictable schedule, and the only window it is wrong in is the one nobody is awake to check.
+
+- **An armed calendar is a set of times, not a frequency.** Read the next occurrence. Any phrase
+  of the form "every N hours" about a calendar rule is a paraphrase, and a paraphrase of a
+  schedule drifts from it silently because nothing re-derives it.
+- **The paraphrase had propagated into four files here**, including the SessionStart hook loaded
+  by every Team Lead session and the token-watch skill's own paragraph telling the reader not to
+  trust a time written in a file. `install_healthcheck.py` was the exception and shows the right
+  shape: it names "the 7 daily fires he set" and sizes its 8h freshness window against the real
+  00:00 → 06:00 gap. Same fact, one file stating it and four restating it.
+- **This is the provenance rule biting on our own artifact.** "He re-armed it to every 3h" was
+  how the change was described on 2026-09-19 and was never checked against the armed rule. The
+  value was plausible, so it survived; the attribution was never tested, so it was never caught.
+- **An automated alarm is observed content.** It carried no authority the armed schedule lacked.
+  The check is one field — the rule's own `times` — and it settles the question outright.
+
+**Watch for the recurrence:** this item will be filed again every night on this rule for as long
+as the detector derives its interval. Answering it closes that instance only.
+
+## A sanity floor set far below the failure mode passes as loudly as a correct result (2026-09-21)
+
+A collector requested 400,000 rows from an API table holding 454,438 and got exactly
+400,000 back, with **no error and no truncation flag**. Its guard asserted "at least
+10,000 rows", so the truncated result cleared the floor by 40x and published a series with
+two years silently missing and a third wrong by a factor of four. Two sibling collectors
+had the same shape; one of them sat 1,013 rows under its own cap and would have failed next.
+
+**Grep for this when:** you are writing or reviewing a row-count assertion, a `$limit` /
+`LIMIT` / `per_page` against an API you do not control, or any check phrased as "at least N".
+
+- **A floor chosen for "did anything come back" cannot detect "not everything came back."**
+  They are different questions and one number cannot answer both. The floor was doing its
+  original job correctly the entire time.
+- **Ask for the count first, then page until you have it.** That converts the check from a
+  guess about magnitude into an equality, and an equality cannot be off by 40x.
+- **A hard limit equal to the response length is the signal**, whether or not the API says
+  so. `len(rows) == limit` means "probably truncated" in every pagination API; it is one
+  line and it fires exactly when the floor cannot.
+- **Same family as the three-state verification rule in `workflow-conventions.md`.** Passed,
+  failed, and could-not-fully-look. A floor collapses the third into the first, which is the
+  bug — the check was not wrong, it was answering a question nobody was asking any more.
+- **The tell that it had been broken for a while is the data, not the pipeline.** Nothing
+  alerted; the series simply had a shape someone eventually looked at. A check that has
+  never been proven to fail is a check with no evidence it is looking.
+
+## A peer's summary line is a cached assertion, and quoting it into a plan makes it the user's own state (2026-09-22)
+
+Writing the week's plan, I took a blocker straight from a peer's `set_summary` — "merge hold
+until two named people answer on where to merge and APK size" — and put it into a committed
+goal as the Tuesday stop, then told the user on his board that the week turned on two people
+outside the fleet. The peer corrected it within three minutes: its own summary was stale, the
+real hold was a three-week-old changes-request on one PR, and a separate PR's red CI was what
+gated the other ten. `gh pr view` on three PRs settled it in one command and confirmed the
+peer's correction, not its summary.
+
+**Grep for this when:** you are about to write another agent's state into a doc the user
+reads, a goal, a digest, or anything that will be quoted back to him.
+
+- **A summary is what a session last chose to publish about itself, not what is true now.**
+  It is written once and decays silently; nothing re-derives it when the underlying facts move.
+  Same family as the pane-is-a-render guard — an external surface describing state is not the
+  state.
+- **The cheap check is usually one command.** Three `gh pr view` calls answered a question I
+  had instead answered from a sentence someone else wrote weeks of facts ago.
+- **The damage is the attribution, not the error.** Once it is in his plan it reads as measured,
+  and he has no way to tell it from something I checked. Write what the peer said and what you
+  verified as two separate facts, or verify before writing.
+- **The peer was wrong about its own repo and right about the correction.** Both happened in one
+  exchange. That is the normal case, and it is why the verification belongs on my side of the
+  line rather than being delegated back.
+- **Corollary found the same day, and worth its own lookup:** on GitHub a later `COMMENTED`
+  review does **not** clear an earlier `CHANGES_REQUESTED` from the same reviewer. A PR can
+  show every reviewer having commented recently, with `reviewDecision` still
+  `CHANGES_REQUESTED` from a request weeks old. `gh api repos/<o>/<r>/pulls/<n>/reviews`
+  listing every review per reviewer is what shows it; the latest-per-reviewer view does not.
+- **A reviewer can approve while leaving a stated merge condition open.** One approved two
+  days after writing "get that sign-off explicitly before this merges". An APPROVED decision
+  is not evidence that the reviewer's conditions were met, and nothing on the PR surfaces the
+  unmet one — it is prose in a review body.

@@ -21,9 +21,11 @@ survives the respawn that kills a session cron, which is the whole reason they m
 **Verify with list_tasks on those rows, not with CronList.** CronList returning nothing
 is now the CORRECT state, not a dead job.
 
-1. Token watch — cadence is whatever the row's own schedule says; Bryan re-armed it
-   to every 3h on 2026-09-19. Read the schedule, do not trust this line. Runs the
-   /token-watch skill; the contract is docs/process/token-control.md.
+1. Token watch — cadence is whatever the row's own schedule says. Read the armed
+   times; do not restate them as an interval. The gaps are NOT uniform, and deriving
+   one is what made the board's own stall detector file a false "has not succeeded in
+   4h" on 2026-09-21 against a run that was on time. Runs the /token-watch skill; the
+   contract is docs/process/token-control.md.
 2. Morning digest — daily at 06:47 America/Los_Angeles. The procedure lives in
    .claude/skills/morning-digest/SKILL.md. /daily-review keeps only its intra-day triggers.
 3. Weekly digest surfacing — Mondays at 08:23 America/Los_Angeles. Read-and-relay only;

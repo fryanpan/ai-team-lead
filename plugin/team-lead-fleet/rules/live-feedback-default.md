@@ -132,7 +132,7 @@ reason from the other direction.
 - **Check both directions when you audit.** "What am I waiting on from them" is the easy half. "What did they
   ask me that I never closed" is the half that ages invisibly, and neither detector covers it.
 
-**Four things are invisible to every status-keyed detector**, and they share one cause — the detector walks
+**Five things are invisible to every status-keyed detector**, and they share one cause — the detector walks
 task rows and keys on their state, and none of those states is "has an unanswered question":
 
 1. **A row carrying a `schedule` field.** Whether the ordinary ask path reaches one has already flipped
@@ -147,6 +147,17 @@ task rows and keys on their state, and none of those states is "has an unanswere
    held a 23-day-old commitment of mine whose condition had been met weeks earlier. **The doc-cleanup job
    makes it worse**, reading an idle doc and asking its owner to delete it, with open threads counted only
    as a force-delete warning. Sweep docs separately from rows, and read the last comment's author.
+
+5. **An item on a row still in the un-vetted state.** Filing the item is only half of making an ask
+   visible; the row has to be in a state the queue walks. A row nobody has vetted is held out of the
+   ready queue by design, and everything hanging off it is held out with it — so a well-shaped,
+   one-tap question sits exactly as unseen as the doc comment it replaced. Measured 2026-09-23: an
+   approval gating a week's goal was moved out of a doc body onto a row, revised five times to pass
+   the quality gate, admitted — and still returned nothing, because the row had never been vetted.
+   **The check is one call and it is the same one either way: ask the board for what needs an answer,
+   and confirm your item is in the reply.** An empty answer with an unanswered item on the board is
+   the signature. Sweep your own un-vetted rows periodically; they accumulate silently, and on that
+   board six of ten rows were sitting there.
 
 **Start from the detector's own output, not from a fresh sweep.** When a stall frame names items, it has
 already done the join you would otherwise redo by hand. Re-run its predicate against the docs it named

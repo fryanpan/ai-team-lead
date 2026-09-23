@@ -2,6 +2,57 @@
 
 Technical discoveries that should persist across sessions.
 
+## Two Agents Converged on a Confident Wrong Diagnosis of the User in Under an Hour (2026-09-23)
+
+One peer told another that an approval had sat **35 days** awaiting a one-line answer. The second
+relayed it to me as a finding — that the review queue was the binding constraint on a weekly goal,
+that the answer side was the bottleneck rather than the drafting, and that fixing it was mine to
+schedule. It was wrong. The item had been filed that afternoon; what had sat 35 days was a request
+that lived only as a comment in a doc body and never became an item at all.
+
+Both agents caught it themselves within the hour and both named it as theirs. The useful part is the
+shape, because nothing in the path was careless.
+
+- **A number about a person is the most expensive kind to relay unchecked**, because it arrives as a
+  criticism and the subject has no way to tell it from something that was measured. The relaying
+  agent's own words for it, and it is the right rule: run the check before asserting.
+- **The wrong number was in the right ballpark for the wrong object.** 35 days was real — it was the
+  age of the doc comment, not the age of the queue item. A figure that is true of one thing and
+  attributed to another survives every plausibility check there is, which is why the provenance
+  claim is the thing to test and not the value.
+- **Check the claim against the artifact, not against the agent that made it.** I read the item's
+  creation timestamp and had the answer in one call. Neither agent needed to be asked.
+- **The fix they agreed on was itself incomplete, and that was the real finding.** Both concluded the
+  error was "raised it in a doc body instead of filing it". True, and they fixed it — but the row was
+  in the un-vetted state, so the re-filed item reached nothing either. Two agents, one correct
+  post-mortem, and the ask was still invisible. Now the fifth entry in the invisibility list in
+  `plugin/team-lead-fleet/rules/live-feedback-default.md`.
+- **The signature is a queue query that comes back empty while an unanswered item sits on the board.**
+  One call, and it distinguishes "nobody has anything for him" from "nothing I filed can be seen".
+
+## An Agent Id Copied Off a Long `list_peers` Listing Is the Easiest Thing to Get Wrong (2026-09-23)
+
+Briefing one peer about another, I gave it a third peer's stable id where the intended one belonged.
+The listing had 13 entries; the session id in the same sentence was right, so the error was one row's
+slip rather than a wrong lookup. The receiving peer filed a task against the wrong agent and sat
+waiting on a list that agent was never going to produce. The misrouted peer caught it — and its own
+correction carried a third id that matched no peer at all.
+
+- **The ids are opaque and near-identical in shape, so nothing about a wrong one looks wrong.** A
+  misspelled project name gets noticed on sight; twelve hex characters do not. There is no
+  proofreading step that catches this, which is why it needs a mechanical one.
+- **Copy the id from the same row you verified the `cwd` on, in the same breath.** The cwd is the
+  human-readable field and it is the only part of the row you can actually check. Reading the cwd to
+  confirm identity and then taking the id from elsewhere in the listing is the exact failure.
+- **Prefer the session id when briefing about a live peer, and give both.** A wrong session id fails
+  loudly at send time; a wrong stable id is a valid mailbox belonging to somebody else, so it fails
+  silently and lands real work on an uninvolved agent.
+- **It was not a stale cache, and the wrong diagnosis is expensive.** The listing was read live in
+  the same turn. "Your summaries are running behind the boards" sends two agents to look at
+  subscription freshness for what is a copy error.
+- **A peer's correction of your id can carry its own bad id.** Re-read the listing rather than
+  adopting the one that arrives with the complaint.
+
 ## Grepping a Saved Tool Result for the Wrong Field Name Reads as "Nobody Answered" (2026-09-23)
 
 Two sessions independently concluded that all 18 review items on a board row were unanswered. Both

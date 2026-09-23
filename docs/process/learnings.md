@@ -2,6 +2,33 @@
 
 Technical discoveries that should persist across sessions.
 
+## Five Wrong Assertions in One Evening, All From Carried Values Rather Than Live Reads (2026-09-23)
+
+Across one evening, between me and one peer: a peer id taken off the wrong row of a 13-entry listing;
+an invisibility proof built on a filter that could not fail; a 35-day figure that was true of one
+object and attributed to another; a goal id cited across boards, where ids do not resolve; and a
+"no goal" flag read off a persisted snapshot when the row had been placed all along.
+
+The peer named the common cause better than I had: **reading a value you already hold feels like
+checking, and nothing at the call site distinguishes it from a live query.** Every one of these was
+a lookup of some kind. None was a lookup of the current state.
+
+- **"Did I check?" is the wrong question; "when was this value produced?" is the right one.** The
+  first is answered yes by a persisted result, a listing from earlier in the turn, and a number a
+  peer sent an hour ago. The second exposes all three.
+- **The ones that reach a person are the expensive ones.** The 35-day figure arrived as a criticism
+  of someone who had done nothing wrong, and they would have had no way to tell it from a
+  measurement. That asymmetry is the argument for checking claims *about people* hardest.
+- **Cross-surface identifiers do not resolve, and the failure is not always loud.** A goal id from
+  one board returned `unknown-goal` on another, which is the good case. A stable id from the wrong
+  row is a *valid* mailbox belonging to someone else, so it lands real work silently.
+- **The cure is cheap and specific: re-query at the point of assertion, not at the point of
+  gathering.** Every one of these had a one-call live check available, and in each case the stale
+  value was close enough to plausible that nothing prompted the call.
+- **Filed as a fleet rule**, in the provenance section of
+  `plugin/team-lead-fleet/rules/workflow-conventions.md`, because it is a writing-and-asserting
+  discipline rather than something anyone would think to grep for.
+
 ## Two Agents Converged on a Confident Wrong Diagnosis of the User in Under an Hour (2026-09-23)
 
 One peer told another that an approval had sat **35 days** awaiting a one-line answer. The second

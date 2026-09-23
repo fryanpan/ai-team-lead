@@ -162,6 +162,16 @@ because it was plausible, and the attribution was never tested because nothing p
   satisfies both. Worse, a demand for specificity actively rewards inventing one.
 - **It propagates.** An unchecked attribution is repeated verbatim by whoever reads it next, including
   upward to the user, who has no way to tell it from something they actually said.
+- **A stale read and a real check look identical at the call site, and that is why the discipline
+  fails.** Re-reading a value you already have in context — a persisted tool result, a listing from
+  earlier in the session, a number a peer sent an hour ago — *feels* like verifying, because you did
+  look something up. Nothing at the moment of looking distinguishes it from a live query. Measured
+  2026-09-23: one agent made three assertions from carried values in a single evening, one of which
+  reached the user as a criticism of him, and named the pattern itself. Two more in the same evening
+  came from an id copied off the wrong row of a listing that had been read live.
+  **The test is not "did I check" but "when was this value produced".** If you cannot say, it is
+  stale. A persisted result is evidence about the moment it was captured and nothing later.
+
 - **Check the figure's DEPENDENTS, not just its source.** A per-figure source check finds "a real number
   with the wrong population" and completely misses "a real number three other sentences quietly rest on."
   When a figure comes under dispute, grep the whole artifact for it before revising anything — one command.

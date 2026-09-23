@@ -154,10 +154,17 @@ task rows and keys on their state, and none of those states is "has an unanswere
    one-tap question sits exactly as unseen as the doc comment it replaced. Measured 2026-09-23: an
    approval gating a week's goal was moved out of a doc body onto a row, revised five times to pass
    the quality gate, admitted — and still returned nothing, because the row had never been vetted.
-   **The check is one call and it is the same one either way: ask the board for what needs an answer,
-   and confirm your item is in the reply.** An empty answer with an unanswered item on the board is
-   the signature. Sweep your own un-vetted rows periodically; they accumulate silently, and on that
-   board six of ten rows were sitting there.
+   **Read the row's own state, and get a positive control.** The state is the fact; a filter that
+   *sounds* like it asks "what needs an answer" may be reading a field somebody has to set by hand,
+   in which case it returns empty on a board where nobody sets it and proves nothing either way. The
+   control is the cheap half and it is the stronger evidence: has anything ever filed on this row
+   come back answered? If yes, items on it reach the reader; if nothing on it has ever been answered,
+   do not assume the row is the reason, but do not assume it is not.
+   **Leaving the un-vetted state may not be enough on its own.** An enforced dependency on another
+   un-vetted row blocks the transition, so a row can be vetted and still stuck behind one that is
+   not — vet the chain, not the row. Sweep your own un-vetted rows periodically; they accumulate
+   silently, and on that board six of ten were sitting there, which also left it with no active row
+   at all.
 
 **Start from the detector's own output, not from a fresh sweep.** When a stall frame names items, it has
 already done the join you would otherwise redo by hand. Re-run its predicate against the docs it named

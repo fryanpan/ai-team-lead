@@ -27,8 +27,16 @@ shape, because nothing in the path was careless.
   in the un-vetted state, so the re-filed item reached nothing either. Two agents, one correct
   post-mortem, and the ask was still invisible. Now the fifth entry in the invisibility list in
   `plugin/team-lead-fleet/rules/live-feedback-default.md`.
-- **The signature is a queue query that comes back empty while an unanswered item sits on the board.**
-  One call, and it distinguishes "nobody has anything for him" from "nothing I filed can be seen".
+- **My own proof of it was invalid, and I had already written it into a fleet rule before the owning
+  agent corrected me.** I cited a queue query returning empty as evidence the item was unreachable.
+  That filter reads a field an agent sets by hand; no row on that board had it set, so it returns
+  empty always and could not have come back non-empty whatever the statuses were. The conclusion
+  survived on other evidence — the owning agent found the documented statement that un-vetted rows
+  never appear — but a check that cannot fail is not a check, which is the same defect this file
+  warns about elsewhere and I shipped it into a rule every peer loads.
+- **A wrong probe is worse than none when it agrees with you.** It read as confirmation because the
+  answer matched what I already believed, and nothing about an empty result says which of "looked and
+  found nothing" or "could not look" produced it.
 
 ## An Agent Id Copied Off a Long `list_peers` Listing Is the Easiest Thing to Get Wrong (2026-09-23)
 

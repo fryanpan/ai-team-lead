@@ -49,18 +49,18 @@ shape, because nothing in the path was careless.
   claim is the thing to test and not the value.
 - **Check the claim against the artifact, not against the agent that made it.** I read the item's
   creation timestamp and had the answer in one call. Neither agent needed to be asked.
-- **The fix they agreed on was itself incomplete, and that was the real finding.** Both concluded the
-  error was "raised it in a doc body instead of filing it". True, and they fixed it — but the row was
-  in the un-vetted state, so the re-filed item reached nothing either. Two agents, one correct
-  post-mortem, and the ask was still invisible. Now the fifth entry in the invisibility list in
-  `plugin/team-lead-fleet/rules/live-feedback-default.md`.
-- **My own proof of it was invalid, and I had already written it into a fleet rule before the owning
-  agent corrected me.** I cited a queue query returning empty as evidence the item was unreachable.
-  That filter reads a field an agent sets by hand; no row on that board had it set, so it returns
-  empty always and could not have come back non-empty whatever the statuses were. The conclusion
-  survived on other evidence — the owning agent found the documented statement that un-vetted rows
-  never appear — but a check that cannot fail is not a check, which is the same defect this file
-  warns about elsewhere and I shipped it into a rule every peer loads.
+- **The fix they agreed on was right, and I talked one of them partway out of it.** Both concluded
+  the error was "raised it in a doc body instead of filing it". That was the whole cause. I added a
+  second one — that the row's un-vetted state made the re-filed item invisible too — and it was wrong.
+  The owning agent adopted it into its own learnings on my say-so, before either of us had checked.
+- **My proof was invalid, I shipped it into a fleet rule, and the conclusion did not survive.** I
+  cited a queue query returning empty as evidence the item was unreachable. That filter reads a field
+  an agent sets by hand; no row on that board had it set, so it returns empty always and could not
+  have come back non-empty whatever the statuses were. The supporting evidence was a documented
+  sentence saying un-vetted rows never appear in "the queue" — which means the AGENT's ready list, not
+  the person's view. An hour later the owning agent got the real control: a row that sat un-vetted for
+  a week carried three answered items during that window. The rule entry is
+  withdrawn; what replaces it is the two-surfaces hazard and the control that settles it.
 - **A wrong probe is worse than none when it agrees with you.** It read as confirmation because the
   answer matched what I already believed, and nothing about an empty result says which of "looked and
   found nothing" or "could not look" produced it.

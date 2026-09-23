@@ -22,7 +22,7 @@ Every goal has these parts. Lead every block with a **bold brief label**, and ke
 | Due | `- **Due**: <Day> YYYY-MM-DD` | its own bullet |
 | Lead | `- **Lead**: <agent> · <the user's role>` | its own bullet — separate from Due (different info type) |
 | Constraint | `- **Constraint:** <one line>` | **only when a real operating limit exists** (e.g. "agents draft, you send"). Not a place for context. |
-| Key Outcomes | `- **Key Outcomes**` then a **numbered** list, **at most 5** | each outcome is `<when> — <what>`, plus one clause of why it has to happen then. **Label is `Key Outcomes`** (renamed from `Key stops` by the user, 2026-09-13). These become the workspace tasks (step 9). |
+| Key Outcomes | `- **Key Outcomes**` then a **numbered** list, **at most 5** | each outcome is `<when> — <what>`, plus one clause of why it has to happen then. **Label is `Key Outcomes`** (renamed from `Key stops` by the user, 2026-09-13). These become the workspace tasks (step 11). |
 | Estimated hands-on hours | `- **Estimated hands-on hours:** <derivation>` | **only when the derivation is worth showing** — the baseline-without-agents figure and what his share of it is. Named by him on 2026-08-27; it was previously `Estimate basis`, which described the method rather than the number. The number itself still lives in the title. |
 
 ### There is no Value block — the title carries the value (set 2026-08-17, repeated 2026-08-27)
@@ -57,6 +57,7 @@ The user had to say this twice in one session, the second time watching it happe
 | Constraint | **one line**, and only when a real operating limit exists |
 | Committed-vs-capacity header | **one or two sentences** — the totals and the single biggest structural risk |
 | Key Outcomes per goal | **≤ 5** |
+| `## Last week` section | **≤ 5 bullets** — what happened, and the blockers this week has to clear |
 
 **The failure mode is relaying, not writing.** Every over-long block in this doc came from a peer sending good analysis and it being pasted in. A peer's reasoning is for the thread; only its **conclusion** belongs in the plan. When an agent sends three paragraphs on why a date moved, the plan gets the moved date and the thread gets the paragraphs — never both.
 
@@ -103,7 +104,7 @@ Format: a `## Capacity: ~Xh` heading carrying the week total, then a clean per-d
 
 Capacity is what the calendar allows; the previous plan's committed total is what he has actually proven he does. On 2026-08-17 those told opposite stories — 28h read as "just inside 30h capacity," and read as **1.5x last week's 18h plan, which he hit to within an hour (18.8h delivered)**. The second framing is the informative one and it takes one number to compute.
 
-- **Pull the prior plan's committed total in step 2** and carry it into the header line.
+- **Pull the prior plan's committed total in step 4** and carry it into the header line.
 - **When the prior plan was accurate, say so** — it makes his own estimating a usable instrument instead of something re-argued each week.
 - **A big jump over a proven-accurate plan is the finding**, and it is not fixed by capacity headroom. Name it and let him decide; do not quietly trim goals.
 
@@ -124,6 +125,12 @@ Mechanics:
 - Only count hours **inside 9am–5pm**. An early or evening call does not reduce the number; the 7h baseline already reserves that time.
 - **A medication or self-care reminder is not a meeting.** Don't subtract for it.
 - **Weekend is always 2h, unless he is booked on a trip.** Not zero, and not derived from meetings.
+  - **A trip is not automatically a zero, and he has to be the one who says so.** Corrected by him
+    2026-09-22, on a weekend away that had been zeroed under the travel rule below: he expected
+    reception, wanted the trip to be the focus, and still expected some time to poke at things. Keep
+    the 2h and ask, rather than zeroing and waiting to be corrected. The trip's own calendar block
+    already removes the hours it actually consumes; zeroing the rest of the day charges him twice
+    for it.
 - **This derivation produces AVAILABLE hours, not plannable ones.** It can only see calendar events, so it cannot subtract the reserves above. Take those off afterwards and report both totals.
 - **Prorate the current day.** Planning usually happens Monday partway through — a 7h Monday that starts at noon is really ~4h. Check the clock (`date`), don't assume a full day.
 - **Travel, PTO, and all-day events zero out the day.** Say which event did it.
@@ -152,55 +159,81 @@ Mechanics:
    - **Once bound, never `Write`/`Edit` the .md again.** Route every later change through the live-feedback edit tools — a direct file write races the ~1s flush and gets silently clobbered.
    - **Never `set_doc_content` on a plan the user might have open.** It is a block-level diff that applies *your* full markdown, so any block he added between your read and your write is deleted with no error. Two calls four minutes apart destroyed his live edits on 2026-08-17, and `.claude/reviews/` is gitignored so there is no recovery. Use `find_and_replace` for prose, `create_anchor` + `delete_block_at_anchor` / `insert_blocks_at_anchor` for structure, `delete_section` for a whole heading region.
 
-2. **Pull carry-overs from last week's doc.**
+2. **Read last week's Weekly Review page FIRST, and get his OK on it.**
+   - Set by him 2026-09-22: the weekly review is *"supposed to give me a way to review each week at a summary level and say if it looks OK or not before we publish anything"*, scheduled *"so it runs on Monday and is part of my review of last week"*, and timed *"early enough pacific time on Monday morning so that the results are ready for you when you do your weekly review."*
+   - **The page is Weekly Review's to produce, armed as a schedule on its own board row for 04:00 PT Monday.** Its board is the `workspace_id` the registry gives the measurement project, and the row is the one titled for his Monday OK; the armed rule was verified there on 2026-09-22 (calendar, Mondays 04:00 America/Los_Angeles, `onMissed: catch-up`). Read the page; do not rebuild it, and do not compose a week summary of your own.
+   - **His OK lives as a review item on that row, not on the page.** Read the row's items for the answer before you open the page — that is where "looks right / not right / needs a change" is recorded.
+   - **A board schedule wakes a session; it does not guarantee one was awake.** Weekly Review stated this limit on 2026-09-22: if none of its sessions is alive at 04:00 the fire is caught up whenever one starts, which can land after 07:00. So check the row's status for produced / failed / could not run rather than assuming 04:00 means done — and if you need the page at planning time and it is not there, spin its session up rather than waiting.
+   - **04:00 is his number and it buys overrun, not earliness.** Set 2026-09-22: *"so even if it takes an hour, it'll have data ready for sure by the time you run morning digest."* The morning digest is 06:47 PT, so the run has a full hour to go long before anything downstream reads it. Moving it later eats that margin.
+   - **Ask him for one answer — OK or not OK — and write it into the new week's doc**, so the record carries his verdict rather than a thread does. A week he has not OK'd does not feed a published number.
+   - **A missing page is "could not look", never "the week was fine".** If it is not there by planning time, say so in those words, say the page is missing, and carry on — an absent page is the one failure that hides every other.
+
+3. **Review how last week actually went, and name the blockers the coming week has to clear.**
+   - Asked for by him 2026-09-22: *"please have weekly plan review how the last week went, and identify major blockers to address in the coming week."* It is a step, not a cross-check — the old guidance below was only ever consulted when a week already looked bad, so a week that slipped quietly never got one.
+   - **Read `## Reviewing why a week slipped` before doing this**, and delegate the measurement to the Weekly Review project rather than rolling your own transcript rollup. Step 2's page is the input; you are reading it, not rebuilding it.
+   - **Separate the three, because they need different fixes**: a goal that overran its estimate, a goal that never started, and a goal that was blocked. Only the third produces a blocker for this week.
+   - **A blocker names who clears it and what specifically unblocks it.** "Waiting on the API" is an observation; "the Oura refresh token was never reconnected, and only he can do it" is a blocker. One without an owner does not go in the list — chase the owner or drop it.
+   - **A blocker that has now appeared two weeks running is escalated, not re-listed.** Say it is the second week and say what changes this time. Re-listing is how a blocker becomes furniture.
+   - **Write it into the doc as `## Last week`, directly under the capacity block, at most 5 bullets.** The blockers go there too, since a blocker nobody can see is not addressed. Anything longer belongs on the thread.
+   - **Carry each blocker into a goal or say explicitly that it is not being cleared this week.** A blocker listed and then unmentioned in every goal has been noted rather than addressed, which is the failure this step exists to prevent.
+
+4. **Pull carry-overs from last week's doc.**
    - Locate the prior `.claude/reviews/weekly-YYYY-MM-DD.md`.
    - List every goal whose sub-outcomes aren't all checked OR that's part of a multi-week sequence.
    - Seed them into a `## Candidate goals (carry-over)` section of the new doc, preserving title/due/estimate. Mark explicitly as `(carry-over)`.
    - **Check the carry-over against evidence, don't just re-list it.** A goal can look untouched on the page and have absorbed most of the week — see `## Reviewing why a week slipped` below.
 
-3. **Surface new candidate goals.**
+5. **Surface new candidate goals.**
    - Pull from: this week's open PRs across the fleet (`gh pr list` per repo), peer summaries (`list_peers` + recent transcripts), open tasks and decisions already on the workspace board, anything the user said this week that sounded like a commitment.
    - Add them to a `## Candidate goals (new)` section in the same goal shape.
 
-4. **Prioritize.**
+6. **Prioritize.**
    - Sort the combined candidate list by the user's priority (1 = highest). Use the user's recent voice signals: deadlines, dependencies, things he's mentioned more than once, customer-facing > internal > polish.
    - Number them — `1.`, `2.`, etc — in descending priority.
 
-5. **Estimate hands-on hours per goal — by the method in `effort-estimates.md`, not by feel.**
+7. **Estimate hands-on hours per goal — by the method in `effort-estimates.md`, not by feel.**
    - **Decompose the goal into components first**, size each one as human-engineer hours without LLM help, and add them. That sum is the baseline. A whole-goal guess reverts to pre-agentic priors and is the failure this step exists to prevent.
    - **Put each unknown on its own line with a range** — the API nobody has read, the decision nobody has made. If the unknowns outweigh the known work, the goal for this week is a scoping pass, not the build.
    - **Convert**: hands-on = baseline ÷ 15, wall clock = baseline ÷ 10 (÷5 for both on non-software). Show the baseline you divided.
    - Note agent-time separately only if it's load-bearing for the goal (e.g., "blocked on Health Tool agent for 2h before the user can review").
    - Irreducible user time — his reading, his judgement calls, his voice pass — is **not divided**. Neither is waiting on a third party.
 
-6. **the user picks.**
+8. **the user picks.**
    - Tell the user both totals you derived (see `## Capacity block`) and show the derivation — don't ask him for the number. Available comes from the calendar; plannable is what is left after the reserves, and it is the one goals are sized against.
    - the user tags each goal: ✅ commit / ❌ drop / 📦 defer (with target week).
    - Drop the dropped + defer the deferred. Keep the page lean — only commits show in the final plan.
 
-7. **Expand kept goals.**
+9. **Expand kept goals.**
    - For each ✅ goal, add the **Lead** line (owning fleet agent + the user's role) so every area has a clear point-person.
    - Add sub-outcomes only if the title isn't already self-evident.
    - Note any cross-agent dependencies on the Lead line or a one-liner (e.g., "Personal Finance agent owns the prep; the user reviews Wed").
    - Do NOT pre-fill a daily hitlist. The `daily-review` skill handles the day-by-day surface.
 
-8. **Confirm + commit.**
+10. **Confirm + commit.**
    - Read the page back to the user: "Week of YYYY-MM-DD: N goals, ~Xh committed against ~Yh plannable (~Zh available). Top 3: ..." — always state committed-vs-plannable, not just the goal count, and never quote available alone.
    - Wait for confirmation. Adjust if needed. Then move on.
 
-9. **Mirror the committed goals onto the workspace board.**
-   - Do this only AFTER the goals are confirmed (step 8) — never before (`feedback_notion_goals_before_asana` memory; the rule survives the move off Notion, only the surface changed).
+11. **Mirror the committed goals onto the workspace board.**
+   - Do this only AFTER the goals are confirmed (step 10) — never before (`feedback_notion_goals_before_asana` memory; the rule survives the move off Notion, only the surface changed).
    - `set_goal_list` with one band per ✅ goal, in priority order. A goal that is really a chain of outcomes (build → decide → publish) is one parent band with subgoals, not three peers — peers hide the dependency.
    - `create_tasks` for the work **the fleet owns**, one batch, each row with a body someone not in this conversation could pick up. Use `after` / `afterEnforce` to encode the chain rather than relying on the reader to infer it.
    - **Create tasks for yourself (Team Lead) for anything handled in the ai-team-lead project.** That is the point of the board — the user should not be the only one with a task list.
    - Leave anything not tied to a committed goal in Chores.
 
-10. **Communicate the plan to the team.**
+   **Then rank the projects — the band ORDER is what Home's "Prioritized Projects" reads.** Asked for by him on 2026-09-22: *"keep the projects up to date once we've signed off on the plan."* It is part of this step, not a separate errand, and it runs every week without being asked.
+
+   - **Each band's body doc carries a full link to its project's board**: `set_doc_content(docId: "task:<goalId>", markdown: "Week of YYYY-MM-DD, goal N. Board: [name](https://workspaces.fryanpan.com/workspaces/<id>)")`. Home finds a project ONLY through that link — a board no goal links to sinks to the recency tail. The ids are in `registry.yaml` under `workspace_id`.
+   - **Reuse last week's bands rather than creating new ones.** `unarchive_task(workspaceId, goalId)` brings one back with its history and `rename_goal` retitles it in place. `set_goal_list` is for a first setup; run against a live board it discards what is there.
+   - **`reorder_goals(workspaceId, order)` is the rank control, and it is permutation-only** — pass every reorderable goal id, this week's bands first in goal order, then the standing fleet bands. Passing a non-reorderable band (Backlog) is an error, and omitting one is too.
+   - **A goal with two leads gets both links, and both projects rank at that goal's position**, which pushes the next goal's projects down. Say so in the report rather than letting him find it.
+   - **Verify on Home, not from the call results.** `curl -s http://127.0.0.1:8787/`, read the Prioritized Projects list back, and report the order you actually saw.
+
+12. **Communicate the plan to the team.**
     - Only after the user has reviewed the doc.
     - Message each peer that leads a committed goal via claude-hive `send_message`: the goal, its due date, and its dependencies. Goal and context only — no prescriptive checklists, no "report back when done" (`feedback_delegating_to_peers`, `feedback_dont_wire_in_status_reports`).
     - Spin up any owning agent that isn't running; spin it back down when its task is done.
 
-11. **Do NOT mirror the plan into Asana.** Removed 2026-09-16 on the user's instruction: *"Stop the Asana syncs. It's duplicating stuff that's on the workspaces."* The committed goals go onto the workspace board (step 9) and anything needing him becomes a review item on his Home queue. That is the whole surface. Asana held a parallel copy of the same asks, which meant every change had two places to be made and one place to be forgotten.
+13. **Do NOT mirror the plan into Asana.** Removed 2026-09-16 on the user's instruction: *"Stop the Asana syncs. It's duplicating stuff that's on the workspaces."* The committed goals go onto the workspace board (step 11) and anything needing him becomes a review item on his Home queue. That is the whole surface. Asana held a parallel copy of the same asks, which meant every change had two places to be made and one place to be forgotten.
 
 ## What to avoid
 
@@ -236,7 +269,7 @@ The bullets below are for reading its output, not for producing your own:
 Once the plan is set, this doc is the team's shared anchor for the week:
 - Team Lead is auto-subscribed from `create_review_doc` — the user's comments fire as channel events on the doc's threads.
 - The `daily-review` skill writes a fresh `.claude/reviews/YYYY-MM-DD.md` each day; it pulls the goal list from this doc to anchor priority order.
-- **The workspace board carries the tasks — the team's and his.** Anything needing him is a review item on his Home queue. There is no second task surface; see step 11.
+- **The workspace board carries the tasks — the team's and his.** Anything needing him is a review item on his Home queue. There is no second task surface; see step 13.
 - Apply the user's comments with the live-feedback edit tools, never by writing the file.
 - When a goal completes, check off all its sub-outcomes and move it to a `## Done` section at the bottom.
 - When a goal slips, update the due date in place and note why in one line.

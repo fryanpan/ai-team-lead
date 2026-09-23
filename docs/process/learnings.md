@@ -2,6 +2,66 @@
 
 Technical discoveries that should persist across sessions.
 
+## Grepping a Saved Tool Result for the Wrong Field Name Reads as "Nobody Answered" (2026-09-23)
+
+Two sessions independently concluded that all 18 review items on a board row were unanswered. Both
+had grepped the saved JSON for `answeredAt`, got zero hits, and read zero as absence. The field is
+`answer`. Every one of the 18 had in fact been answered, with a name and a timestamp, over four days.
+
+I relayed the wrong version to Bryan as a finding before the other session caught it by parsing the
+structure instead of the text.
+
+- **A grep for a field name has the three-state problem in its purest form.** Zero hits means "the
+  field is absent", "the field is named something else", or "I misspelled it" — and they are
+  indistinguishable from the exit code. Only the first is the one anybody reads it as.
+- **Parse the structure once before grepping it repeatedly.** `python3 -c 'import json; print(sorted(k for t in ... for k in t))'`
+  over one record costs a single call and tells you what the field is actually called. A grep that
+  returns nothing tells you nothing.
+- **This is why a projection is worth asking for.** `list_tasks(fields=[...])` refuses a key the verb
+  does not have and names it, which turns a silent zero into a loud error. A free-text grep over a
+  persisted result has no such check.
+- **Never report "none of N did X" from a text search.** Report the count you counted from parsed
+  records, or say you could not count it.
+
+## An Incident Report's Stated Times Are a Claim — Grep the Transcripts, Don't Poll on Its Window (2026-09-23)
+
+A peer reported a fleet-wide sharing outage and asked me to poll every session: *"did any
+session call set_sharing_enabled or POST /api/share/enabled between 23:07Z and 23:56Z today?"*
+
+**The event was at 00:09:07Z. Its window excluded it by fourteen minutes.** Every peer polled
+would have answered "no" truthfully, and the honest denials would have looked like evidence
+that no session did it.
+
+- **A transcript scan answers this faster than a poll, and it answers it for sessions that are
+  down.** One python pass over `~/.claude/projects/**/*.jsonl` pulling `tool_use` blocks by
+  name, sorted by timestamp, found the single call in two minutes and cost nobody a turn. A
+  twelve-peer poll costs twelve full contexts to read the question.
+- **Filter on the tool_use block, not on the string.** `grep -rl set_sharing_enabled` matched
+  ~50 files, because the tool list is injected into every session's prompt. The name appearing
+  in a transcript is not the tool having been called.
+- **Take the reporter's window as a hypothesis, not a filter.** Scan the whole day and let the
+  timestamps place the event. Had I honoured the window, the answer would have been "nobody."
+
+## A Scope Argument a Tool Silently Ignores Is Worse Than No Argument (2026-09-23)
+
+The call above was `set_sharing_enabled({workspaceId: "w-…", enabled: false})`. It returned
+`{"ok": true, "sharing": {"enabled": false, "locked": false}}` — no workspaceId echoed — and
+flipped the MASTER switch, taking every board offline.
+
+The caller's intent was correct and careful: it disabled sharing immediately before binding a set
+of sensitive personal files into its board. A scoped call would have been exactly right.
+
+- **An accepted-but-ignored parameter invites the mistake it then hides.** The caller cannot
+  distinguish "scoped as asked" from "global" by reading the response, so the failure only
+  surfaces to someone else, somewhere else.
+- **Check whether the response echoes your scope.** If you passed an id and it does not come
+  back, assume the call was not scoped and verify before relying on it.
+- **The far worse half is the guard that silently lapses.** Sharing was restored 14 seconds
+  later by the peer diagnosing the outage. The caller still believed its precaution was in
+  force, with the records bound behind it. When you reverse someone's setting while fixing an
+  incident, tell whoever set it — a repaired outage and a removed safeguard look identical
+  from the server side.
+
 ## The Pre-Push Leak Gate Fails OPEN When Its Model Is Unavailable (2026-09-09)
 
 The shared Anthropic key behind `scripts/scrub-haiku.py` hit its monthly usage limit. The scanner now prints
@@ -5005,3 +5065,81 @@ reads, a goal, a digest, or anything that will be quoted back to him.
   days after writing "get that sign-off explicitly before this merges". An APPROVED decision
   is not evidence that the reviewer's conditions were met, and nothing on the PR surfaces the
   unmet one — it is prose in a review body.
+
+## `log` is shadowed in this shell, and the wrapper's failure reads as a clean scan (2026-09-22)
+
+Investigating the fleet dying, `log show --last 3h --predicate '…'` returned **nothing** and I read it as
+"no OOM kills found." It was not a scan. A zsh function named `log` from the user's profile shadows
+`/usr/bin/log`, and it answered `(eval):log:1: too many arguments` — **on stdout, with exit 0**. Empty
+output plus a zero exit is indistinguishable from a clean result, which is the exact three-states failure
+the verification rule names.
+
+- **Call it as `/usr/bin/log`.** The same hazard applies to any command a profile may wrap.
+- **The tell was the exit code surviving a failure.** Capture `$?` directly and look at it; a wrapper that
+  prints an error and exits 0 is only visible that way.
+- **Re-running it properly changed the conclusion**, from "no jetsam evidence" to 5,186 matching lines.
+
+## The guard's `tmux kill-server` is on a PRIVATE socket — it is not a fleet killer (2026-09-22)
+
+Grepping `fleet_guard.py` for kill verbs turns up `tmux kill-server` twice, and with 18 sessions having
+just died simultaneously that reads like the cause. It is not. Both calls sit inside `selftest()`, which
+first sets `TMUX_SOCKET = "-L guard-cold-probe"`. The default socket is never touched; the revive path
+targets one session by name.
+
+- **Read the enclosing function before believing a grep hit.** The line was accurate and the inference was
+  wrong, which a grep cannot distinguish.
+- **The real proximate cause was outside the fleet's tooling entirely** — see the swap-exhaustion entry.
+
+## Reading a review item's state: the withdrawal marker is NESTED (2026-09-22)
+
+A sweep with `list_tasks(needs:"decision", fields:[…,"reviews"])` returns every item a task ever carried,
+answered and withdrawn alike. Both states are detectable, but they live at different depths:
+
+- **answered** -> `answer` at the TOP level of the review entry
+- **withdrawn** -> `review.withdrawnAt` / `withdrawnBy` / `withdrawnReason`, **nested one level in**
+
+**I twice concluded `withdrawnAt` did not exist**, because I inspected only the entry's top-level keys and
+it is not there. Two peers running the same sweep reported it on the same day; checking a known-withdrawn
+item settled it in one command. The value claim was right and the provenance claim -- "I checked the saved
+JSON" -- was the false one, which is the failure the provenance rule names.
+
+- **Key on both, or the count is wrong in a way that costs actions.** Job Search's first scan keyed only on
+  the answer, reported 14 open against a true 3, and nearly retracted already-withdrawn items twice. Mine
+  reported 11 open against a true 1.
+- **Give the scan a known positive per class** -- one item you know is answered, one you know is withdrawn.
+  It then fails loudly instead of quietly miscounting. That technique is Job Search's, 2026-09-22.
+- **Attempting the action is the fallback, not the method.** `withdraw_review_item` answers `409 answered`
+  or `400 already-withdrawn` rather than succeeding, so it is decisive -- but it is one call per item and
+  reading the two keys is free.
+
+## An item can go stale by being WRONG, not only by being overtaken (2026-09-22)
+
+Personal CRM's sweep found an item whose specifics described a document state that never existed: it cited
+three run-together typos that appear nowhere in the draft it named (they were in a different draft in the
+same doc) and a pair of "dropped lanes" no version of that draft ever had. It had been filed six days.
+
+- **A sweep that only asks "answered yet?" and "deadline passed?" keeps this item.** Both answers are the
+  healthy ones.
+- **Check each item's claims against the artifact it points at.** One read of the doc, and it is the only
+  test that catches a misattribution.
+- **Misfiling across sibling drafts in one doc is the likely mechanism**, so suspect it wherever a doc
+  holds several versions of the same kind of thing.
+
+## A fleet-wide sweep keyed on the registry's `repo:` field misses whole repos (2026-09-22)
+
+Checking the weekly plan's "eighteen stale pull requests" claim, I swept every `repo:` in
+`registry.yaml` and got 41 open PRs. The eleven-PR stack that is this week's top goal was not
+among them — `gh pr view <n> --repo <the repo the registry names>` answers **"Could not resolve to
+a PullRequest"**, because those PRs live in a second repo the same project works in and the
+registry does not name.
+
+- **One project, one `repo:` is an assumption, not a schema guarantee.** A project whose agent
+  works two upstreams looks complete in the registry and is half-invisible to anything that
+  iterates it.
+- **The sweep's failure mode is the silent one.** A missing repo returns no rows, which is
+  indistinguishable from a repo with no stale PRs. Count the repos you swept and say the number,
+  the same way a scan says it ran.
+- **This also bounds the pre-push leak gate.** Registry project names feed its denylist, so a repo
+  absent from the registry contributes no denylist terms.
+- **Find the real remote from the worktree, not the registry.** `git -C <worktree> remote -v` and
+  a bare `gh pr view <n>` run from inside it resolve to whatever the work is actually against.

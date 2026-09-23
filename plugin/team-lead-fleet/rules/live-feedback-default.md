@@ -132,7 +132,7 @@ reason from the other direction.
 - **Check both directions when you audit.** "What am I waiting on from them" is the easy half. "What did they
   ask me that I never closed" is the half that ages invisibly, and neither detector covers it.
 
-**Five things are invisible to every status-keyed detector**, and they share one cause — the detector walks
+**Four things are invisible to every status-keyed detector**, and they share one cause — the detector walks
 task rows and keys on their state, and none of those states is "has an unanswered question":
 
 1. **A row carrying a `schedule` field.** Whether the ordinary ask path reaches one has already flipped
@@ -148,23 +148,24 @@ task rows and keys on their state, and none of those states is "has an unanswere
    makes it worse**, reading an idle doc and asking its owner to delete it, with open threads counted only
    as a force-delete warning. Sweep docs separately from rows, and read the last comment's author.
 
-5. **An item on a row still in the un-vetted state.** Filing the item is only half of making an ask
-   visible; the row has to be in a state the queue walks. A row nobody has vetted is held out of the
-   ready queue by design, and everything hanging off it is held out with it — so a well-shaped,
-   one-tap question sits exactly as unseen as the doc comment it replaced. Measured 2026-09-23: an
-   approval gating a week's goal was moved out of a doc body onto a row, revised five times to pass
-   the quality gate, admitted — and still returned nothing, because the row had never been vetted.
-   **Read the row's own state, and get a positive control.** The state is the fact; a filter that
-   *sounds* like it asks "what needs an answer" may be reading a field somebody has to set by hand,
-   in which case it returns empty on a board where nobody sets it and proves nothing either way. The
-   control is the cheap half and it is the stronger evidence: has anything ever filed on this row
-   come back answered? If yes, items on it reach the reader; if nothing on it has ever been answered,
-   do not assume the row is the reason, but do not assume it is not.
-   **Leaving the un-vetted state may not be enough on its own.** An enforced dependency on another
-   un-vetted row blocks the transition, so a row can be vetted and still stuck behind one that is
-   not — vet the chain, not the row. Sweep your own un-vetted rows periodically; they accumulate
-   silently, and on that board six of ten were sitting there, which also left it with no active row
-   at all.
+**A state that hides a row from YOUR queue is not evidence it hides the row from the reader's.** Two
+different surfaces get called the queue — the agent's ready list, which an un-vetted or blocked row is
+held out of by design, and the person's own view, which is a different surface with different rules. A
+documented sentence about one reads as a statement about the other, and that misreading put a wrong
+entry in this very list for about an hour on 2026-09-23: it claimed an item on an un-vetted row reaches
+nobody. The owning agent then produced the control — on that board a row sat un-vetted continuously for
+a week, and **three** items filed on it were answered in that window. Filing the ask was the whole fix.
+The row's state was never the problem.
+
+- **Get the positive control before you write down a mechanism.** Has anything ever filed on this row
+  come back answered? It is one query and it settles the question in the direction that matters. Both
+  agents here had that evidence sitting on their own boards and neither looked until after the rule
+  had shipped to every peer.
+- **A check that cannot fail is not a check, and it is most dangerous when it agrees with you.** The
+  proof behind the wrong entry was a filter reading a field nobody on that board sets, so it returned
+  empty whatever the states were, and the empty read as confirmation.
+- **Whether a row held by an enforced dependency behaves the same way is untested.** Say untested. It
+  is a third state and it is the honest one here.
 
 **Start from the detector's own output, not from a fresh sweep.** When a stall frame names items, it has
 already done the join you would otherwise redo by hand. Re-run its predicate against the docs it named

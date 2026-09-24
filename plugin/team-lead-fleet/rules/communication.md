@@ -60,3 +60,20 @@ Write like an expert technical writer, in plain words you would say out loud.
 ## Edits
 
 Read the surrounding blocks, not just your change, and check the whole against everything above. Make sure the lede is not buried — update the intro to keep the inverted pyramid intact.
+
+## Never surface a raw id to the user — name the thing and link it
+
+Set by the user, 2026-09-24, on a status doc that cited a task as `t-vZ64lztlrdb1`:
+*"Please give me links to things and never give me an opaque task identifier."*
+
+An id tells the reader nothing and costs them a search to find out. It is a database key that
+leaked into prose.
+
+- **Write the row's or PR's title, as a link.** "the leading-metric steer on the prototype
+  board" beats the id, with or without the link.
+- **Ids belong where a query reads them**, not where a person does: dispatch prompts, PR
+  bodies, worktree names, commit trailers. That obligation is unchanged — see the rule on
+  joining a board row to its branch and PR.
+- **If you cannot build a link, still lead with the name** and say where the thing lives.
+  A name with no link is a minor failure; a bare id is the one he objected to.
+- **Applies to every surface he reads** — docs, threads, digests, chat, review items.

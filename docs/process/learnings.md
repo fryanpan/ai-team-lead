@@ -5335,3 +5335,35 @@ and `post_reply` take `docId`, and a row's discussion lives at the synthetic doc
 
 Dated because it is a plugin's current interface, not a stable fact. Check it rather than
 quoting it.
+
+## `insert_blocks_at_anchor` has no `position` — it always inserts AFTER, and a wrong guess re-parents whole sections (2026-09-24)
+
+Cost a weekly plan's capacity block: first it was silently re-parented under a section
+inserted above it, then the repair deleted it outright. Recovered from a `read_doc_outline`
+taken minutes earlier; one clause was lost for good, because the outline truncates long
+blocks with an ellipsis.
+
+- **There is no `position` argument. Passing `position: "before"` is accepted and ignored** —
+  no error, no warning, and the blocks land after the anchor's block. The call returns
+  `{"ok": true}`, so nothing at the call site tells you the placement was not what you asked
+  for. Read the doc back before believing a structural edit.
+- **`placement` is the real control**, and it is about nesting, not order: `after-block`
+  (the default) nests under the anchor's innermost block, so **an anchor on a list item makes
+  your blocks children of that item**. `top-level` splices after the whole containing list or
+  table. To put a block before a target, anchor on the block that precedes it and use
+  `top-level`.
+- **`delete_blocks_in_range` deletes every top-level block in the span, nested children
+  included.** Its count reports top-level blocks only — "deleted: 7" removed seven blocks and
+  roughly twenty list items with them. `delete_block_at_anchor` removes exactly one block, and
+  for an anchor inside a list item or table cell only the innermost one. Use it when the target
+  is a single heading.
+- **A bullet starting `**1. ` is parsed as an ordered-list marker and jams every later block
+  insert** on that doc. The `syncError` names the offending block and the insert silently does
+  nothing useful. Write `Goal 1 · …` instead of `1. …` when a bullet needs a number.
+- **There is no undo and no backup.** The Yjs store GCs deleted content within seconds, the
+  bound `.md` is flushed about a second after every change, `clobber-backups` only catches
+  whole-file clobbers, and a plan doc under `.claude/reviews/` is gitignored. **Your own most
+  recent read of the doc is the only recovery source**, so take one before any structural edit.
+
+Dated because it is a plugin's current interface, not a stable fact. Check it rather than
+quoting it.

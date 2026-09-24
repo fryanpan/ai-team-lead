@@ -5311,3 +5311,27 @@ an agent ignored you, or when you are sending anything time-critical to a long-r
   is the right shape for "here is a fact", and the wrong shape for "keep doing this from now on".
 - **The cost here was ~14M tokens and the last of a weekly meter.** Nobody did anything wrong,
   which is the point: the mechanism has no failure signal on either end.
+
+## A board row's comments are addressed as a DOC, `task:<taskId>` — not with a taskId argument (2026-09-24)
+
+Commenting on a task row goes through the same tools as commenting on a document. `create_thread`
+and `post_reply` take `docId`, and a row's discussion lives at the synthetic doc id
+`task:<taskId>`. There is no `taskId` parameter on either of them.
+
+- **Passing `taskId` fails as a 404 with `undefined` in the path**, e.g.
+  `POST /workspaces/<w>/docs/undefined/threads → 404`. An unknown argument is dropped
+  silently, so the error names the missing `docId` rather than the wrong one you sent.
+  It reads like the row does not exist.
+- **`post_status` is the exception and does take `taskId`.** So the two are inconsistent, which
+  is what makes the wrong guess natural.
+- **The decision card rides on the same call.** `create_thread(..., review: {...})` files the
+  review item and posts the comment together — no separate `add_review_item`.
+- **`revise_review_item` takes the changed fields at the TOP level**, not nested under `review`.
+  A nested payload is accepted and then rejected as `400 empty-patch`, which reads as "nothing
+  changed" rather than "wrong shape".
+- **The board's quality gate judges the item within about two seconds** and returns
+  `held: true` with its reason inline. Read the reason and revise on the spot; an item left
+  unrevised for an hour reaches the reader as originally filed.
+
+Dated because it is a plugin's current interface, not a stable fact. Check it rather than
+quoting it.

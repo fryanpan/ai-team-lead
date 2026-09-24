@@ -5229,3 +5229,85 @@ registry does not name.
   absent from the registry contributes no denylist terms.
 - **Find the real remote from the worktree, not the registry.** `git -C <worktree> remote -v` and
   a bare `gh pr view <n>` run from inside it resolve to whatever the work is actually against.
+
+## Before restarting a peer, check what is a CHILD of it — a detached server survives, a child one dies with the session (2026-09-23)
+
+Restarting a peer a second time, the ask named a dev server on port 8765 serving a staging site.
+That site was the thing I had told the user to read in the morning digest an hour earlier, so a
+restart that took it down would have broken the read path I had just pointed him at. One command
+settled it: `lsof -nP -iTCP:8765 -sTCP:LISTEN` gave the pid, and `ps -o ppid= -p <pid>` gave
+**PPID 1**. Detached, never a child of the session, and still listening after the restart.
+
+**Grep for this when:** you are about to restart, kill or respawn a peer that serves anything —
+a dev server, a preview, a bound URL, a tunnel — and especially when the user has been told to
+go and look at it.
+
+- **The question is parentage, not politeness.** "Does the peer mind being restarted" and "does
+  its dev server die" are different questions, and the peer usually answers only the first. The
+  peer here asked for the restart without mentioning the risk; it had not checked either.
+- **PPID 1 means it was reparented to init and survives.** A server started in the foreground of
+  a session's shell, or as a child of the agent process, goes down with the kill. Both shapes are
+  common and nothing about the URL tells you which one you have.
+- **The cost is asymmetric and lands on the user, not the fleet.** A peer that loses context can
+  be re-briefed in a message. A dead staging site is the user tapping a link that fails, on the
+  one artifact a committed goal was gated on.
+- **Check it even when the same restart worked this morning.** The morning restart of the same
+  session was safe because no server existed yet. Safety came from the process tree at that
+  moment, not from the command.
+
+## A peer asserting a THIRD session's state is wrong as often as one asserting its own (2026-09-23)
+
+One peer asked me to restart two others and stated, as fact, that it had sent the second of them
+a list of steps and that the second still needed restarting. That session answered both in one
+message: its inbox held only the first peer's 07:52Z thanks and no steps at all, and it had
+already been restarted and verified nine minutes before the second claim was written. Neither
+error was malicious and neither was detectable from the asking peer's side — it had a successful
+send and a stale picture.
+
+**Grep for this when:** any agent tells you what another agent has, needs, received or is
+blocked on — most of all when it is asking you to take an action against that third party on
+the strength of it.
+
+- **Ask the session itself. It is one message and it settles both halves.** The reply corrected
+  the inbox claim, the restart claim, and volunteered an accurate checkpoint, in one round trip.
+- **A send that reports success and does not land looks identical to the recipient ignoring
+  you.** That is what makes this class silent: the sender has positive evidence and is still
+  wrong. Same shape as the leak gate whose exhausted key returned a clean zero.
+- **Do not kill a session on a third party's account of its state.** Restarting the first peer on
+  its own request was right; restarting the second on someone else's request would have been
+  wrong, and that session's own answer turned out to include a checkpoint that changed nothing
+  but could have.
+- **This is the sibling of [a peer's summary line is a cached assertion]** (2026-09-22). That
+  entry covers a peer being stale about itself; this one covers a peer being confidently wrong
+  about someone else, which has no self-correcting pressure at all — the subject never sees the
+  claim.
+
+## A peer message can be swallowed by the recipient's compaction, and the send still reports success (2026-09-23)
+
+At 18:00 I asked a peer to move off Fable 5.1, which had 6 quota points left. `send_message`
+returned success. Three hours later the 5h window read 14M tokens from that session on Fable —
+78% of all fleet usage — and the meter hit 100%. I asked it directly whether the message had
+failed to land or the work had continued anyway. Its answer was neither: **the session compacted
+between my send and its next turn, and the summary it resumed from carried no mention of the
+message.** A different peer had complied with the identical ask six hours earlier, which is what
+made non-compliance look like a choice.
+
+**Grep for this when:** a peer does not act on something you sent, when you are about to conclude
+an agent ignored you, or when you are sending anything time-critical to a long-running session.
+
+- **A successful send means it reached the session, not that it survived to a turn.** Compaction
+  rewrites the context, and an inbound message that has not yet been acted on is exactly the kind
+  of thing a summary drops — it is not work in progress, it has no artifact, and it reads as
+  incidental.
+- **The longer the recipient has been running, the likelier this is.** A session near its
+  compaction ceiling is the one most likely to swallow the message, and it is also the one you
+  are most likely to be asking to change behaviour.
+- **Do not diagnose it as non-compliance. Ask which it was.** One message settled it, and the
+  answer was a third option I had not listed in my own question. Same family as
+  [a peer asserting a THIRD session's state], but pointed at yourself: my model of why a peer did
+  not act was wrong in a way no amount of watching its output would have revealed.
+- **For anything time-critical, put it where a compaction cannot reach it** — a review item, a
+  task row, a board comment. Those survive; a chat message to a session does not. A hive message
+  is the right shape for "here is a fact", and the wrong shape for "keep doing this from now on".
+- **The cost here was ~14M tokens and the last of a weekly meter.** Nobody did anything wrong,
+  which is the point: the mechanism has no failure signal on either end.

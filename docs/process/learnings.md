@@ -5367,3 +5367,19 @@ blocks with an ellipsis.
 
 Dated because it is a plugin's current interface, not a stable fact. Check it rather than
 quoting it.
+
+## YouTube's plain `en` caption track can be a machine translation — ask for `en-orig` first (2026-09-28)
+
+A peer's weekly transcript scrape had started archiving auto-dubbed paraphrases in place of the
+original English. The channel added AI dubs in about twenty languages, and each dub carries its own
+caption track. After that, the plain `en` track the scrape requested was no longer the original
+speech. The text reads like clean speech recognition but rewrites terms and names ("pull request"
+became "merge request", a company name became a common word), so size checks, parse counts and
+error codes all passed.
+
+- **Request `en-orig` before `en`** in any caption fetch.
+- **The risk follows the fetch date, not the upload date.** Dubbing was applied retroactively, so
+  re-fetching an old video through plain `en` returns a translation today.
+- **A 429 and "no captions" left the same absence** in the same pipeline's backfill, which only
+  tested whether a file appeared. It is the three-states rule again: a check that cannot tell "could
+  not look" from "found nothing" will report the wrong one.

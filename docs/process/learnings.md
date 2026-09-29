@@ -5386,7 +5386,7 @@ error codes all passed.
 
 ## The burn report names a project by its transcript directory, not by where the session runs (2026-09-28)
 
-`fleet_burn_report.py` / `fleet_budget_watch.py` attribute tokens to the `~/.claude/projects/<dir>` a transcript lives in. That directory is fixed by the cwd the session **first** started in. A session later continued from another path keeps writing into the old one. Measured 2026-09-28: 89M in 5h (63% of the fleet) reported as "gomanzanas" while no GoManzanas session was running. Every write in that file carried `cwd=.../research-notes`, so it was the Research Notes session.
+`fleet_burn_report.py` / `fleet_budget_watch.py` attribute tokens to the `~/.claude/projects/<dir>` a transcript lives in. That directory is fixed by the cwd the session **first** started in. A session later continued from another path keeps writing into the old one. Measured 2026-09-28: 89M in 5h (63% of the fleet) reported under one project's directory while no session for that project was running. Every write in that file carried `cwd=.../research-notes`, so it was the Research Notes session.
 
 - **Before saying a project is burning, read the `cwd` field of the transcript's recent lines.** The directory name is not evidence.
 - **A project that is down but still "burning" is this case until proven otherwise**, not a zombie process.

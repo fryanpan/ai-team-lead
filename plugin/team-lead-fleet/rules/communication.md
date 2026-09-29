@@ -63,7 +63,7 @@ Read the surrounding blocks, not just your change, and check the whole against e
 
 ## Never surface a raw id to the user — name the thing and link it
 
-Set by the user, 2026-09-24, on a status doc that cited a task as `t-vZ64lztlrdb1`:
+Set by the user, 2026-09-24, on a status doc that cited a task by its raw id:
 *"Please give me links to things and never give me an opaque task identifier."*
 
 An id tells the reader nothing and costs them a search to find out. It is a database key that

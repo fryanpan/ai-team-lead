@@ -11,6 +11,7 @@ The plugin the user's peer Claude Code sessions share. Replaces per-project prop
 - `/retro` — meta retrospective on a session
 - `/persist-plan` — save an internal plan to `docs/product/plans/`
 - `/ux-review` — walk a UI feature as a user before shipping
+- `/doc-for-bryan`, `/data-page`, `/pr-review-round` — prescribed workflows. Each step is a done-when line with a named proof. A project replaces or adds named steps in `.claude/workflow-overrides/<skill>.md`; it does not fork the skill. (Not `.claude/workflows/`: that folder holds Workflow tool scripts.)
 
 Each project picks ONE ship skill via a line in its `CLAUDE.md`:
 

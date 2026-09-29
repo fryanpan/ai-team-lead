@@ -5390,3 +5390,11 @@ error codes all passed.
 
 - **Before saying a project is burning, read the `cwd` field of the transcript's recent lines.** The directory name is not evidence.
 - **A project that is down but still "burning" is this case until proven otherwise**, not a zombie process.
+
+## Don't send HOLD off the 5h token count when the account's meter is unread (2026-09-28)
+
+At 21:00 PT `fleet_budget_watch.py` put the trailing 5h window at 509M against a 420M "ceiling" and said WATCH, admission hold-all. I sent SF Works a HOLD. Bryan checked `/usage` himself: nowhere near any limit. He lifted it within the hour and called the logic too cautious.
+
+- **The 509M was an upper bound.** No session reset was recorded for this account, so the window trailed from the time of the run.
+- **The 420M ceiling and 442M limit came from other accounts**, measured before the move to fryanpan@gmail.com that morning. A token count says nothing about a plan's limit unless the ceiling was measured on the same account.
+- **With the meter unread, the token count is not grounds for a HOLD.** Report it, and ask Bryan for his `/usage` numbers if it matters. Record them with `--record-meter` so the next pass measures instead of bounding.

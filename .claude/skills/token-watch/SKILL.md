@@ -46,21 +46,23 @@ pools with staggered resets.** Report the estate, then the one call.
 
 ## Procedure
 
-1. **Establish the account live** — `~/.claude.json` → `oauthAccount.emailAddress`,
-   plus a `/usage` week bar with a distinct %/reset. Same reset = same pool.
-   **Never trust a written pool figure, including one asserted in the cron prompt.**
-2. **Read `/usage` off an idle peer's pane.** Sentinel-test first: send one
-   character and read back whether it **replaced** or **appended**. Text on the
-   `❯` line is usually a ghost over an empty editor. Inspect the palette before
-   pressing Enter — `/` opens it and a stray Enter fires the highlighted entry.
-3. **Record BOTH meters**, week bar and session line:
+1. **Read the live meter from the status bar — no pane driving.** Bryan, 2026-09-28:
+   *"Read actual usage. Always."* `scripts/usage_statusline.py` is his `statusLine`
+   command; every render writes the week and 5h meters, with their resets and the
+   account, to `~/Library/Application Support/team-lead/usage-latest.json`.
    ```
-   python3 scripts/fleet_budget_watch.py --record-meter <email> \
-     --all-models <%> --fable <%> --resets <ISO> \
-     --session-resets <ISO> --session-pct <%>
+   python3 scripts/fleet_budget_watch.py --from-statusline
    ```
-   The session reset is the window's **phase** and exists nowhere else; without
-   it the watcher trails from run time and can only report an upper bound.
+   records both meters and runs the panel in one call. It **refuses** a reading
+   older than 30 minutes and exits non-zero — report that as *could not read*,
+   never as a figure. **Never trust a written pool figure, including one asserted
+   in the cron prompt.**
+2. **The Fable bar is not in the status-bar data.** The panel's FABLE column is the
+   last hand-entered reading, so quote it as "X% or worse" with its age. It only
+   becomes live when Bryan reads `/usage` and it is recorded with `--fable`.
+3. **Driving a pane for `/usage` is refused** (classifier, 2026-09-28). Do not retry
+   it or delegate it. If the status-bar file is missing, say so, then fall back to
+   asking Bryan for his `/usage` numbers.
 4. **Run the instruments, capturing the drift exit code directly** —
    `cmd > f 2>&1; echo $?`. Piping to `tail` reports tail's status and reads as
    clean. `fleet_budget_watch.py` (the estate panel + the binding 5h window),

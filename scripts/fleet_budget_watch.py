@@ -38,7 +38,7 @@ script's whole job is to make sure that call gets made inside 15 minutes instead
 of at the next daily read, which is the failure that cost two accounts in one
 evening on 2026-08-31. Detection on a timer, action by a person or by Team Lead.
 """
-import json, os, re, subprocess, sys, glob, datetime
+import json, os, re, subprocess, sys, glob, datetime, time
 
 def argval(flag, default, cast=str):
     """A flag with no value after it is a typo, not a crash.
@@ -102,6 +102,34 @@ SESSION_RESETS = argval("--session-resets", "", str)
 # watcher can check its token proxy against it instead of leaving a human to
 # adjudicate the two by hand, which is what has happened.
 SESSION_PCT = argval("--session-pct", None, float)
+# --from-statusline fills the reading from the file scripts/usage_statusline.py
+# writes on every status-bar render: the live meter, no pane driven, no hand entry.
+# It carries no Fable bar, so --fable still comes from /usage. A reading older than
+# STATUSLINE_MAX_AGE_S is refused rather than recorded as if it were live.
+STATUSLINE_FILE = os.path.expanduser(
+    "~/Library/Application Support/team-lead/usage-latest.json")
+STATUSLINE_MAX_AGE_S = 1800
+if "--from-statusline" in sys.argv:
+    try:
+        with open(STATUSLINE_FILE) as _f:
+            _sl = json.load(_f)
+    except (OSError, ValueError) as _e:
+        sys.exit(f"--from-statusline: could not read {STATUSLINE_FILE}: {_e}")
+    _age = time.time() - _sl.get("captured_at", 0)
+    if _age > STATUSLINE_MAX_AGE_S:
+        sys.exit(f"--from-statusline: reading is {_age / 60:.0f} min old, "
+                 f"refusing to record it as live")
+    def _iso(epoch):
+        return datetime.datetime.fromtimestamp(epoch).astimezone().isoformat(
+            timespec="seconds")
+    RECORD_METER = RECORD_METER or _sl.get("account") or ""
+    _wk, _5h = _sl.get("seven_day") or {}, _sl.get("five_hour") or {}
+    if METER_ALL is None and _wk.get("used_percentage") is not None:
+        METER_ALL = float(_wk["used_percentage"])
+        METER_RESETS = METER_RESETS or _iso(_wk["resets_at"])
+    if SESSION_PCT is None and _5h.get("used_percentage") is not None:
+        SESSION_PCT = float(_5h["used_percentage"])
+        SESSION_RESETS = SESSION_RESETS or _iso(_5h["resets_at"])
 # A standing decision holds until the situation moves against it by this many
 # percentage points of unprotected share, or until it simply ages out. Both are
 # needed: "let it run" can be right at 72% and wrong at 85%, and it can also be

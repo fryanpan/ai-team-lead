@@ -77,6 +77,10 @@ It reads the four records a delivery leaves (the MCP server log, the session tra
 - **Deployed by the same installer** — `python3 scripts/install_healthcheck.py` copies both programs and installs both agents.
 - **`--probe`** prints exactly what the process can and cannot do in whatever context it is running in. **`--selftest`** proves the revival path against a decoy session, so it can be run against the live fleet without firing a false "loop down" alert.
 
+**Every cycle it also reaps orphaned headless Chrome** — a throwaway browser (screenshots, a `claude-in-chrome`-style helper) whose launching run was SIGKILLed before it could clean up, reparented to pid 1. The matching predicate mirrors `claude-live-feedback-plugin/scripts/chrome-orphans.ts` `findOrphans()`: kills only a process that runs `--headless`, whose `--user-data-dir=` sits inside a temp directory (TMPDIR / `/var/folders/...` / `/tmp` / `/private/tmp`), whose parent is pid 1, and that is older than 10 minutes — so a live run's Chrome (parented to that run, not to pid 1) can never match, and Bryan's own Chrome (never headless) can never match. Kills the main process only; its helpers are children of it, not of pid 1, and go down with it. Logs each kill with pid, profile dir and RSS. `ps` unreadable is logged loud and never read as "nothing to reap" — see `find_chrome_orphans` / `reap_orphaned_chromes` in `scripts/fleet_guard.py`.
+
+- **`--chrome-list`** runs the matcher without killing anything and logs what it would kill. **`--chrome-reap`** runs the real kill once, standalone (outside the normal 120s cycle).
+
 ### A launchd job CAN reach the secondary volume — through the tmux server
 
 Measured 2026-09-01 from a real LaunchAgent: `tmux new-session -d -s <name> <script on /Volumes/Data>` **works**, and the spawned command reads that volume fine.

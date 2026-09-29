@@ -33,8 +33,10 @@ gets worse, once when it recovers, and at most every 30 minutes while critical.
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
+import tempfile
 import time
 
 HOME = os.path.expanduser("~")
@@ -264,6 +266,169 @@ def top_holders(limit=8):
                       for n, v in ranked if v[0] > 100 * 1024)
 
 
+# --------------------------------------------------------------------------
+# Orphaned headless Chrome reaper
+# --------------------------------------------------------------------------
+#
+# A throwaway headless Chrome launched by an agent run (screenshots, a
+# ui:shot-style helper) is meant to die with the run that launched it. When
+# that run is SIGKILLed -- a Bash tool timeout, a stopped agent session --
+# Chrome never gets the signal that would make it clean up after itself, and
+# macOS reparents it to launchd (pid 1). It then sits there holding memory
+# until somebody notices.
+#
+# The matching predicate mirrors
+# claude-live-feedback-plugin/scripts/chrome-orphans.ts findOrphans() --
+# a process is an orphan only if ALL of:
+#   - it runs `--headless` (Bryan's own Chrome never does, and must never be
+#     touched)
+#   - its `--user-data-dir=` sits inside a temp directory (TMPDIR,
+#     /var/folders/..., /tmp, /private/tmp) -- never a real profile
+#   - its parent is pid 1 -- a live run's Chrome is parented to that run, so
+#     no live run's browser can ever match this
+#   - it is older than CHROME_ORPHAN_MIN_AGE_SEC -- so the reaper never races
+#     a launcher's own cleanup mid-shutdown
+#
+# Each check is load-bearing on its own; test_fleet_guard.py proves removing
+# any one of them changes what gets matched, not just asserts the fixtures.
+
+CHROME_ORPHAN_MIN_AGE_SEC = 10 * 60   # matches chrome-orphans.ts ORPHAN_REAP_AGE_MS
+CHROME_HEADLESS_FLAG = "--headless"
+
+
+def parse_ps_etime(raw):
+    """ps `etime`, `[[dd-]hh:]mm:ss`, to seconds. None if it does not parse."""
+    m = re.match(r"^(?:(?:(\d+)-)?(\d+):)?(\d+):(\d+)$", (raw or "").strip())
+    if not m:
+        return None
+    dd, hh, mm, ss = m.groups()
+    dd, hh = int(dd or 0), int(hh or 0)
+    return ((dd * 24 + hh) * 60 + int(mm)) * 60 + int(ss)
+
+
+def is_temp_dir_path(path):
+    """True if `path` sits inside a temp directory -- the user's TMPDIR,
+    /var/folders/..., /tmp, or /private/tmp. A profile anywhere else is never
+    a reap candidate, however old or headless the process running it is."""
+    if not path:
+        return False
+    roots = {"/tmp", "/private/tmp", "/var/folders"}
+    tmpdir_env = os.environ.get("TMPDIR")
+    if tmpdir_env:
+        roots.add(tmpdir_env.rstrip("/"))
+    roots.add(tempfile.gettempdir().rstrip("/"))
+    norm = path.rstrip("/")
+    return any(norm == r or norm.startswith(r + "/") for r in roots if r)
+
+
+def find_chrome_orphans(ps_output, min_age_sec=CHROME_ORPHAN_MIN_AGE_SEC):
+    """The orphaned headless Chromes in a `ps -Ao pid=,ppid=,etime=,command=`
+    listing. Matches the four criteria described above; mirrors
+    chrome-orphans.ts findOrphans() field-for-field, minus its
+    project-specific PROFILE_PREFIX scoping (there is no equivalent prefix
+    here, so every temp-dir profile is in scope).
+
+    `ps_output` being `None` is a caller error, not an empty listing --
+    reap_orphaned_chromes is where "ps could not be read" is kept loud and
+    distinct from "ps was read and found nothing."
+    """
+    out = []
+    for line in (ps_output or "").splitlines():
+        m = re.match(r"^\s*(\d+)\s+(\d+)\s+(\S+)\s+(.*)$", line)
+        if not m:
+            continue
+        pid, ppid, etime, command = m.groups()
+        if int(ppid) != 1:
+            continue
+        if CHROME_HEADLESS_FLAG not in command:
+            continue
+        if "chrome" not in command.lower():
+            continue
+        prof = re.search(r"--user-data-dir=(\S+)", command)
+        if not prof or not is_temp_dir_path(prof.group(1)):
+            continue
+        age = parse_ps_etime(etime)
+        if age is None or age < min_age_sec:
+            continue
+        out.append({"pid": int(pid), "profile": prof.group(1), "age_sec": age,
+                    "command": command})
+    return out
+
+
+def _list_processes_wide():
+    """`ps -Ao pid=,ppid=,etime=,command=`, or None if `ps` could not be read.
+
+    None, not "", on failure -- an empty string would parse to zero orphans,
+    indistinguishable from a clean machine. This is the "could not look"
+    state and it must stay loud all the way out to the caller.
+    """
+    out, rc = sh("/bin/ps -Ao pid=,ppid=,etime=,command=", timeout=15)
+    return out if rc == 0 else None
+
+
+def process_rss_mb(pid):
+    """RSS for one pid in MB, or None if `ps` has nothing for it (already exited)."""
+    out, rc = sh(f"/bin/ps -o rss= -p {pid}", timeout=5)
+    if rc != 0 or not out.strip():
+        return None
+    try:
+        return round(int(out.strip().splitlines()[0]) / 1024, 1)
+    except ValueError:
+        return None
+
+
+def reap_orphaned_chromes(list_processes=None, min_age_sec=CHROME_ORPHAN_MIN_AGE_SEC,
+                          dry_run=False, log=print):
+    """Kill every orphaned headless Chrome `find_chrome_orphans` names (its
+    helper children go with it -- they are parented to the main process, not
+    to pid 1, so killing the main process takes them down too) and log each
+    kill with pid, profile dir and memory size.
+
+    Returns `(orphans, killed)`. `orphans` is `None` when `ps` could not be
+    read at all, so a caller can tell "looked, found nothing" (`[]`) from
+    "could not look" (`None`) -- never collapse the two into a silent zero.
+    """
+    list_fn = list_processes or _list_processes_wide
+    raw = list_fn()
+    if raw is None:
+        log("CHROME-REAP ps unreadable -- state UNKNOWN, not treating as clean")
+        return None, []
+
+    orphans = find_chrome_orphans(raw, min_age_sec=min_age_sec)
+    killed = []
+    for o in orphans:
+        mb = process_rss_mb(o["pid"])
+        size = f"{mb}MB" if mb is not None else "size unknown (process already gone?)"
+        if dry_run:
+            log(f"CHROME-REAP would kill pid {o['pid']} profile={o['profile']} "
+                f"age={o['age_sec'] // 60}m rss={size}")
+            continue
+
+        # Re-check right before the kill: an orphan that exited since the
+        # first listing may have handed its pid to an unrelated process. This
+        # narrows the race to one `ps` call instead of the whole loop.
+        raw2 = list_fn()
+        if raw2 is None:
+            log(f"CHROME-REAP could not re-verify pid {o['pid']} before kill -- skipping")
+            continue
+        still = any(x["pid"] == o["pid"] and x["profile"] == o["profile"]
+                   for x in find_chrome_orphans(raw2, min_age_sec=min_age_sec))
+        if not still:
+            continue
+
+        try:
+            os.kill(o["pid"], signal.SIGKILL)
+        except ProcessLookupError:
+            continue
+        except OSError as e:
+            log(f"CHROME-REAP kill failed for pid {o['pid']}: {e}")
+            continue
+        killed.append(o)
+        log(f"CHROME-REAP killed pid {o['pid']} profile={o['profile']} "
+            f"age={o['age_sec'] // 60}m rss={size}")
+    return orphans, killed
+
+
 def grade(m):
     bands = {
         "swap": band(m["swap_gb"], *SWAP_GB),
@@ -442,6 +607,12 @@ def main():
         return 0
     if "--selftest" in sys.argv:
         return selftest(cold="--cold" in sys.argv)
+    if "--chrome-list" in sys.argv:
+        reap_orphaned_chromes(dry_run=True, log=print)
+        return 0
+    if "--chrome-reap" in sys.argv:
+        reap_orphaned_chromes(dry_run=False, log=print)
+        return 0
 
     m = read_metrics()
     worst, bands = grade(m)
@@ -463,6 +634,12 @@ def main():
               f"{m['claude_sessions']} sessions ({m['claude_gb']}GB rss) · "
               f"healthcheck {m['healthcheck_age_min']}m old")
     print(f"[{stamp}] {worst.upper()} {detail} · loops {loops}")
+
+    # Every cycle, independent of the swap/memory band: reap any headless
+    # Chrome left behind by a killed agent run. Silent when there is nothing
+    # to reap (matches the guard's own "silent unless something changed"
+    # design); loud when `ps` itself could not be read.
+    reap_orphaned_chromes(dry_run=False, log=lambda msg: print(f"[{stamp}] {msg}"))
 
     # The attribution line. Only on a bad band, and written BEFORE any notify
     # so it survives a machine that wedges before the next run.

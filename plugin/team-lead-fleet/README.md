@@ -11,6 +11,7 @@ The plugin the user's peer Claude Code sessions share. Replaces per-project prop
 - `/retro` — meta retrospective on a session
 - `/persist-plan` — save an internal plan to `docs/product/plans/`
 - `/ux-review` — walk a UI feature as a user before shipping
+- `/humanizer` — rewrite prose to remove AI writing patterns. Vendored from [blader/humanizer](https://github.com/blader/humanizer) (MIT), with one fleet override on bold labels in structured docs.
 - `/doc-for-bryan`, `/data-page`, `/pr-review-round` — prescribed workflows. Each step is a done-when line with a named proof. A project replaces or adds named steps in `.claude/workflow-overrides/<skill>.md`; it does not fork the skill. (Not `.claude/workflows/`: that folder holds Workflow tool scripts.)
 
 Each project picks ONE ship skill via a line in its `CLAUDE.md`:

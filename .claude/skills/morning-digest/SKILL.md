@@ -29,7 +29,7 @@ cron.
 
 ## Output shape
 
-**One doc, one push, five sections in this order.** The order is Bryan's, from the ask.
+**One doc, one push, six sections in this order.** The order is Bryan's, from the ask.
 Do not reorder by what you found most interesting.
 
 1. **Needs you** — last 48h across every approved channel, unreplied or worth knowing.
@@ -37,6 +37,8 @@ Do not reorder by what you found most interesting.
 3. **Focus today** — at most 5 bullets.
 4. **Yesterday** — exactly 5 bullets.
 5. **Token spend** — 3 lines.
+6. **Project sections** — one per registry project carrying `digest_section`, pasted as its
+   command printed it.
 
 - **The doc lives OUTSIDE this repo**, at
   `~/Library/Application Support/team-lead/digests/YYYY-MM-DD.md`, bound to the Team Lead
@@ -261,6 +263,21 @@ Run `scripts/fleet_budget_watch.py` and report the estate panel as it stands.
 worse"**, never "82%". A stale figure is a bound, not a measurement — and it can be wrong
 in either direction, because an idle pool's meter does not only rise. That belief cost two
 hours at a wall on 2026-09-17.
+
+## 6. Project sections
+
+**A project can ask for its own section, and the owner decides which ones do.** Added
+2026-09-29, when he routed one project's meeting alerts here "for now" instead of building
+a separate channel for them. The list lives in `registry.yaml` (gitignored), as a
+`digest_section.command` on the project's entry, because this repo is public and the
+command names a private project.
+
+- **Run each command and paste its output as is**, under the heading it prints. The owning
+  agent formats it; rewording it here breaks the contract it wrote against.
+- **Non-zero exit or empty output is "could not run"**, stated with the project and the
+  exit code — never omitted. A missing section reads as a quiet day.
+- **Don't add or remove an entry on a peer's request alone.** The owner's word is what puts a
+  section here; a peer relaying it is fine, a peer proposing it is not.
 
 ## What not to do
 

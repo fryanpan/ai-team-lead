@@ -175,11 +175,50 @@ def project_config_keys(path: str) -> List[str]:
     return keys
 
 
+# Config folder of a second subscription account, set by --account-dir. None
+# means the default folder (~/.claude with ~/.claude.json beside it).
+ACCOUNT_DIR: Optional[str] = None
+
+
+def global_config_path() -> str:
+    """The `.claude.json` a spawned session will read. Under CLAUDE_CONFIG_DIR
+    Claude Code keeps it inside the folder, not in $HOME."""
+    if ACCOUNT_DIR:
+        return os.path.join(ACCOUNT_DIR, ".claude.json")
+    return os.path.expanduser("~/.claude.json")
+
+
+def resolve_account_dir(raw: str) -> Tuple[str, Optional[str]]:
+    """Canonicalize an --account-dir value and check it is usable.
+
+    Returns (path, problem). The path is the realpath because the Keychain
+    entry holding the folder's login is keyed to the exact path string: the
+    /login run and every spawn must spell it the same way, and the realpath is
+    the one spelling both can agree on. `problem` is None when the folder is
+    ready, else why it is not.
+    """
+    path = os.path.realpath(os.path.expanduser(raw))
+    cfg = os.path.join(path, ".claude.json")
+    if not os.path.isdir(path):
+        return path, "folder does not exist (build it with scripts/account_dir.py)"
+    if os.path.islink(cfg):
+        return path, ".claude.json is a link; it must be the folder's own file"
+    try:
+        with open(cfg) as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return path, ".claude.json is missing or unreadable (build it with scripts/account_dir.py)"
+    if not data.get("oauthAccount"):
+        return path, ("no login recorded yet; run "
+                      f"`CLAUDE_CONFIG_DIR={path} claude` and /login first")
+    return path, None
+
+
 def direct_channel_flags(path: str) -> str:
     """Return `--dangerously-load-development-channels server:<name>` flags for
     any DIRECT_CHANNEL_SERVERS registered project-scoped for this path."""
     try:
-        with open(os.path.expanduser("~/.claude.json")) as f:
+        with open(global_config_path()) as f:
             cfg = json.load(f)
     except (OSError, ValueError):
         return ""
@@ -775,6 +814,11 @@ def to_tmux_session_name(display_name: str) -> str:
     return s.strip("-")
 
 
+def account_env() -> List[str]:
+    """tmux `-e` args that put a spawn on the --account-dir login, if any."""
+    return ["-e", f"CLAUDE_CONFIG_DIR={ACCOUNT_DIR}"] if ACCOUNT_DIR else []
+
+
 def spawn_session_tmux(session_name: str, path: str) -> bool:
     """Spawn claude in a detached tmux session via interactive zsh so the
     `claude` shell function in ~/.zshrc applies (channel + dev-channel flags).
@@ -856,6 +900,7 @@ def spawn_session_tmux(session_name: str, path: str) -> bool:
     if wid:
         workspace_env = ["-e", f"CW_WORKSPACE_ID={wid}",
                          "-e", f"FEEDBACK_WORKSPACE_ID={wid}"]
+    workspace_env += account_env()
 
     # `zsh -ic` sources ~/.zshrc and runs the inline command. The shell function
     # `claude` resolves to the full binary path + channel flags inside zsh.
@@ -1198,6 +1243,15 @@ Flags:
                        resume-from-summary),
                      - sweeping orphan claude-hive-mcp servers.
                    Use this if you want to walk through panes by hand.
+  --account-dir <path>
+                   Start every spawned session on the subscription account
+                   logged in to that config folder, by setting
+                   CLAUDE_CONFIG_DIR for the spawn. Build the folder with
+                   scripts/account_dir.py and run /login in it once first; the
+                   script refuses a folder with no login recorded. Sessions
+                   spawned without this flag use the default ~/.claude login,
+                   so `--mode running` without it moves a session on a spare
+                   account back to the main one.
   --no-compact     Answer the resume dialog with "Resume full session as-is"
                    instead of the default "Resume from summary". Peers come back
                    with their full context intact — nothing is summarized away.
@@ -1293,6 +1347,20 @@ def main() -> int:
             if i + 1 >= len(args):
                 sys.exit("--at requires a path (the cwd to respawn the session in)")
             ats.append(args[i + 1])
+
+    # --account-dir <path>: spawn on a second subscription account's config
+    # folder. An account running out is then a restart, not a /login typed at
+    # the terminal.
+    global ACCOUNT_DIR
+    if "--account-dir" in args:
+        idx = args.index("--account-dir")
+        if idx + 1 >= len(args):
+            sys.exit("--account-dir requires a path (the account's config folder)")
+        ACCOUNT_DIR, problem = resolve_account_dir(args[idx + 1])
+        print(f"Account folder: {ACCOUNT_DIR}")
+        if problem:
+            print(f"\n[abort] --account-dir {ACCOUNT_DIR}: {problem}", file=sys.stderr)
+            return 2
 
     running = get_running_claude_processes()
     self_pid = get_self_pid()
@@ -1394,6 +1462,7 @@ def main() -> int:
         print(f"\nWill SPAWN ({len(to_spawn)}):")
         for name, path in to_spawn:
             print(f"  + {name:25s}  {path}")
+        print(f"  on {'account folder ' + ACCOUNT_DIR if ACCOUNT_DIR else 'the default ~/.claude login'}")
     else:
         print("\nNothing to spawn.")
 

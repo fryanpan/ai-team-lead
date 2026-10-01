@@ -140,6 +140,29 @@ spawn, which is the thing this script exists to prevent.
 It goes through the full spawn path, so the identity env, the scoped Discord state
 dir, dialog dismissal and the orphan-MCP sweep all still apply.
 
+## Spawning on a second account: `--account-dir`
+
+```bash
+python3 respawn.py --mode running --only <name> --account-dir <folder> --execute
+```
+
+Sets `CLAUDE_CONFIG_DIR=<folder>` for each spawn, so the session runs on the
+subscription account logged in to that folder. Combine it with any mode, `--only` or
+`--at`.
+
+- **Build the folder with `scripts/account_dir.py <folder> --execute`.** It links the
+  shared parts of `~/.claude` (settings, plugins, transcripts and memory, skills) into
+  the folder and seeds the folder's own `.claude.json` without the main login's
+  account record.
+- **Someone runs `/login` in the folder once**, as
+  `CLAUDE_CONFIG_DIR=<folder> claude`. The script refuses a folder with no login
+  recorded, since a session spawned there would sit at a login prompt.
+- **Spell the folder the same way every time.** The Keychain entry holding the login
+  is keyed to the exact path string. The script canonicalizes to the realpath, and
+  `account_dir.py` prints the command to log in with that spelling.
+- **A spawn without the flag uses the default login.** So `--mode running` without
+  `--account-dir` moves a session on a spare account back to the main one.
+
 ## What `--execute` actually does
 
 Beyond spawning the tmux sessions, when something gets spawned the script also:

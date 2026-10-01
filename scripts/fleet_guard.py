@@ -58,7 +58,7 @@ SWAP_GB = (6.0, 12.0)          # healthcheck goes RED at 8.0
 FREE_PCT = (25, 12)            # healthcheck goes RED under 15
 LOAD_PER_CORE = (1.2, 3.0)     # healthcheck goes RED over 1.5
 ORPHAN_WORKERS = (4, 10)       # PPID-1 test workers: a leak, not a run
-BOOT_FREE_GB = (25.0, 10.0)    # swapfiles live on the boot disk; see below
+BOOT_FREE_GB = (25.0, 20.0)    # swapfiles live on the boot disk; critical under 20 set by the owner 2026-09-30
 ANON_GB = (10.0, 13.0)         # anonymous+compressed demand on a 16GB machine
 
 # Why anonymous pages and free boot disk are here, and RSS is not enough

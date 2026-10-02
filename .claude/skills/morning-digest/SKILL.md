@@ -123,6 +123,25 @@ nobody was asking him for.
   call, a text, a form he submitted. Where the channel cannot show you, mark the item
   unconfirmed rather than asserting it is open.
 
+### Recruiter email goes to the Job Search peer, not to him (set 2026-10-01)
+
+*"When you get recruiter emails, pass them to Job search for review. Only highlight for me if
+it looks interesting. Or they might be well connected and I just want to be on their radar."*
+
+- **Send every recruiter thread to the Job Search peer**: sender, company, role, how many
+  follow-ups so far, and the Gmail link. One message per digest run with all of them in it,
+  not one message per email.
+- **Job Search judges it, not the digest.** The digest does not decide that a role is
+  uninteresting; it hands the thread over and stops.
+- **It reaches "Needs you" only on Job Search's say-so**, for one of his two reasons: the role
+  looks interesting, or the recruiter is well connected and worth staying on the radar of.
+  Name which reason in the line.
+- **Read Job Search's board for its verdicts on earlier handoffs** before writing the
+  section. A recruiter it flagged yesterday belongs in today's digest even though the email
+  is older than the run.
+- **A recruiter's persistence is not a reason to surface it.** A third follow-up is noise
+  until Job Search says otherwise.
+
 ### The Gmail connector is read-and-compose only
 
 Measured 2026-09-18. Search, read and `create_draft` work. **`unlabel_thread`, label

@@ -65,7 +65,7 @@ The user had to say this twice in one session, the second time watching it happe
 
 ## Capacity block (required)
 
-Every plan page opens with a capacity estimate, placed directly under the one-sentence theme and above `## Committed goals`. It is **not optional** — it's the frame the whole plan is judged against (committed hours vs. plannable hours).
+Every plan page carries a capacity estimate, placed directly under `## Last week` and above `## Committed goals`. It is **not optional** — it's the frame the whole plan is judged against (committed hours vs. plannable hours).
 
 Format: a `## Capacity: ~Xh` heading carrying the week total, then a clean per-day bullet breakdown Mon→weekend (include the weekend even when it's small), with a short context note where a day is unusually light or heavy.
 
@@ -153,7 +153,7 @@ Mechanics:
 1. **Create this week's plan doc and bind it to the workspace.**
    - Write `.claude/reviews/weekly-YYYY-MM-DD.md` — **weeks run Monday through Sunday**; the `YYYY-MM-DD` is that Monday. That directory is already gitignored, which matters because this repo is public and the plan names private projects.
    - Open with `# Week of YYYY-MM-DD (Mon M/D–Sun M/D)` and one sentence describing the theme of the week — that's the only narrative.
-   - Add the **Capacity block** (see above) directly under the theme sentence, before the goals. Required on every plan.
+   - **`## Last week` comes first**, directly under the theme sentence. Set by him 2026-10-05: *"Please put this section first in the future."* Then the **Capacity block** (see above), then the goals. Capacity is required on every plan.
    - Bind it: `create_review_doc(docId: "weekly-YYYY-MM-DD", path: <absolute path>, title: "Week of YYYY-MM-DD", hubWorkspaceId: <Team Lead workspace id>)`. That call both creates the review URL and files the doc under the workspace, and it auto-subscribes you to thread events — no separate `attach_doc` or `watch_doc` needed.
    - **Surface the WORKSPACE URL, not the doc's `reviewUrl`** — `http://mac-mini.<your-tailnet>.ts.net:8787/workspaces/<workspace_id>` (in `parent.txt`). The plan is meant to be read next to the goal bands and the task board; a bare `/review/<docId>` link opens the document alone, stripped of the surface the user asked us to move onto. `create_review_doc` returns a `reviewUrl` and it is tempting to paste it — don't.
    - **Once bound, never `Write`/`Edit` the .md again.** Route every later change through the live-feedback edit tools — a direct file write races the ~1s flush and gets silently clobbered.
@@ -174,7 +174,7 @@ Mechanics:
    - **Separate the three, because they need different fixes**: a goal that overran its estimate, a goal that never started, and a goal that was blocked. Only the third produces a blocker for this week.
    - **A blocker names who clears it and what specifically unblocks it.** "Waiting on the API" is an observation; "the Oura refresh token was never reconnected, and only he can do it" is a blocker. One without an owner does not go in the list — chase the owner or drop it.
    - **A blocker that has now appeared two weeks running is escalated, not re-listed.** Say it is the second week and say what changes this time. Re-listing is how a blocker becomes furniture.
-   - **Write it into the doc as `## Last week`, directly under the capacity block, at most 5 bullets.** The blockers go there too, since a blocker nobody can see is not addressed. Anything longer belongs on the thread.
+   - **Write it into the doc as `## Last week`, directly under the theme sentence and above the capacity block, at most 5 bullets.** The blockers go there too, since a blocker nobody can see is not addressed. Anything longer belongs on the thread.
    - **Carry each blocker into a goal or say explicitly that it is not being cleared this week.** A blocker listed and then unmentioned in every goal has been noted rather than addressed, which is the failure this step exists to prevent.
 
 4. **Pull carry-overs from last week's doc.**

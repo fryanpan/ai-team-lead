@@ -1,6 +1,6 @@
 ---
 name: morning-digest
-description: Use for the daily ~7AM prep — what needs Bryan, meeting prep, today's focus, yesterday's output, and token spend. Fires from a board schedule; also user-invocable.
+description: Use for the daily ~7AM prep — writes today's hit list into the weekly plan doc from what needs Bryan, his meetings, this week's goals and token spend. Fires from a board schedule; also user-invocable.
 user-invocable: true
 ---
 
@@ -29,32 +29,38 @@ cron.
 
 ## Output shape
 
-**One doc, one push, five sections in this order.** The order is Bryan's, from the ask.
-Do not reorder by what you found most interesting.
+**The output is today's hit list, written into this week's plan doc. There is no separate
+digest doc.** Changed by Bryan on 2026-10-05: *"Instead of the daily digests from Team Lead,
+every morning can you update this doc and give me a hit list of things I need to do today?
+Ready by 7AM each morning."* "This doc" is the weekly plan,
+`.claude/reviews/weekly-YYYY-MM-DD.md`, which is bound to the Team Lead board.
 
-1. **Needs you** — last 48h across every approved channel, unreplied or worth knowing.
-2. **Meetings today** — with prep, excluding recurring blocks with his partner.
-3. **Focus today** — at most 5 bullets.
-4. **Yesterday** — exactly 5 bullets.
-5. **Token spend** — 3 lines.
+- **Replace the plan's `## Today` section each morning.** Anchor on the heading, insert the
+  new list, then delete the old items. Never use `set_doc_content`, because he edits this
+  doc live.
+- **The heading carries the date and the total**, e.g. `## Today, Tue 10/6 (~45 min)`.
+- **The hit list is at most 7 items, in goal priority order.** Each item is something he
+  does today: a decision, a send, a call, a read. Put the time it takes and a link on the
+  noun.
+- **Below the list, two optional lines, and only when they apply:**
+  - **Meetings:** accepted meetings today, one line each, with the one thing to walk in
+    knowing.
+  - **Fleet:** a token verdict, only when it is not "all clear".
+- **The sections below are inputs to the list, not sections of the output.** Run the
+  sweeps as written. An item reaches the list only if it needs him today; everything else
+  is dropped.
+- **Ranked asks come from the cross-board queue** that Team Lead curates. Take the top
+  open asks for this week's goals.
 
-- **The doc lives OUTSIDE this repo**, at
-  `~/Library/Application Support/team-lead/digests/YYYY-MM-DD.md`, bound to the Team Lead
-  workspace as docId `morning-digest-YYYY-MM-DD`. Set by Bryan 2026-09-18: *"Make sure to
-  store the daily digest somewhere private. Not pushed to git."*
+**The plan doc lives inside a public repo, gitignored. That is weaker privacy than the old
+digest path outside the repo.** So an item from email or messages names the action and
+links the thread, and never quotes the content or names a third party beyond what the
+action needs. Anything more sensitive stays behind the link.
 
-**Gitignored inside a public repo is not private enough for this file, and that is why it
-sits outside.** The digest carries his email, his calendar, and prep naming real people —
-a different class of content from anything `.claude/reviews/` has held. A gitignored path
-is one `git add -f`, one `.gitignore` edit or one `git clean` away from being tracked or
-gone, and the pre-push leak gate only ever scans content that is already tracked, so it
-cannot catch this. A file outside the working tree cannot be committed by any of those
-accidents. Never move it back in, and never link to it by filesystem path — the bound doc
-is how he reads it.
 - **Surface the WORKSPACE url**, never the bare `/review/<docId>`. The id lives in
   `.claude/skills/weekly-plan/parent.txt`.
 - **One push, under 200 characters**: the 2–3 things that actually need him today. Not a
-  summary of the doc — the doc is the summary.
+  summary of the hit list — the list is the summary.
 - **Every field is its own bullet with a bold label.** Prose-with-inline-bold collapses to
   a wall of text on a phone.
 - **Links are Tailscale or GitHub, never `*.local`**, and go on the noun at first mention.

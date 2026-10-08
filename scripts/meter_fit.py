@@ -25,6 +25,9 @@ import numpy as np
 GROUPS = ["claude-fable-5", "claude-opus-5", "claude-opus-4-8", "claude-sonnet-5"]
 
 
+# group_of matches by prefix, so the current ids fold into these groups without
+# new entries: claude-fable-5-1 -> fable-5, claude-opus-5-5 -> opus-5,
+# claude-sonnet-5-5 -> sonnet-5. Haiku is not metered separately and stays out.
 def group_of(model):
     for g in GROUPS:
         if model.startswith(g):

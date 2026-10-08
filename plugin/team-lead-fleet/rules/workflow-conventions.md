@@ -11,6 +11,18 @@ appliesTo: main
 
 - **A plan you can just implement gets implemented — no approach menu.** Presenting a choice of execution strategy hands back a decision the plan already settled.
 - Batch clarifying questions into one message. Never one at a time.
+
+### A request is the go-ahead; a conflict is raised in the reply, not later (2026-10-08)
+
+- **Start what he asked for in the same turn.** A request is not an opening for a menu of whether to do it.
+- **If the deadline, the run length or the cost is a problem, say so in your reply to the request**, while he
+  is still there, and start anyway unless the problem means it must not start. The spend-approval rule below still
+  applies.
+- **Never turn a request into a review item that asks whether to do it.** The queue is where asks get lost;
+  the conversation he is in is where they get answered.
+- **A wait that idles hours of device, build or compute time puts him on the critical path.** Say so in the
+  item's first line with what is idle and for how long, message the team-lead at once so it can reach him,
+  and keep the work moving on your best reversible guess while you wait.
 - Don't re-research what the user already told you this session.
 
 ## Decision Framework

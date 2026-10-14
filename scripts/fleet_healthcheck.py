@@ -269,6 +269,32 @@ def exists_via_bun(path):
     return r.returncode == 0
 
 
+_CMD_ANSWERS_JS = r"""
+// Run argv[1..] and exit 0 only if it succeeded AND printed something. The
+// output is measured and dropped here -- it never reaches the caller.
+const r = require("child_process").spawnSync(process.argv[1], process.argv.slice(2),
+  {encoding: "utf8", cwd: "/", timeout: 5000});
+process.exit(r.status === 0 && r.stdout && r.stdout.trim().length > 0 ? 0 : 1);
+"""
+
+
+def command_answers(cmd):
+    """True if `cmd` exits 0 with non-empty stdout. Value is never returned.
+
+    Run through bun when it works: a credential CLI reads its config under
+    `~/.config`, a symlink onto the secondary volume, and spawned from a
+    launchd-invoked Apple-signed interpreter that read is denied -- so the
+    command fails here while the consumer (a bun daemon) resolves it fine.
+    """
+    if bun_works():
+        r = subprocess.run([bun_path(), "-e", _CMD_ANSWERS_JS, "--", *cmd],
+                           capture_output=True, cwd="/", timeout=BUN_TIMEOUT + 4)
+        return r.returncode == 0
+    r = subprocess.run(cmd, capture_output=True, text=True,
+                       timeout=BUN_TIMEOUT, cwd="/")
+    return r.returncode == 0 and len(r.stdout.strip()) > 0
+
+
 def probe_plugin_via_bun(cache_dir, source_manifest):
     """Run the whole plugin-version probe inside bun -- readdir included.
 
@@ -1444,11 +1470,10 @@ def check_token_resolvable(spec):
 
     for cmd in spec.get("commands", []):
         try:
-            r = subprocess.run(cmd, capture_output=True, text=True,
-                               timeout=BUN_TIMEOUT, cwd="/")
+            ok = command_answers(cmd)
         except Exception:
             continue
-        if r.returncode == 0 and len(r.stdout.strip()) > 0:
+        if ok:
             return True, f"{name}: resolvable from {spec.get('commands_label', cmd[0])}"
 
     tried = []

@@ -74,6 +74,10 @@ def _state_dir():
 STATE_DIR = _state_dir()
 CONFIG = os.path.join(STATE_DIR, "healthcheck-config.json")
 STATUS = os.path.join(STATE_DIR, "healthcheck-status.json")
+CACHE = os.path.join(STATE_DIR, "healthcheck-cache.json")
+# Checks too heavy to run every hour, by type. A spec's own
+# `min_interval_hours` overrides this. See run_spaced.
+MIN_INTERVAL_HOURS = {"archive_backlog": 24}
 
 
 _PREV_STATUS = None
@@ -1632,6 +1636,58 @@ CHECKS = {
 }
 
 
+def run_check(spec, fn):
+    try:
+        return fn(spec)
+    except Exception as e:                          # a broken check is a RED,
+        tb = traceback.extract_tb(sys.exc_info()[2])
+        where = f"{tb[-1].name}:{tb[-1].lineno}" if tb else "?"
+        return False, (f"{spec.get('name', spec['type'])}: "
+                       f"check raised {e!r} at {where}")
+
+
+def load_cache():
+    try:
+        with open(CACHE) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def save_cache(cache):
+    try:
+        with open(CACHE, "w") as f:
+            json.dump(cache, f, indent=2)
+    except OSError as e:
+        print(f"  !! could not write {CACHE}: {e}")
+
+
+def run_spaced(spec, fn, cache, now=None):
+    """Run a check at most once per `min_interval_hours`, reusing a GREEN result.
+
+    Some checks are too heavy to run hourly. The transcript-archive walk visits
+    ~70k files in ~17k directories, peaks near 1.8GB itself and pushed ~6GB of
+    other memory into swap for a minute on every run, measured 2026-10-14. Its
+    threshold is 21 days, so a daily reading loses nothing.
+
+    Only a pass is reused. A RED reruns every time, so a problem is re-checked
+    hourly and clears as soon as it is fixed. A reused line says how old it is,
+    because a carried-forward value that reads as fresh is a stale read.
+    """
+    hours = spec.get("min_interval_hours", MIN_INTERVAL_HOURS.get(spec.get("type")))
+    if not hours:
+        return run_check(spec, fn)
+    now = time.time() if now is None else now
+    key = spec.get("name", spec["type"])
+    hit = cache.get(key)
+    if hit and hit.get("ok") and now - hit.get("at", 0) < hours * 3600:
+        age = (now - hit["at"]) / 3600
+        return True, f"{hit['detail']} (measured {age:.1f}h ago; runs every {hours:g}h)"
+    ok, detail = run_check(spec, fn)
+    cache[key] = {"ok": ok, "detail": detail, "at": now}
+    return ok, detail
+
+
 def notify(title, message):
     """Native macOS notification. No agent, no tokens.
 
@@ -1667,6 +1723,7 @@ def main():
     with open(CONFIG) as f:
         cfg = json.load(f)
 
+    cache = load_cache()
     red, green = [], []
     for spec in cfg.get("checks", []):
         fn = CHECKS.get(spec.get("type"))
@@ -1675,15 +1732,10 @@ def main():
             continue
         if spec.get("skip"):
             continue
-        try:
-            ok, detail = fn(spec)
-        except Exception as e:                      # a broken check is a RED,
-            tb = traceback.extract_tb(sys.exc_info()[2])
-            where = f"{tb[-1].name}:{tb[-1].lineno}" if tb else "?"
-            ok, detail = False, (f"{spec.get('name', spec['type'])}: "
-                                 f"check raised {e!r} at {where}")
+        ok, detail = run_spaced(spec, fn, cache)
         (green if ok else red).append(detail)       # never a silent pass
 
+    save_cache(cache)
     stamp = datetime.now().isoformat(timespec="seconds")
     recovery = reboot_recovery_report(red, green)
     os.makedirs(STATE_DIR, exist_ok=True)

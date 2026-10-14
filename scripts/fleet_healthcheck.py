@@ -74,6 +74,10 @@ def _state_dir():
 STATE_DIR = _state_dir()
 CONFIG = os.path.join(STATE_DIR, "healthcheck-config.json")
 STATUS = os.path.join(STATE_DIR, "healthcheck-status.json")
+CACHE = os.path.join(STATE_DIR, "healthcheck-cache.json")
+# Checks too heavy to run every hour, by type. A spec's own
+# `min_interval_hours` overrides this. See run_spaced.
+MIN_INTERVAL_HOURS = {"archive_backlog": 24}
 
 
 _PREV_STATUS = None
@@ -263,6 +267,32 @@ def exists_via_bun(path):
          "--", path],
         capture_output=True, cwd="/", timeout=BUN_TIMEOUT)
     return r.returncode == 0
+
+
+_CMD_ANSWERS_JS = r"""
+// Run argv[1..] and exit 0 only if it succeeded AND printed something. The
+// output is measured and dropped here -- it never reaches the caller.
+const r = require("child_process").spawnSync(process.argv[1], process.argv.slice(2),
+  {encoding: "utf8", cwd: "/", timeout: 5000});
+process.exit(r.status === 0 && r.stdout && r.stdout.trim().length > 0 ? 0 : 1);
+"""
+
+
+def command_answers(cmd):
+    """True if `cmd` exits 0 with non-empty stdout. Value is never returned.
+
+    Run through bun when it works: a credential CLI reads its config under
+    `~/.config`, a symlink onto the secondary volume, and spawned from a
+    launchd-invoked Apple-signed interpreter that read is denied -- so the
+    command fails here while the consumer (a bun daemon) resolves it fine.
+    """
+    if bun_works():
+        r = subprocess.run([bun_path(), "-e", _CMD_ANSWERS_JS, "--", *cmd],
+                           capture_output=True, cwd="/", timeout=BUN_TIMEOUT + 4)
+        return r.returncode == 0
+    r = subprocess.run(cmd, capture_output=True, text=True,
+                       timeout=BUN_TIMEOUT, cwd="/")
+    return r.returncode == 0 and len(r.stdout.strip()) > 0
 
 
 def probe_plugin_via_bun(cache_dir, source_manifest):
@@ -1163,6 +1193,38 @@ const fs = require("fs"), path = require("path");
 const [root, sinceMs] = process.argv.slice(1);
 const since = Number(sinceMs);
 const hits = [];
+// Streamed in 1MB chunks, never read whole. Reading every transcript touched in
+// 24h into one string and splitting it peaked this process at 1.46GB and pushed
+// ~5GB into swap on every hourly run (measured 2026-10-14).
+const MARK = Buffer.from('"rateLimitType":"five_hour"');
+const CHUNK = 1 << 20, MAX_LINE = 64 << 20;
+function onLine(buf, dir) {
+  if (buf.indexOf(MARK) === -1) return;
+  let o; try { o = JSON.parse(buf.toString("utf8")); } catch (e) { return; }
+  const q = (o.message && o.message.quotaLimits) || o.quotaLimits;
+  if (!q || q.status !== "rejected") return;
+  const t = Date.parse(o.timestamp || "");
+  if (!t || t < since) return;
+  hits.push({t, project: dir.split("/projects/")[1] || dir, resetsAt: q.resetsAt});
+}
+function scanFile(full, dir) {
+  let fd; try { fd = fs.openSync(full, "r"); } catch (e) { return; }
+  const buf = Buffer.alloc(CHUNK);
+  let carry = Buffer.alloc(0);
+  try {
+    for (;;) {
+      const n = fs.readSync(fd, buf, 0, CHUNK, null);
+      if (n === 0) break;
+      const data = carry.length ? Buffer.concat([carry, buf.subarray(0, n)]) : buf.subarray(0, n);
+      let start = 0, nl;
+      while ((nl = data.indexOf(10, start)) !== -1) { onLine(data.subarray(start, nl), dir); start = nl + 1; }
+      // Copy: `buf` is reused on the next read.
+      carry = data.length - start > MAX_LINE ? Buffer.alloc(0) : Buffer.from(data.subarray(start));
+    }
+    if (carry.length) onLine(carry, dir);
+  } catch (e) {
+  } finally { fs.closeSync(fd); }
+}
 function walk(dir, depth) {
   if (depth > 4) return;
   let ents = [];
@@ -1173,17 +1235,7 @@ function walk(dir, depth) {
     if (!e.name.endsWith(".jsonl")) continue;
     let st; try { st = fs.statSync(full); } catch (e) { continue; }
     if (st.mtimeMs < since) continue;          // cheap skip
-    let text; try { text = fs.readFileSync(full, "utf8"); } catch (e) { continue; }
-    if (!text.includes('"quotaLimits"')) continue;
-    for (const line of text.split("\n")) {
-      if (!line.includes('"rateLimitType":"five_hour"')) continue;
-      let o; try { o = JSON.parse(line); } catch (e) { continue; }
-      const q = (o.message && o.message.quotaLimits) || o.quotaLimits;
-      if (!q || q.status !== "rejected") continue;
-      const t = Date.parse(o.timestamp || "");
-      if (!t || t < since) continue;
-      hits.push({t, project: dir.split("/projects/")[1] || dir, resetsAt: q.resetsAt});
-    }
+    scanFile(full, dir);
   }
 }
 walk(root, 0);
@@ -1418,11 +1470,10 @@ def check_token_resolvable(spec):
 
     for cmd in spec.get("commands", []):
         try:
-            r = subprocess.run(cmd, capture_output=True, text=True,
-                               timeout=BUN_TIMEOUT, cwd="/")
+            ok = command_answers(cmd)
         except Exception:
             continue
-        if r.returncode == 0 and len(r.stdout.strip()) > 0:
+        if ok:
             return True, f"{name}: resolvable from {spec.get('commands_label', cmd[0])}"
 
     tried = []
@@ -1632,6 +1683,58 @@ CHECKS = {
 }
 
 
+def run_check(spec, fn):
+    try:
+        return fn(spec)
+    except Exception as e:                          # a broken check is a RED,
+        tb = traceback.extract_tb(sys.exc_info()[2])
+        where = f"{tb[-1].name}:{tb[-1].lineno}" if tb else "?"
+        return False, (f"{spec.get('name', spec['type'])}: "
+                       f"check raised {e!r} at {where}")
+
+
+def load_cache():
+    try:
+        with open(CACHE) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def save_cache(cache):
+    try:
+        with open(CACHE, "w") as f:
+            json.dump(cache, f, indent=2)
+    except OSError as e:
+        print(f"  !! could not write {CACHE}: {e}")
+
+
+def run_spaced(spec, fn, cache, now=None):
+    """Run a check at most once per `min_interval_hours`, reusing a GREEN result.
+
+    Some checks are too heavy to run hourly. The transcript-archive walk visits
+    ~70k files in ~17k directories, peaks near 1.8GB itself and pushed ~6GB of
+    other memory into swap for a minute on every run, measured 2026-10-14. Its
+    threshold is 21 days, so a daily reading loses nothing.
+
+    Only a pass is reused. A RED reruns every time, so a problem is re-checked
+    hourly and clears as soon as it is fixed. A reused line says how old it is,
+    because a carried-forward value that reads as fresh is a stale read.
+    """
+    hours = spec.get("min_interval_hours", MIN_INTERVAL_HOURS.get(spec.get("type")))
+    if not hours:
+        return run_check(spec, fn)
+    now = time.time() if now is None else now
+    key = spec.get("name", spec["type"])
+    hit = cache.get(key)
+    if hit and hit.get("ok") and now - hit.get("at", 0) < hours * 3600:
+        age = (now - hit["at"]) / 3600
+        return True, f"{hit['detail']} (measured {age:.1f}h ago; runs every {hours:g}h)"
+    ok, detail = run_check(spec, fn)
+    cache[key] = {"ok": ok, "detail": detail, "at": now}
+    return ok, detail
+
+
 def notify(title, message):
     """Native macOS notification. No agent, no tokens.
 
@@ -1667,6 +1770,7 @@ def main():
     with open(CONFIG) as f:
         cfg = json.load(f)
 
+    cache = load_cache()
     red, green = [], []
     for spec in cfg.get("checks", []):
         fn = CHECKS.get(spec.get("type"))
@@ -1675,15 +1779,10 @@ def main():
             continue
         if spec.get("skip"):
             continue
-        try:
-            ok, detail = fn(spec)
-        except Exception as e:                      # a broken check is a RED,
-            tb = traceback.extract_tb(sys.exc_info()[2])
-            where = f"{tb[-1].name}:{tb[-1].lineno}" if tb else "?"
-            ok, detail = False, (f"{spec.get('name', spec['type'])}: "
-                                 f"check raised {e!r} at {where}")
+        ok, detail = run_spaced(spec, fn, cache)
         (green if ok else red).append(detail)       # never a silent pass
 
+    save_cache(cache)
     stamp = datetime.now().isoformat(timespec="seconds")
     recovery = reboot_recovery_report(red, green)
     os.makedirs(STATE_DIR, exist_ok=True)

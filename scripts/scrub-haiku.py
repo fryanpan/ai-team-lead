@@ -58,11 +58,11 @@ import urllib.error
 import urllib.request
 from typing import List, Optional
 
-MODEL = "claude-haiku-4-5-20251001"
+MODEL = "claude-haiku-5-5"
 # Haiku 4.5 published rates, USD per million tokens. These are for the estimate
 # in the ledger; the invoice is the Anthropic Console's number, not this one.
-PRICE_IN_PER_MTOK = 1.00
-PRICE_OUT_PER_MTOK = 5.00
+PRICE_IN_PER_MTOK = 0.10
+PRICE_OUT_PER_MTOK = 0.50
 DEFAULT_DAILY_USD = 1.00
 # Where the key actually lives on this machine. `security add-generic-password
 # -a "$USER" -s scrub-haiku-api-key -w` (omit the value; it prompts, so the key
@@ -465,7 +465,10 @@ def call_haiku(diff_content: str, range_spec: str = "-") -> int:
 
     body = json.dumps({
         "model": MODEL,
-        "max_tokens": 1024,
+        # Adaptive thinking is on by default for this model; leave room so
+        # thinking cannot crowd out the verdict.
+        "max_tokens": 4096,
+        "output_config": {"effort": "low"},
         "system": build_system_prompt(),
         "messages": [{
             "role": "user",
@@ -504,7 +507,13 @@ def call_haiku(diff_content: str, range_spec: str = "-") -> int:
     usd = estimate_usd(in_tok, out_tok)
 
     content = data.get("content", [])
-    text = content[0].get("text", "").strip() if content else ""
+    # content[0] may be a thinking block with empty text; take the first
+    # block whose type is "text".
+    text = next(
+        (b.get("text", "") for b in content
+         if isinstance(b, dict) and b.get("type") == "text"),
+        "",
+    ).strip()
 
     if not content:
         verdict, rc = "error-empty-response", 2

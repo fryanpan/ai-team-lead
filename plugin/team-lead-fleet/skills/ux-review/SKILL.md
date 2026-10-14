@@ -103,6 +103,21 @@ After the walkthrough, evaluate against these. For each, mark Pass / Issue / Cri
 - How many steps did it take vs. how many it should have?
 - At any point did you guess what to do, or did the page tell you?
 
+## The issues the user finds most often
+
+Agents ship these again and again, and the user sends them back. Each one is a **Critical** finding, so check them before the general heuristics.
+
+1. **Same information in two places.** A figure, label or explanation that appears in the text and again in a chart, card or tooltip. Keep the one closest to where it's used.
+2. **Extra related numbers.** Secondary figures beside the main one (a percent and a count and a rank and a range) that slow down the main use. Keep the one number the page exists for, and move the rest to a details view or About.
+3. **Too many controls.** A control for each question someone might ask. If a control doesn't change the main answer for most readers, remove it.
+4. **Something covers the content on a phone.** A picker, popover, sheet or feedback widget that hides the map, chart or controls. A popover must never cover the thing it describes.
+5. **Too much text.** Explanation on screen that belongs in an About page. Labels over about 10 words.
+6. **Things move when a control changes.** Text reflows, buttons shift, or the map re-centres. Reserve space for the longest state.
+7. **A click selects part of a thing.** Clicking one segment of a project should highlight the whole project.
+8. **A toggle with no visible effect**, or a hit area that doesn't match what's drawn.
+9. **Doesn't fit one laptop screen** at 1366×768, so the main result needs scrolling to reach.
+10. **Jargon and acronyms** in labels, and invented names for official things.
+
 ## The report
 
 Produce a single markdown report with:

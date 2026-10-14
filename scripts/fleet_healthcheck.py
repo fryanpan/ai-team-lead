@@ -1167,6 +1167,38 @@ const fs = require("fs"), path = require("path");
 const [root, sinceMs] = process.argv.slice(1);
 const since = Number(sinceMs);
 const hits = [];
+// Streamed in 1MB chunks, never read whole. Reading every transcript touched in
+// 24h into one string and splitting it peaked this process at 1.46GB and pushed
+// ~5GB into swap on every hourly run (measured 2026-10-14).
+const MARK = Buffer.from('"rateLimitType":"five_hour"');
+const CHUNK = 1 << 20, MAX_LINE = 64 << 20;
+function onLine(buf, dir) {
+  if (buf.indexOf(MARK) === -1) return;
+  let o; try { o = JSON.parse(buf.toString("utf8")); } catch (e) { return; }
+  const q = (o.message && o.message.quotaLimits) || o.quotaLimits;
+  if (!q || q.status !== "rejected") return;
+  const t = Date.parse(o.timestamp || "");
+  if (!t || t < since) return;
+  hits.push({t, project: dir.split("/projects/")[1] || dir, resetsAt: q.resetsAt});
+}
+function scanFile(full, dir) {
+  let fd; try { fd = fs.openSync(full, "r"); } catch (e) { return; }
+  const buf = Buffer.alloc(CHUNK);
+  let carry = Buffer.alloc(0);
+  try {
+    for (;;) {
+      const n = fs.readSync(fd, buf, 0, CHUNK, null);
+      if (n === 0) break;
+      const data = carry.length ? Buffer.concat([carry, buf.subarray(0, n)]) : buf.subarray(0, n);
+      let start = 0, nl;
+      while ((nl = data.indexOf(10, start)) !== -1) { onLine(data.subarray(start, nl), dir); start = nl + 1; }
+      // Copy: `buf` is reused on the next read.
+      carry = data.length - start > MAX_LINE ? Buffer.alloc(0) : Buffer.from(data.subarray(start));
+    }
+    if (carry.length) onLine(carry, dir);
+  } catch (e) {
+  } finally { fs.closeSync(fd); }
+}
 function walk(dir, depth) {
   if (depth > 4) return;
   let ents = [];
@@ -1177,17 +1209,7 @@ function walk(dir, depth) {
     if (!e.name.endsWith(".jsonl")) continue;
     let st; try { st = fs.statSync(full); } catch (e) { continue; }
     if (st.mtimeMs < since) continue;          // cheap skip
-    let text; try { text = fs.readFileSync(full, "utf8"); } catch (e) { continue; }
-    if (!text.includes('"quotaLimits"')) continue;
-    for (const line of text.split("\n")) {
-      if (!line.includes('"rateLimitType":"five_hour"')) continue;
-      let o; try { o = JSON.parse(line); } catch (e) { continue; }
-      const q = (o.message && o.message.quotaLimits) || o.quotaLimits;
-      if (!q || q.status !== "rejected") continue;
-      const t = Date.parse(o.timestamp || "");
-      if (!t || t < since) continue;
-      hits.push({t, project: dir.split("/projects/")[1] || dir, resetsAt: q.resetsAt});
-    }
+    scanFile(full, dir);
   }
 }
 walk(root, 0);

@@ -103,6 +103,19 @@ Plans go to `docs/product/plans/<prefix>-plan.md`, `<prefix>` being the ticket o
 
 Standalone deliverables go where the project's `CLAUDE.md` says (`docs_destination`); if it says nothing, ask once and record the answer.
 
+### Research the options broadly before agents converge on one (2026-10-15)
+
+Set by the user on a multi-agent design thread, after a recommendation switched providers and every
+agent on the thread moved straight to checking details of the new pick: *"Don't just glom on to single
+solutions and all group think your way into a solution. Research solutions broadly. This holds for all
+discussions."*
+
+- **When the user questions a recommendation, widen the option set before narrowing it.** List the
+  distinct classes of solution, not variants of the current pick, and say what each costs and gives up.
+- **Agreement among agents is not evidence.** Several peers checking their own fit against one option
+  only tells you that option fits; it says nothing about the options nobody looked at.
+- **Say which options you did not research.** An unexamined option left unnamed reads as rejected.
+
 ## Implementation
 
 **Killer item — every file write takes an ABSOLUTE path. Your working directory is not stable.** The harness

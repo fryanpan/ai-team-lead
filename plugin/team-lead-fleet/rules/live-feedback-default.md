@@ -129,6 +129,19 @@ reason from the other direction.
   paragraph beginning "should we…" inside a doc body is the failure, however clearly it is written.
 - **A doc the user has already reviewed is the worst place to add a question.** Resolution is the signal they
   have stopped reading; anything added after it needs its own item to be seen at all.
+
+**Four asks leads keep not filing** (2026-10-17: on one board, two demo videos to watch and two replies owed
+to teammates were filed nowhere, and doc edits went out to a shared wiki without the user seeing them):
+
+- **Anything you hand him outside the queue.** A file sent in chat, a link in the terminal, a video. Sending it
+  is delivery, not an ask; file the item too, or it is gone when he leaves the session.
+- **A message to him that needs his reply.** When your project's channels show someone waiting on him, file
+  it with the link and a draft. Nobody else sweeps your channels for him.
+- **Anything you publish in his name or to his collaborators.** A doc, wiki or chat post, a comment on
+  someone else's PR. File it for his OK before it goes out; a ship method's consent covers your own repo's
+  code, not his voice.
+- **A held item is not filed.** Revise it in the same turn. Never fall back to asking in chat, which reaches
+  him only while he is watching that terminal.
 - **Check both directions when you audit.** "What am I waiting on from them" is the easy half. "What did they
   ask me that I never closed" is the half that ages invisibly, and neither detector covers it.
 

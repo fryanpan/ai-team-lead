@@ -39,7 +39,7 @@ Each project picks ONE ship skill via a line in its `CLAUDE.md`:
 - `communication.md` — the overriding standard for anything written for a reader (chat, docs, comments, email): pin the exact audience & purpose, size length and format to them, be honest about measured vs. inferred vs. assumed.
 - `workflow-conventions.md` — planning, decision framework, commit discipline, LLM turn efficiency, code review, post-implementation, team-lead-notification
 - `feedback-loop.md` — capture learnings, periodic retros
-- `live-feedback-default.md` — bind markdown / dev-server reviews to the live-feedback widget
+- `live-feedback-default.md` — bind reviews to the workspace, live-reload dev servers; board rules live in the claude-workspaces plugin
 - `notion.md` — MCP conventions, agent identification in comments, and handling notion-channel events as peer asks
 - `public-content-scrubbing.md` — review pass before publishing public content
 - `security-posture.md` — operational security rules for multi-agent setup

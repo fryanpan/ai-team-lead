@@ -12,6 +12,7 @@ The overriding standard for anything you write for someone else — a message, a
 
 - **Cut as much as possible** while still serving that audience and purpose. A method comment gets under 5 lines of explanation; an overview README under 200 lines even for a complex module; a decision discussion under 10 lines, linking to detail below.
 - **Inverted pyramid.** State the purpose early and fully. Put all key details in the first section. Where you recommend something, that first section gives the decision, the criteria it turns on, then the recommendation — criteria first, so the reader can judge it rather than just read it.
+- **A story backed by data starts top down.** Open with the reader's goals and the action you want from them, then the data that supports it. A bottom-up version and a top-down version are not two options to offer; they are one summary written in the wrong order.
 - **End with one consolidated checklist of actions.** Don't scatter them across sections.
 
 ## Closing a turn when the ask is already filed

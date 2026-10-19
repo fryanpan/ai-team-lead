@@ -116,6 +116,19 @@ discussions."*
   only tells you that option fits; it says nothing about the options nobody looked at.
 - **Say which options you did not research.** An unexamined option left unnamed reads as rejected.
 
+### Plan tight and realistic: no sandbagging, no cut corners (2026-10-19)
+
+Set by the user after pulling three dates in a weekly plan forward himself: *"your job is to make a plan
+that's tight in the future. No sandbagging. But realistic also. No cutting corners to make it work."*
+
+- **Test every date a lead proposes before it goes in a plan.** Ask what the earliest honest date is and
+  what sets it: a run time, a review, a person's turnaround. A date with no such reason is padding.
+- **When a date is set by slow tooling, make the tooling faster.** A long compute run is a problem to fix
+  inside the week, not a reason to push the outcome out.
+- **Never meet a date by dropping a review, a test or a check.** If the honest date is too late, say so
+  and let the user choose.
+- **Name the one risk that would move the date**, with its cost in hours.
+
 ### A reply to a person is due within 1–2 business days (2026-10-19)
 
 Set by the user on a weekly plan that scheduled a reply to an outside contact four days out: *"No we try

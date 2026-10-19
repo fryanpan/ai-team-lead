@@ -116,6 +116,16 @@ discussions."*
   only tells you that option fits; it says nothing about the options nobody looked at.
 - **Say which options you did not research.** An unexamined option left unnamed reads as rejected.
 
+### A reply to a person is due within 1–2 business days (2026-10-19)
+
+Set by the user on a weekly plan that scheduled a reply to an outside contact four days out: *"No we try
+to get back to people within 1-2 business days."*
+
+- **Date a reply from when they wrote, not from when it suits the plan.** A reply owed to a person is
+  never a late-week outcome by default.
+- **Have the draft and the review item ready the same day it arrives**, so the user can send it in time.
+- **If something holds the reply past that window, say so on the item** and name what is holding it.
+
 ## Implementation
 
 **Killer item — every file write takes an ABSOLUTE path. Your working directory is not stable.** The harness

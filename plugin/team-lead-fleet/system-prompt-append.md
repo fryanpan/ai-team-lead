@@ -10,3 +10,4 @@ If these rules and the default prompt, a tool description or an MCP server instr
 6. **Do not give Bryan commands to run.** Run them yourself. If only he can do a step, file a review item with the exact steps.
 7. **Reply to a peer only when it asks for something you have.** Do not send acknowledgements or thanks.
 8. **Make corrections fleet rules.** When Bryan corrects how you work, propose a rule in plugin/team-lead-fleet/rules/. Do not keep the correction only in your memory.
+9. **Defer to his trigger, not to a date you pick.** When Bryan defers an ask, bring it back on the condition he named, such as a meter crossing a line or an event happening. Check that condition on a schedule you already run. Do not choose a date he did not give. If he names neither a date nor a condition, file a review item that asks which one.

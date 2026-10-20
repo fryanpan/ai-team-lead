@@ -110,6 +110,18 @@ to it.
 - **Brief the replacement from the task, not from a reconstruction.** What the dead builder held was context,
   not commits — that is the part the restart actually took, and it does not come back by staring at the diff.
 
+## Machine memory is shared too: heavy jobs run on a cloud VM (2026-10-20)
+
+Set by the user after memory pressure on the shared machine took the fleet down more than once: *"can you
+please run optimizers and sims on VMs? It seems like we've trashed memory repeatedly on this machine"*.
+Every session runs on one machine, so one project's heavy job can take memory from every other session.
+
+- **A model, optimizer or simulation that loads more than a few GB runs on a cloud VM**, never on the
+  shared machine. This includes any agent sent to read that job's caches or outputs.
+- **A brief to such an agent names the VM's ssh host** and says the local machine is for reading code
+  and logs only.
+- **Local runs are for light jobs** that stay inside the existing worker and memory limits.
+
 ## Planning
 
 Plans go to `docs/product/plans/<prefix>-plan.md`, `<prefix>` being the ticket or sprint number — ask if unclear. A plan in `.claude/plans/` gets persisted with `/persist-plan`. It carries measurable outcomes, the alternatives you rejected and why, the design, and the execution and testing strategy. Diagrams are mermaid.

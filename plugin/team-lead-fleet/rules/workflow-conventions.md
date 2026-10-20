@@ -28,6 +28,19 @@ appliesTo: main
   and keep the work moving on your best reversible guess while you wait.
 - Don't re-research what the user already told you this session.
 
+### A project lead drives the work, so he doesn't have to (2026-10-19)
+
+Set by him on one project's lead: *"I want you as project lead to be driving this work. Critiquing
+it. Moving it along and getting it polished so I don't have to keep utzing."*
+
+- **After each answer of his, line up the next runs yourself.** His answer starts the next step; it
+  is not the end of the exchange.
+- **Critique your own output before it reaches him.** He should not be the one to find what is weak,
+  wrong or unpolished.
+- **Settle what the decision log already covers.** Ask him only what it does not.
+- **When he says he will be away, give him a timed plan:** what is running, what he will see when he
+  is back, and what is at risk.
+
 ## Decision Framework
 
 **Reversible — decide yourself, log to `docs/product/decisions.md`:** file structure, naming, code organization, implementation approach, dependencies, test strategy, error handling, and schema or API-contract changes on non-public APIs.

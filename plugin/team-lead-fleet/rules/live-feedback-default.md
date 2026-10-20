@@ -15,6 +15,18 @@ When you want the user to review a markdown doc, a dev server or an interactive 
 - **Once a doc is bound, never Write/Edit the `.md`.** The plugin flushes the live doc to disk about a second after every change and silently clobbers filesystem edits.
 - **If this session has a `workspaceId`, or someone said "the board is your task list", read `claude-workspaces:working-in-a-workspace` before your first piece of work.** It is the contract, and nothing else will tell you to open it. It now holds the board rules this file used to carry: filing asks, replying on threads, evidence before done, task ids on dispatched work, and dated deferrals.
 
+## An ask that starts on a doc thread is filed on that thread (2026-10-19)
+
+Bryan, on a summary thread where an offer went out as plain text and its follow-up was filed on a
+task: *"why didn't you raise a review item?"*, then *"Note doesn't work. Also why didn't you attach.
+Review item to this thread"*.
+
+- **If your answer to a thread comment needs his decision, make the reply the review item:**
+  `post_reply` with `review`. Not an item on a task linked from the thread, and not an offer in plain
+  text such as "say if you want it".
+- **Every link in a thread reply or a review item opens on the board.** A repo path does not. Bind
+  the file first and link the doc's URL.
+
 ## A dev server you put in front of him live-reloads
 
 Set by Bryan, 2026-09-22: *"Can you please have the dev server page live reload, so i don't need

@@ -13,6 +13,8 @@ When you want the user to review a markdown doc, a dev server or an interactive 
 - **Applies to:** anything you want his voice, structure or content pass on — posts, plans, audits, retros, design and decision docs — plus any dev-server URL or mockup, and anything where you want comment-level input.
 - **Skip for:** one-line acks, code review (the PR diff is canonical), your own notes.
 - **Once a doc is bound, never Write/Edit the `.md`.** The plugin flushes the live doc to disk about a second after every change and silently clobbers filesystem edits.
+- **Bind every doc you work on with him as `.mdx`, from the start**, even when no chart is planned. A bound file cannot be renamed, so a `.md` doc that later needs a chart moves to a new doc and loses its threads. Set by Bryan, 2026-10-21: *"let's please always use mdx files for all docs that we're working on"*.
+- **Draw a chart as a live chart block in the doc, never as an embedded PNG or SVG.** A regenerated image can stay stale behind a cache, and an agent cannot edit an image block. Same day: *"Stop using images."*
 - **If this session has a `workspaceId`, or someone said "the board is your task list", read `claude-workspaces:working-in-a-workspace` before your first piece of work.** It is the contract, and nothing else will tell you to open it. It now holds the board rules this file used to carry: filing asks, replying on threads, evidence before done, task ids on dispatched work, and dated deferrals.
 
 ## An ask that starts on a doc thread is filed on that thread (2026-10-19)

@@ -128,6 +128,17 @@ Plans go to `docs/product/plans/<prefix>-plan.md`, `<prefix>` being the ticket o
 
 Standalone deliverables go where the project's `CLAUDE.md` says (`docs_destination`); if it says nothing, ask once and record the answer.
 
+### Reuse the vendor the project already runs before adding one (2026-10-21)
+
+Set by Bryan after a plan moved a workload to a new cloud provider and asked him for its account, when the
+same workload already ran on another: *"If GCP is fine, let's just keep using GCP and not bring on yet
+another cloud provider."*
+
+- **Before a plan adds a vendor, cloud provider or paid service, check what the project already runs for
+  that job**: its repo, its lead, its accounts.
+- **Say in the plan why the existing one won't do.** A new account is a new bill, a new credential and a
+  new thing to ask him for.
+
 ### Research the options broadly before agents converge on one (2026-10-15)
 
 Set by the user on a multi-agent design thread, after a recommendation switched providers and every

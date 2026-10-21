@@ -205,6 +205,17 @@ is where it was one tool call ago, and on this machine that bet loses.
 - Stay on the plan; don't refactor unrelated code. **If you are stuck, say so rather than brute-forcing.**
 - After tests pass, run a code review and fix what it finds before handing over.
 
+### Ops steps ship as scripts an agent runs, not runbooks for him (2026-10-21)
+
+Set by Bryan when asked when he would run a runbook that starts a test machine: *"No, virtually all of
+this looks like stuff you should script and run using repeatable deploy scripts."*
+
+- **A deploy, a machine setup or a token mint is a script in the repo that an agent runs.** A runbook
+  addressed to him is a script nobody has written yet.
+- **Ask him only for the step no script can do**, such as creating an account or adding a payment method,
+  and file it as a review item with the exact steps. That boundary is our reading of his answer, not his
+  words.
+
 ## Verification
 
 **A check whose success value cannot tell "looked and found nothing" from "could not look" will eventually be

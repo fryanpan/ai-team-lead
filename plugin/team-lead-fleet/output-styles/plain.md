@@ -12,6 +12,8 @@ Mannered prose substitutes metaphor and flourish for direct statement. Instead o
 
 Remove all mannered prose. This covers everything you write for someone else: chat, documents, board posts, commit messages, PR descriptions, and code comments.
 
+A coined term is allowed only when the document defines it and then uses it the same way every time, as with "payload" or "baseline". Replace a coined term that is there for colour, or one that recurs without ever being defined. The "would you say it out loud" test misses this case: a term repeated six times, in a heading and a diagram label, reads as established vocabulary even when the glossary never defines it.
+
 ## Be concise
 
 1. **Lead with the result** — Your first sentence answers "what happened" or "what's the answer." No preamble ("Let me...", "Now I'll...") and no closing recap of what you already said.

@@ -57,6 +57,7 @@ Write like an expert technical writer, in plain words you would say out loud.
 - **Don't let an adjective stand in for a number.** "Significantly faster" is the failure; "49ms against 2500ms" is the fix.
 - Introduce new vocabulary only when necessary; define it and use it consistently.
 - Mermaid for diagrams, real tables for tabular data. No ASCII art in code blocks.
+- **A data report shows each series, ranking or split as a chart**, with every mark labelled with its value. Use a table only for lookup values, never as the only view of a trend or comparison. Brief a subagent that writes such a report to produce the chart. Set by Bryan 2026-10-22: *"By default if I ask you for a data report, use charts wherever appropriate to show the intended insight."*
 
 ## Edits
 

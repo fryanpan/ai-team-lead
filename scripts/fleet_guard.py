@@ -27,9 +27,11 @@ Notify on the CROSSING, not on the state
 ----------------------------------------
 Firing every two minutes while a condition persists trains you to ignore it,
 which is how the email watcher became furniture. This notifies when the band
-gets worse, once when it recovers, and at most every 30 minutes while critical.
+gets worse, when what the alert says changes (trend bucket, bands, cause), once
+when it recovers, and otherwise at most every 2 hours (RENOTIFY_UNCHANGED_SEC).
 """
 
+import getpass
 import json
 import os
 import re
@@ -77,7 +79,29 @@ ANON_GB = (10.0, 13.0)         # anonymous+compressed demand on a 16GB machine
 # swapfiles are written there: 41GB of swap on a volume with tens of GB free is
 # a second wall behind the first one, and nothing was watching it either.
 
-RENOTIFY_CRITICAL_SEC = 30 * 60
+
+# Trend and paging bands (added 2026-10-23).
+#
+# On 2026-10-22 swap climbed from ~14GB to 16GB over three hours while load per
+# core read 0.4-0.7 in every snapshot, so each alert read "high swap, low load,
+# wait". Then the machine stalled (1-min load 25 on 10 cores) with Chrome
+# renderers holding ~11GB. A point-in-time number cannot say "rising"; the
+# direction needs the history, and active paging needs a rate. Load per core is
+# the wrong instrument for a machine that is waiting on the disk.
+SWAP_TREND_GB = (1.5, 4.0)            # rise over the window; (warn, critical)
+SWAP_TREND_WINDOW_SEC = 2 * 60 * 60
+SWAP_TREND_MIN_SPAN_SEC = 40 * 60     # less history than this: say so, not "flat"
+PAGING_MB_S = (50.0, 150.0)           # pageins+pageouts; the 21:43 spike was ~200
+PAGING_MAX_GAP_SEC = 15 * 60          # older previous sample: no rate, say so
+RENOTIFY_UNCHANGED_SEC = 2 * 60 * 60  # an unchanged alert is resent this rarely
+
+# A renderer that has burned this much CPU at this average load is a runaway
+# tab, not a busy one. Any user: a renderer in another account still costs the
+# shared RAM and CPU.
+RUNAWAY_CPU_SEC = 10 * 60 * 60
+RUNAWAY_CPU_FRACTION = 0.5
+CHROME_FIX = ("Chrome Memory Saver (chrome://settings/performance) or close "
+              "tabs; the guard does not kill it")
 
 # tmux loops that must be alive, and the script each one runs.
 #
@@ -208,6 +232,13 @@ def read_metrics():
     m["anon_gb"] = round(anon * pagesize / 1024 ** 3, 2) if anon else None
     m["compressed_gb"] = round(comp * pagesize / 1024 ** 3, 2) if comp else None
 
+    # Cumulative paging counters: only a DIFFERENCE between two runs means
+    # anything, so keep the raw counters and the clock they were read at.
+    m["pagesize"] = pagesize
+    m["pageins"] = pages.get("pageins")
+    m["pageouts"] = pages.get("pageouts")
+    m["epoch"] = time.time()
+
     # Free space on the BOOT disk, which is where the swapfiles are written.
     try:
         st = os.statvfs(STATE_DIR)
@@ -230,6 +261,58 @@ def read_metrics():
         m["healthcheck_age_min"] = None
 
     return m
+
+
+def parse_cpu_time(raw):
+    """ps `time`, `[[dd-]hh:]mm:ss[.cc]`, to seconds. None if it does not parse."""
+    m = re.match(r"^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)(?:\.(\d+))?$",
+                 (raw or "").strip())
+    if not m:
+        return None
+    dd, hh, mm, ss, frac = m.groups()
+    secs = ((int(dd or 0) * 24 + int(hh or 0)) * 60 + int(mm)) * 60 + int(ss)
+    return secs + (float("0." + frac) if frac else 0.0)
+
+
+def parse_process_table(raw):
+    """Rows from `ps -axo pid=,user=,rss=,time=,etime=,comm=`.
+
+    `comm` is last because macOS gives the full executable path and it holds
+    spaces ("Google Chrome Helper (Renderer)"). Unparseable lines are skipped.
+    """
+    rows = []
+    for line in (raw or "").splitlines():
+        parts = line.split(None, 5)
+        if len(parts) < 6:
+            continue
+        try:
+            pid, rss = int(parts[0]), int(parts[2])
+        except ValueError:
+            continue
+        rows.append({"pid": pid, "user": parts[1], "rss_kb": rss,
+                     "cpu_sec": parse_cpu_time(parts[3]),
+                     "wall_sec": parse_ps_etime(parts[4]),
+                     "comm": parts[5].strip()})
+    return rows
+
+
+def read_process_table():
+    """The parsed table, or None if `ps` could not be read (never [] for that)."""
+    out, rc = sh("/bin/ps -axo pid=,user=,rss=,time=,etime=,comm=", timeout=15)
+    if rc != 0:
+        return None
+    return parse_process_table(out)
+
+
+def is_chrome(comm):
+    return "google chrome" in comm.lower()
+
+
+def is_chrome_renderer(comm):
+    # Seen live: "Google Chrome Helper (Renderer)" and, in another build,
+    # "Google Chrome Helper (Aperitif Renderer)".
+    low = comm.lower()
+    return "google chrome helper" in low and "renderer" in low
 
 
 def phys_footprint_mb(pid):
@@ -294,13 +377,194 @@ def top_holders(limit=8, candidates=40):
     if measured == 0:
         # Three states, not two: say the instrument could not run rather than
         # letting an RSS-only ranking read as a footprint ranking.
-        return "footprint unavailable -- RSS ranking only: " + " \u00b7 ".join(
+        return "footprint unavailable -- RSS ranking only: " + " · ".join(
             f"{n} {v[0] / 1024:.1f}GB x{v[1]}"
             for n, v in sorted(agg.items(), key=lambda kv: -kv[1][0])[:limit])
 
     ranked = sorted(agg.items(), key=lambda kv: -kv[1][0])[:limit]
-    return " \u00b7 ".join(f"{n} {v[0] / 1024:.1f}GB x{v[1]}"
+    return " · ".join(f"{n} {v[0] / 1024:.1f}GB x{v[1]}"
                            for n, v in ranked if v[0] > 100)
+
+
+def chrome_cause(rows, me):
+    """Is Chrome the top memory holder among `me`'s processes?
+
+    All of a user's Chrome processes (main, Helper, Renderer, GPU) count as one
+    holder: to the person fixing it Chrome is one program, and split by helper
+    name it would rank below a single large claude session. Returns None when
+    Chrome is not the top holder. Names only; never acts.
+    """
+    if not rows:
+        return None
+    totals = {}
+    for r in rows:
+        if r["user"] != me:
+            continue
+        key = "chrome" if is_chrome(r["comm"]) else r["comm"].rsplit("/", 1)[-1]
+        totals[key] = totals.get(key, 0) + r["rss_kb"]
+    if not totals or max(totals, key=totals.get) != "chrome":
+        return None
+    renderers = sum(1 for r in rows
+                    if r["user"] == me and is_chrome_renderer(r["comm"]))
+    return {"gb": round(totals["chrome"] / 1024 / 1024, 1),
+            "renderers": renderers}
+
+
+def find_runaway_renderers(rows):
+    """Chrome renderers (any user) with >RUNAWAY_CPU_SEC of CPU time at a
+    >RUNAWAY_CPU_FRACTION average. A row with unreadable times is skipped:
+    unknown is not runaway."""
+    out = []
+    for r in rows or []:
+        if not is_chrome_renderer(r["comm"]):
+            continue
+        cpu, wall = r.get("cpu_sec"), r.get("wall_sec")
+        if not cpu or not wall:
+            continue
+        if cpu > RUNAWAY_CPU_SEC and cpu / wall > RUNAWAY_CPU_FRACTION:
+            out.append({"pid": r["pid"], "user": r["user"],
+                        "cpu_h": round(cpu / 3600, 1),
+                        "avg_pct": round(100 * cpu / wall)})
+    return out
+
+
+def row_epoch(row):
+    if row.get("epoch"):
+        return row["epoch"]
+    try:
+        return time.mktime(time.strptime(row.get("at") or "", "%Y-%m-%dT%H:%M:%S"))
+    except ValueError:
+        return None
+
+
+def read_history(limit=400):
+    """The last `limit` history rows (2h is ~60 rows at the 2-minute cadence).
+    [] when there is none yet -- swap_trend reports that as unknown, not flat."""
+    try:
+        with open(HISTORY) as f:
+            lines = f.readlines()[-limit:]
+    except OSError:
+        return []
+    rows = []
+    for line in lines:
+        try:
+            rows.append(json.loads(line))
+        except ValueError:
+            continue
+    return rows
+
+
+def _span_text(sec):
+    mins = int(round(sec / 300.0)) * 5
+    return f"{mins // 60}h" if mins % 60 == 0 else f"{mins}m"
+
+
+def swap_trend(rows, swap_gb, now):
+    """Swap's direction over the last ~2h, from history rows.
+
+    Returns {"band", "text"}. band is "unknown" (loud, reason in `text`) when
+    there is too little history or no current reading -- never "ok" by
+    default, because "flat" and "cannot see" are different states. "Rising"
+    means the rise over the window is meaningful AND swap has not started
+    falling over the last 30 minutes.
+    """
+    if swap_gb is None:
+        return {"band": "unknown", "text": "swap trend unknown (no swap reading)"}
+    pts = []
+    for r in rows:
+        e, g = row_epoch(r), r.get("swap_gb")
+        if e is not None and g is not None and now - SWAP_TREND_WINDOW_SEC <= e <= now:
+            pts.append((e, g))
+    pts.sort()
+    if not pts or now - pts[0][0] < SWAP_TREND_MIN_SPAN_SEC:
+        have = _span_text(now - pts[0][0]) if pts else "0m"
+        return {"band": "unknown",
+                "text": f"swap trend unknown (only {have} of history)"}
+    span = now - pts[0][0]
+    rise = swap_gb - pts[0][1]
+    recent = [g for e, g in pts if e >= now - 30 * 60]
+    falling = bool(recent) and swap_gb < max(recent) - 0.3
+    bnd = band(rise, *SWAP_TREND_GB)
+    if bnd != "ok" and falling:
+        bnd = "ok"
+    word = "rising" if bnd != "ok" else ("falling" if falling else "flat")
+    return {"band": bnd, "rise_gb": round(rise, 2), "span_sec": int(span),
+            "text": f"swap {rise:+.1f}GB in {_span_text(span)}, {word}"}
+
+
+def paging_rate(prev, cur):
+    """Page-in + page-out throughput in MB/s between two metric snapshots.
+
+    Returns {"band", "text"}; band "unknown" says why (no previous sample,
+    stale sample, counters reset, vm_stat unreadable). A paging storm is the
+    one thing load per core does not show: the machine is waiting on the disk,
+    not computing.
+    """
+    def unk(why):
+        return {"band": "unknown", "text": f"paging rate unknown ({why})"}
+    keys = ("pageins", "pageouts", "epoch")
+    if any(cur.get(k) is None for k in keys):
+        return unk("no vm_stat reading")
+    if not prev or any(prev.get(k) is None for k in keys):
+        return unk("no previous sample")
+    dt = cur["epoch"] - prev["epoch"]
+    if dt <= 0 or dt > PAGING_MAX_GAP_SEC:
+        return unk("previous sample stale")
+    dins, douts = cur["pageins"] - prev["pageins"], cur["pageouts"] - prev["pageouts"]
+    if dins < 0 or douts < 0:
+        return unk("counters reset")
+    size = cur.get("pagesize") or 16384
+    ins, outs = dins * size / dt / 1024 ** 2, douts * size / dt / 1024 ** 2
+    return {"band": band(ins + outs, *PAGING_MB_S),
+            "in_mb_s": round(ins, 1), "out_mb_s": round(outs, 1),
+            "text": f"paging {ins:.0f}MB/s in, {outs:.0f}MB/s out"}
+
+
+def describe_cause(chrome, runaways):
+    """Alert fragments naming the cause. Suggests; never acts."""
+    parts = []
+    if chrome:
+        parts.append(f"Chrome is the top memory holder: {chrome['gb']}GB across "
+                     f"{chrome['renderers']} renderers -- try {CHROME_FIX}")
+    for r in runaways:
+        parts.append(f"runaway tab: Chrome renderer pid {r['pid']} (user "
+                     f"{r['user']}) {r['cpu_h']}h CPU at {r['avg_pct']}% average")
+    return parts
+
+
+def alert_signature(worst, bands, trend, chrome, runaways):
+    """What an alert SAYS, coarsely: change this and a resend is warranted.
+    Swap rise is bucketed to whole GB so jitter does not read as change."""
+    rise = trend.get("rise_gb")
+    return json.dumps({
+        "worst": worst,
+        "bands": sorted(k for k, v in bands.items() if v in ("warn", "critical")),
+        "trend": None if rise is None or trend["band"] == "ok" else int(rise),
+        "chrome": bool(chrome),
+        "runaways": sorted(r["pid"] for r in runaways),
+    }, sort_keys=True)
+
+
+def should_notify(prev, worst, sig, now):
+    """Why to send this run's alert, or None to stay quiet.
+
+    `prev` is the prior state. Sends when the band got worse, the alert content
+    changed (trend bucket, which bands, cause, runaways), or
+    RENOTIFY_UNCHANGED_SEC has passed. The old rule resent every critical alert
+    unchanged each 30 minutes, which on 2026-10-22 buried the one fact that
+    was changing.
+    """
+    rank = {"ok": 0, "unknown": 0, "warn": 1, "critical": 2}
+    prev_band = prev.get("band", "ok")
+    if worst == "ok":
+        return "recovered" if rank.get(prev_band, 0) > 0 else None
+    if rank[worst] > rank.get(prev_band, 0):
+        return "escalated"
+    if sig != prev.get("notified_sig"):
+        return "changed"
+    if now - prev.get("notified_at", 0) > RENOTIFY_UNCHANGED_SEC:
+        return "unchanged-resend"
+    return None
 
 
 # --------------------------------------------------------------------------
@@ -466,7 +730,7 @@ def reap_orphaned_chromes(list_processes=None, min_age_sec=CHROME_ORPHAN_MIN_AGE
     return orphans, killed
 
 
-def grade(m):
+def grade(m, trend=None, paging=None, runaways=()):
     bands = {
         "swap": band(m["swap_gb"], *SWAP_GB),
         "memory": band(m["free_pct"], *FREE_PCT, higher_is_worse=False),
@@ -477,6 +741,9 @@ def grade(m):
                                higher_is_worse=False),
         "healthcheck freshness": band(m["healthcheck_age_min"],
                                       *HEALTHCHECK_STALE_MIN),
+        "swap trend": (trend or {}).get("band", "unknown"),
+        "paging": (paging or {}).get("band", "unknown"),
+        "runaway tab": "warn" if runaways else "ok",
     }
     rank = {"ok": 0, "unknown": 0, "warn": 1, "critical": 2}
     worst = max(bands.values(), key=lambda b: rank[b])
@@ -700,7 +967,19 @@ def main():
         return 0
 
     m = read_metrics()
-    worst, bands = grade(m)
+    now = time.time()
+    state = load_state()
+    prev = state
+
+    # Trend and cause, from history and one process-table read. "unknown" is a
+    # state of its own and is printed, never folded into ok.
+    trend = swap_trend(read_history(), m["swap_gb"], now)
+    paging = paging_rate(state.get("metrics"), m)
+    rows = read_process_table()
+    me = getpass.getuser()
+    runaways = find_runaway_renderers(rows)
+    chrome = chrome_cause(rows, me)
+    worst, bands = grade(m, trend, paging, runaways)
     loops = loop_status()
     revived = {}
     for name, status in list(loops.items()):
@@ -711,13 +990,16 @@ def main():
     down = [n for n, s in loops.items() if s not in ("up", "revived")]
 
     stamp = time.strftime("%Y-%m-%dT%H:%M:%S")
-    detail = (f"swap {m['swap_gb']}GB · anon+comp {m['anon_gb']}/"
+    detail = (f"swap {m['swap_gb']}GB ({trend['text']}) · {paging['text']} · "
+              f"anon+comp {m['anon_gb']}/"
               f"{m['compressed_gb']}GB · free {m['free_pct']}% · "
               f"boot disk {m['boot_free_gb']}GB free · "
               f"load {m['load_per_core']}/core · orphan workers "
               f"{m['orphan_workers']} ({m['orphan_worker_gb']}GB) · "
               f"{m['claude_sessions']} sessions ({m['claude_gb']}GB rss) · "
               f"healthcheck {m['healthcheck_age_min']}m old")
+    if rows is None:
+        detail += " · process table UNREADABLE (cause unknown)"
     print(f"[{stamp}] {worst.upper()} {detail} · loops {loops}")
 
     # Every cycle, independent of the swap/memory band: reap any headless
@@ -729,37 +1011,38 @@ def main():
     # The attribution line. Only on a bad band, and written BEFORE any notify
     # so it survives a machine that wedges before the next run.
     holders = ""
+    causes = describe_cause(chrome, runaways)
     if worst in ("warn", "critical"):
         holders = top_holders()
         print(f"[{stamp}] HOLDERS {holders}")
+        for c in causes:
+            print(f"[{stamp}] CAUSE {c}")
         sys.stdout.flush()
 
-    state = load_state()
-    prev = state.get("band", "ok")
     prev_down = state.get("loops_down", [])
     last_notified = state.get("notified_at", 0)
-    now = time.time()
 
-    rank = {"ok": 0, "unknown": 0, "warn": 1, "critical": 2}
-    escalated = rank[worst] > rank.get(prev, 0)
-    recovered = worst == "ok" and rank.get(prev, 0) > 0
-    stale_critical = (worst == "critical"
-                      and now - last_notified > RENOTIFY_CRITICAL_SEC)
+    sig = alert_signature(worst, bands, trend, chrome, runaways)
+    reason = should_notify(prev, worst, sig, now)
     loops_newly_down = sorted(set(down) - set(prev_down))
 
     fired = False
-    if escalated or stale_critical:
-        bad = ", ".join(f"{k} {v}" for k, v in bands.items() if v != "ok")
-        notify(f"Fleet guard: {worst}", f"{bad} — {detail}")
+    if reason in ("escalated", "changed", "unchanged-resend"):
+        bad = ", ".join(f"{k} {v}" for k, v in bands.items()
+                        if v in ("warn", "critical"))
+        trendline = [t["text"] for t in (trend, paging) if t["band"] != "ok"]
+        notify(f"Fleet guard: {worst}",
+               " · ".join([bad] + trendline + causes) + f" — {detail}")
         # The banner is for the person at the machine; this is for the agent
         # that can act on it. Both, every time -- neither substitutes.
         delivery = hive_alert(f"{worst.upper()} — {bad}",
-                              f"{detail} · HOLDERS {holders}")
+                              " · ".join(trendline + causes)
+                              + f" · {detail} · HOLDERS {holders}")
         print(f"[{stamp}] HIVE-ALERT {delivery}")
         sys.stdout.flush()
         state["hive_alert"] = delivery
         fired = True
-    elif recovered:
+    elif reason == "recovered":
         notify("Fleet guard: recovered", detail)
         fired = True
     if revived:
@@ -783,6 +1066,8 @@ def main():
         "revived": revived,
         "checked_at": stamp,
         "notified_at": now if fired else last_notified,
+        "notified_sig": sig if reason in ("escalated", "changed", "unchanged-resend")
+                        else state.get("notified_sig"),
     }
     save_state(snapshot)
     record_history(snapshot)

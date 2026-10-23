@@ -21,7 +21,8 @@ These questions are designed to help you do the most useful thing as fast as pos
 
 ## How to run it
 
-- **Draft the answers yourself first** from the project's docs: README, goals, research, support data, past decisions. Mark each answer as **from docs** (name the doc) or **inferred**.
-- **Ask the person only for the gaps, in one batch.** Never one question at a time.
-- **Write the strongest case against the proposal.** Use the evidence you found, such as low demand, no link to current goals, or a cheaper alternative. Make it a real argument, not a footnote.
+- **Ask all the questions in one batch.** Never one question at a time.
+- **Don't try to find the answers yourself.** Don't draft answers from the project's docs before you ask.
+- **Offer research only when the person can't answer or struggles to.** Do the research only if they accept, and only for that question.
+- **After they answer, write a short case against the proposal.** Use what they told you, such as low demand, no link to current goals, or a cheaper alternative.
 - **Offer suggestions.** Ask the person whether they want suggestions for measurement methods and for solutions. If so, brainstorm and research and provide them.

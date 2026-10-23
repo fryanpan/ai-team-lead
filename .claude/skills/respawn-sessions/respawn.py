@@ -179,6 +179,11 @@ def project_config_keys(path: str) -> List[str]:
 # means the default folder (~/.claude with ~/.claude.json beside it).
 ACCOUNT_DIR: Optional[str] = None
 
+# Model for every spawned session, set by --model. None leaves the choice to
+# settings, but a resumed conversation can keep an older model from its own
+# history, so a restart alone does not move it.
+MODEL: Optional[str] = None
+
 
 def global_config_path() -> str:
     """The `.claude.json` a spawned session will read. Under CLAUDE_CONFIG_DIR
@@ -885,6 +890,7 @@ def spawn_session_tmux(session_name: str, path: str) -> bool:
         ("claude --continue" if (has_prior_session(path) and not fresh) else "claude")
         + name_flag
         + rc_flag
+        + (f" --model {shlex.quote(MODEL)}" if MODEL else "")
         + direct_channel_flags(path)
     )
 
@@ -1252,6 +1258,10 @@ Flags:
                    spawned without this flag use the default ~/.claude login,
                    so `--mode running` without it moves a session on a spare
                    account back to the main one.
+  --model <name>   Start every spawned session on this model (an alias such as
+                   `opus` or a full id). A resumed conversation can keep the
+                   model it last ran on, so restarting without this flag may
+                   leave a session on an old model.
   --no-compact     Answer the resume dialog with "Resume full session as-is"
                    instead of the default "Resume from summary". Peers come back
                    with their full context intact — nothing is summarized away.
@@ -1361,6 +1371,14 @@ def main() -> int:
         if problem:
             print(f"\n[abort] --account-dir {ACCOUNT_DIR}: {problem}", file=sys.stderr)
             return 2
+
+    global MODEL
+    if "--model" in args:
+        idx = args.index("--model")
+        if idx + 1 >= len(args):
+            sys.exit("--model requires a model name or alias")
+        MODEL = args[idx + 1]
+        print(f"Model: {MODEL}")
 
     running = get_running_claude_processes()
     self_pid = get_self_pid()

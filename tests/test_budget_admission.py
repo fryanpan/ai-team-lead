@@ -216,3 +216,53 @@ def test_an_acked_peer_is_still_released_when_it_stops_being_a_target():
 def test_a_missing_hold_record_is_not_an_ack():
     assert not fbw.acked_recently(None, "2026-09-03T17:00:00-07:00")
     assert not fbw.acked_recently({}, "2026-09-03T17:00:00-07:00")
+
+
+# --- the live meter outranks the token model ------------------------------------
+
+def _write_meter(tmp_path, pct, captured):
+    import json
+    f = tmp_path / "usage-latest.json"
+    f.write_text(json.dumps({"captured_at": captured,
+                             "five_hour": {"used_percentage": pct,
+                                           "resets_at": captured + 3600}}))
+    return str(f)
+
+
+def test_a_low_live_meter_beats_a_runaway_token_projection(tmp_path):
+    """2026-10-23: meter 23%, tokens projected 202% of ceiling -> hold-all and a
+    throttled peer. The meter is what actually stops work."""
+    m = fbw.read_live_meter(_write_meter(tmp_path, 23, 1_000), 1_060, 1800)
+    assert m["state"] == "live"
+    projected = int(2.02 * CEILING)
+    assert fbw.admission_level(200_000_000, projected, CEILING, FLOOR) == "hold-all"
+    assert fbw.admission_level(200_000_000, projected, CEILING, FLOOR,
+                               meter_pct=m["pct"]) == "clear"
+
+
+def test_a_high_live_meter_holds_even_when_tokens_look_quiet():
+    assert fbw.admission_level(0, 0, CEILING, FLOOR, meter_pct=75) == "hold-top"
+    assert fbw.admission_level(0, 0, CEILING, FLOOR, meter_pct=95) == "hold-all"
+
+
+def test_a_stale_meter_is_not_trusted_and_the_line_says_estimate_only(tmp_path):
+    m = fbw.read_live_meter(_write_meter(tmp_path, 23, 1_000), 1_000 + 3_600, 1800)
+    assert m["state"] == "stale"
+    line = fbw.meter_line(m, 2.02, "hold-all")
+    assert "estimate only" in line and "unavailable" in line
+    assert "live" not in line
+
+
+def test_a_missing_meter_is_loud_too(tmp_path):
+    m = fbw.read_live_meter(str(tmp_path / "nope.json"), 1_000, 1800)
+    assert m["state"] == "missing"
+    assert "estimate only" in fbw.meter_line(m, 0.5, "clear")
+
+
+def test_the_live_line_leads_with_the_meter_and_flags_a_big_disagreement():
+    m = {"state": "live", "pct": 23.0, "age_s": 5}
+    line = fbw.meter_line(m, 2.02, "clear", "03:00")
+    assert line.startswith("5h meter: 23% (live, resets 03:00)")
+    assert "token estimate: 202% of modelled ceiling" in line
+    assert "admission: clear" in line and "disagree" in line
+    assert "disagree" not in fbw.meter_line(m, 0.30, "clear", "03:00")

@@ -15,8 +15,8 @@ These questions are designed to help you do the most useful thing as fast as pos
 1. **User:** who is the user? What do they know? What do they care about? What are they good or bad at?
 2. **Workflow and pain:** what is their current workflow, and where does it hurt? How often, and how badly?
 3. **Today:** what do they do today instead?
-4. **Success:** what does success look like, and how is it measured?
-5. **Feedback loop:** how fast can you get feedback and iterate? Can you do it in hours or days?
+4. **Success:** what does success look like, and how is it measured? Name a signal you can read within one week; longer checks come after it.
+5. **Feedback loop:** how fast can you get feedback and iterate? Aim for hours or days, and a first signal within one week.
 6. **Alternatives:** what else could solve it, including doing nothing? Consider technical solutions, process changes and team changes, and check what best practices and existing solutions already exist.
 
 ## How to run it

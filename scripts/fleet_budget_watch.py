@@ -38,7 +38,7 @@ script's whole job is to make sure that call gets made inside 15 minutes instead
 of at the next daily read, which is the failure that cost two accounts in one
 evening on 2026-08-31. Detection on a timer, action by a person or by Team Lead.
 """
-import json, os, re, subprocess, sys, glob, datetime
+import json, os, re, subprocess, sys, glob, datetime, time
 
 def argval(flag, default, cast=str):
     """A flag with no value after it is a typo, not a crash.
@@ -102,6 +102,34 @@ SESSION_RESETS = argval("--session-resets", "", str)
 # watcher can check its token proxy against it instead of leaving a human to
 # adjudicate the two by hand, which is what has happened.
 SESSION_PCT = argval("--session-pct", None, float)
+# --from-statusline fills the reading from the file scripts/usage_statusline.py
+# writes on every status-bar render: the live meter, no pane driven, no hand entry.
+# It carries no Fable bar, so --fable still comes from /usage. A reading older than
+# STATUSLINE_MAX_AGE_S is refused rather than recorded as if it were live.
+STATUSLINE_FILE = os.path.expanduser(
+    "~/Library/Application Support/team-lead/usage-latest.json")
+STATUSLINE_MAX_AGE_S = 1800
+if "--from-statusline" in sys.argv:
+    try:
+        with open(STATUSLINE_FILE) as _f:
+            _sl = json.load(_f)
+    except (OSError, ValueError) as _e:
+        sys.exit(f"--from-statusline: could not read {STATUSLINE_FILE}: {_e}")
+    _age = time.time() - _sl.get("captured_at", 0)
+    if _age > STATUSLINE_MAX_AGE_S:
+        sys.exit(f"--from-statusline: reading is {_age / 60:.0f} min old, "
+                 f"refusing to record it as live")
+    def _iso(epoch):
+        return datetime.datetime.fromtimestamp(epoch).astimezone().isoformat(
+            timespec="seconds")
+    RECORD_METER = RECORD_METER or _sl.get("account") or ""
+    _wk, _5h = _sl.get("seven_day") or {}, _sl.get("five_hour") or {}
+    if METER_ALL is None and _wk.get("used_percentage") is not None:
+        METER_ALL = float(_wk["used_percentage"])
+        METER_RESETS = METER_RESETS or _iso(_wk["resets_at"])
+    if SESSION_PCT is None and _5h.get("used_percentage") is not None:
+        SESSION_PCT = float(_5h["used_percentage"])
+        SESSION_RESETS = SESSION_RESETS or _iso(_5h["resets_at"])
 # A standing decision holds until the situation moves against it by this many
 # percentage points of unprotected share, or until it simply ages out. Both are
 # needed: "let it run" can be right at 72% and wrong at 85%, and it can also be
@@ -1290,9 +1318,91 @@ def projected_window(recent_tokens, recent_hours, window_hours):
     return int(recent_tokens / recent_hours * window_hours)
 
 
+# The live 5h meter is the instrument that actually stops work, and the token
+# projection is a model of it against an ASSUMED ceiling. 2026-10-23 00:00 PT the
+# model said 202% of ceiling (hold-all) while the account's own meter read 23%,
+# and a peer was throttled on the model's say-so. When a fresh meter reading
+# exists it decides admission; the projection is demoted to an estimate.
+#
+# Thresholds mirror the token path's intent, translated to the meter's scale:
+# hold-top starts at SOFT_CEILING_FRACTION of the limit (the same 70% the
+# projection arm uses); hold-all at METER_HOLD_ALL_PCT, close enough to the wall
+# that rejection is a few turns away. Unlike the projection this is a present
+# reading, not a run-forward, so it cannot see acceleration; that is the price
+# of not being wrong by 180 points.
+METER_HOLD_TOP_PCT = SOFT_CEILING_FRACTION * 100
+METER_HOLD_ALL_PCT = 90.0
+# Meter and token estimate this far apart (percentage points) get called out on
+# the output line instead of left for a human to adjudicate.
+METER_DISAGREE_PP = 40.0
+
+METER_LIVE, METER_STALE, METER_MISSING = "live", "stale", "missing"
+
+
+def _iso_local(epoch):
+    return datetime.datetime.fromtimestamp(epoch).astimezone().isoformat(
+        timespec="seconds")
+
+
+def read_live_meter(path, now_epoch, max_age_s):
+    """The status-bar 5h reading, in three states -- never a silent empty.
+
+    live    -> state "live" with pct, resets_at (epoch or None), age_s
+    stale   -> reading exists but is older than max_age_s (same rule as the
+               weekly meter's --from-statusline refusal)
+    missing -> file absent, unreadable, or carries no five_hour percentage
+    """
+    try:
+        with open(path) as fh:
+            data = json.load(fh)
+        five = data.get("five_hour") or {}
+        pct = five.get("used_percentage")
+        captured = data.get("captured_at")
+        if pct is None or captured is None:
+            return {"state": METER_MISSING, "why": "no five_hour reading in file"}
+        age = now_epoch - float(captured)
+        base = {"pct": float(pct), "resets_at": five.get("resets_at"),
+                "age_s": age}
+    except (OSError, ValueError, TypeError, AttributeError) as exc:
+        return {"state": METER_MISSING, "why": str(exc)}
+    base["state"] = METER_LIVE if age <= max_age_s else METER_STALE
+    return base
+
+
+def meter_admission(pct):
+    """clear | hold-top | hold-all from the live meter percentage."""
+    if pct >= METER_HOLD_ALL_PCT:
+        return "hold-all"
+    if pct >= METER_HOLD_TOP_PCT:
+        return "hold-top"
+    return "clear"
+
+
+def meter_line(meter, projected_frac, level, resets_text=""):
+    """The one admission line: live meter first, token model labelled estimate."""
+    est = f"token estimate: {projected_frac:.0%} of modelled ceiling"
+    if meter and meter.get("state") == METER_LIVE:
+        at = f", resets {resets_text}" if resets_text else ""
+        line = (f"5h meter: {meter['pct']:.0f}% (live{at}) · {est} · "
+                f"admission: {level}")
+        gap = abs(meter["pct"] - projected_frac * 100)
+        if gap >= METER_DISAGREE_PP:
+            line += f" · estimate and meter disagree by {gap:.0f} pts, trust the meter"
+        return line
+    if meter and meter.get("state") == METER_STALE:
+        why = f"reading {meter['age_s'] / 60:.0f} min old"
+    else:
+        why = (meter or {}).get("why", "no reading")
+    return (f"5h meter unavailable ({why}) — estimate only · {est} · "
+            f"admission: {level} (from the estimate)")
+
+
 def admission_level(window_tokens, projected, ceiling=None, floor=None,
-                    basis=WINDOW_ANCHORED):
+                    basis=WINDOW_ANCHORED, meter_pct=None):
     """clear | hold-top | hold-all.
+
+    A fresh live meter reading (`meter_pct`) decides on its own; the token
+    arms below are the fallback when the meter is stale or missing.
 
     Two independent ways in, because they catch different shapes. `projected`
     catches a fleet that is accelerating and has not arrived yet -- the case
@@ -1306,6 +1416,8 @@ def admission_level(window_tokens, projected, ceiling=None, floor=None,
     is what fired here -- hold-all at a reading hours wide of the account's own
     meter.
     """
+    if meter_pct is not None:
+        return meter_admission(meter_pct)
     ceiling = WINDOW_CEILING_TOKENS if ceiling is None else ceiling
     floor = RATE_LIMITED_FLOOR if floor is None else floor
     measured = basis not in (WINDOW_TRAILING, WINDOW_SWITCHED)
@@ -1637,7 +1749,19 @@ def main():
     # of the 5h limit instead of narrating the arrival.
     recent_tokens = sum(b.get("recent", 0) for b in per_project.values())
     projected = projected_window(recent_tokens, RECENT_H, WINDOW_H)
-    level = admission_level(fleet_tokens, projected, basis=basis)
+    # The live meter decides when it is fresh. --from-statusline / --session-pct
+    # already supplied one; otherwise read the status-bar file ourselves.
+    if SESSION_PCT is not None:
+        meter = {"state": METER_LIVE, "pct": float(SESSION_PCT), "age_s": 0}
+        meter_resets = SESSION_RESETS or ""
+    else:
+        meter = read_live_meter(STATUSLINE_FILE, time.time(), STATUSLINE_MAX_AGE_S)
+        _r = meter.get("resets_at")
+        meter_resets = _iso_local(_r) if _r else ""
+    meter_resets = meter_resets[11:16] if "T" in meter_resets else meter_resets
+    level = admission_level(
+        fleet_tokens, projected, basis=basis,
+        meter_pct=meter["pct"] if meter["state"] == METER_LIVE else None)
     targets = hold_targets(rows, level)
     now_iso = now.astimezone().isoformat(timespec="seconds")
     prev_holds = dict(prev.get("holds") or {})
@@ -1647,6 +1771,9 @@ def main():
     out["recent_hours"] = RECENT_H
     out["projected_window"] = projected
     out["admission_level"] = level
+    out["meter_state"] = meter["state"]
+    if meter["state"] == METER_LIVE:
+        out["meter_pct"] = meter["pct"]
 
     holds = dict(prev_holds)
     if ACK_HOLD:
@@ -1811,10 +1938,10 @@ def main():
                 print(f"  {c['project']:<28} {c['context']/1000:>6.0f}k"
                       f"  {c['recent_turns']:>3} turns/{RECENT_H:g}h{flag}")
             print()
+        print(meter_line(meter, projected / WINDOW_CEILING_TOKENS, level,
+                         meter_resets))
         print(f"last {RECENT_H:g}h: {recent_tokens/1e6:.0f}M — projects the "
-              f"{WINDOW_H:g}h window to {projected/1e6:.0f}M "
-              f"({projected/WINDOW_CEILING_TOKENS:.0%} of ceiling) · "
-              f"admission: {level}")
+              f"{WINDOW_H:g}h window to {projected/1e6:.0f}M (token estimate)")
         if holds:
             print("holding: " + ", ".join(
                 f"{k} (since {v.get('at','?')[11:16]}"

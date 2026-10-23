@@ -21,8 +21,8 @@ These questions are designed to help you do the most useful thing as fast as pos
 
 ## How to run it
 
-- **Ask all the questions in one batch.** Never one question at a time.
-- **Don't try to find the answers yourself.** Don't draft answers from the project's docs before you ask.
-- **Offer research only when the person can't answer or struggles to.** Do the research only if they accept, and only for that question.
-- **After they answer, write a short case against the proposal.** Use what they told you, such as low demand, no link to current goals, or a cheaper alternative.
+- **For each question, summarize what the doc under discussion already says**, in four sentences or fewer. If the doc doesn't answer it, say so.
+- **Ask targeted follow-ups only where an answer is missing or incomplete.** Ask about the gap, in one batch. Don't re-ask a question the doc already answers clearly.
+- **Offer research only when the person can't answer a follow-up or struggles to.** Do it only if they accept, and only for that question.
+- **After the answers are in, write a short case against the proposal.** Use what you learned, such as low demand, no link to current goals, or a cheaper alternative.
 - **Offer suggestions.** Ask the person whether they want suggestions for measurement methods and for solutions. If so, brainstorm and research and provide them.

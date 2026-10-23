@@ -157,3 +157,16 @@ def test_page_ins_alone_are_not_thrash():
     assert guard.paging_rate(prev, ins_only)["band"] == "ok"
     both = {"pageins": 120 * 64 * 60, "pageouts": 120 * 64 * 60, "epoch": NOW, "pagesize": 16384}
     assert guard.paging_rate(prev, both)["band"] != "ok"
+
+
+def test_swap_level_warn_clears_when_trend_is_flat_or_falling():
+    m = {"swap_gb": 8.5, "free_pct": 40, "load_per_core": 0.35,
+         "orphan_workers": 0, "anon_gb": 4, "boot_free_gb": 90,
+         "healthcheck_age_min": 2}
+    _, bands = guard.grade(m, {"band": "ok", "rise_gb": 1.4}, {"band": "ok"}, [])
+    assert bands["swap"] == "ok"
+    _, bands = guard.grade(m, {"band": "unknown"}, {"band": "ok"}, [])
+    assert bands["swap"] == "warn"
+    m["swap_gb"] = 13.0
+    _, bands = guard.grade(m, {"band": "ok"}, {"band": "ok"}, [])
+    assert bands["swap"] == "critical"

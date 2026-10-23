@@ -545,6 +545,20 @@ def alert_signature(worst, bands, trend, chrome, runaways):
     }, sort_keys=True)
 
 
+def sig_got_worse(old, new):
+    """True when `new` says something `old` did not: a band, a higher trend
+    bucket, Chrome as cause, or a runaway pid. A fact dropping out is not news.
+    Comparing for any difference resent on every flip of Chrome and the claude
+    sessions trading first place — four alerts in six minutes on 2026-10-23."""
+    if not old:
+        return True
+    o, n = json.loads(old), json.loads(new)
+    return (bool(set(n["bands"]) - set(o["bands"]))
+            or (n["trend"] is not None and (o["trend"] is None or n["trend"] > o["trend"]))
+            or (n["chrome"] and not o["chrome"])
+            or bool(set(n["runaways"]) - set(o["runaways"])))
+
+
 def should_notify(prev, worst, sig, now):
     """Why to send this run's alert, or None to stay quiet.
 
@@ -560,7 +574,7 @@ def should_notify(prev, worst, sig, now):
         return "recovered" if rank.get(prev_band, 0) > 0 else None
     if rank[worst] > rank.get(prev_band, 0):
         return "escalated"
-    if sig != prev.get("notified_sig"):
+    if sig_got_worse(prev.get("notified_sig"), sig):
         return "changed"
     if now - prev.get("notified_at", 0) > RENOTIFY_UNCHANGED_SEC:
         return "unchanged-resend"

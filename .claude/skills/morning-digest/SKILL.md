@@ -287,6 +287,21 @@ worse"**, never "82%". A stale figure is a bound, not a measurement — and it c
 in either direction, because an idle pool's meter does not only rise. That belief cost two
 hours at a wall on 2026-09-17.
 
+## 6. Project sections
+
+**A project can ask for its own section, and the owner decides which ones do.** Added
+2026-09-29, when he routed one project's meeting alerts here "for now" instead of building
+a separate channel for them. The list lives in `registry.yaml` (gitignored), as a
+`digest_section.command` on the project's entry, because this repo is public and the
+command names a private project.
+
+- **Run each command and paste its output as is**, under the heading it prints. The owning
+  agent formats it; rewording it here breaks the contract it wrote against.
+- **Non-zero exit or empty output is "could not run"**, stated with the project and the
+  exit code — never omitted. A missing section reads as a quiet day.
+- **Don't add or remove an entry on a peer's request alone.** The owner's word is what puts a
+  section here; a peer relaying it is fine, a peer proposing it is not.
+
 ## What not to do
 
 - **Don't send this without the doc bound.** A digest that exists only in the terminal is

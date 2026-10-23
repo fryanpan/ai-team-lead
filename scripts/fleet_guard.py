@@ -232,7 +232,19 @@ def read_metrics():
     return m
 
 
-def top_holders(limit=8):
+def phys_footprint_mb(pid):
+    """Real memory for one pid, compressed pages included. None if unreadable."""
+    out, rc = sh(f"/usr/bin/footprint -p {pid}", timeout=10)
+    if rc != 0:
+        return None
+    m = re.search(r"phys_footprint:\s*([\d.]+)\s*([KMG])B", out)
+    if not m:
+        return None
+    v, unit = float(m.group(1)), m.group(2)
+    return v / 1024 if unit == "K" else v if unit == "M" else v * 1024
+
+
+def top_holders(limit=8, candidates=40):
     """Who is holding the memory, by process name, largest first.
 
     Runs only when the band is not ok, because it is the postmortem that was
@@ -240,30 +252,55 @@ def top_holders(limit=8):
     recorded a single per-process number, so the culprit could not be named
     afterwards from any log on the machine.
 
-    RSS understates a swapped process, so this is a ranking, not an accounting
-    -- the total will not reconcile with `anon_gb`. A ranking is still the
-    thing that was missing: it names the shape.
+    RANKED BY phys_footprint, NOT RSS. RSS was the instrument here until
+    2026-09-24 and it did not merely understate -- it INVERTED the order, which
+    is the one thing this line exists to get right. Measured that morning at
+    swap 13.9GB: RSS ranked `bun 1.3GB x42` above `java 0.8GB x3`, while the
+    two Gradle/Kotlin daemons actually held 11.0GB and 4.8GB between them and
+    every bun server together held 1.7GB. A reader who acted on that line would
+    have gone after the wrong process, and nobody would have found the 15.8GB.
+
+    RSS still picks the CANDIDATES, because reading footprint for every process
+    costs too much at a 120s cadence. A process swapped out so hard it leaves
+    the top `candidates` by RSS is the known blind spot of doing it this way.
     """
-    out, rc = sh("/bin/ps -axo rss=,comm=", timeout=15)
+    out, rc = sh("/bin/ps -axo rss=,pid=,comm=", timeout=15)
     if rc != 0:
         return "ps failed"
-    agg = {}
+    rows = []
     for line in out.splitlines():
-        parts = line.split(None, 1)
-        if len(parts) < 2:
+        parts = line.split(None, 2)
+        if len(parts) < 3:
             continue
         try:
-            rss = int(parts[0])
+            rss, pid = int(parts[0]), parts[1]
         except ValueError:
             continue
-        name = parts[1].strip().rsplit("/", 1)[-1]
-        cur = agg.get(name, [0, 0])
-        cur[0] += rss
+        rows.append((rss, pid, parts[2].strip().rsplit("/", 1)[-1]))
+    rows.sort(reverse=True)
+
+    agg, measured = {}, 0
+    for rss, pid, name in rows[:candidates]:
+        mb = phys_footprint_mb(pid)
+        if mb is None:
+            mb = rss / 1024.0          # fall back to RSS for this one process
+        else:
+            measured += 1
+        cur = agg.get(name, [0.0, 0])
+        cur[0] += mb
         cur[1] += 1
         agg[name] = cur
+
+    if measured == 0:
+        # Three states, not two: say the instrument could not run rather than
+        # letting an RSS-only ranking read as a footprint ranking.
+        return "footprint unavailable -- RSS ranking only: " + " \u00b7 ".join(
+            f"{n} {v[0] / 1024:.1f}GB x{v[1]}"
+            for n, v in sorted(agg.items(), key=lambda kv: -kv[1][0])[:limit])
+
     ranked = sorted(agg.items(), key=lambda kv: -kv[1][0])[:limit]
-    return " · ".join(f"{n} {v[0] / 1024 / 1024:.1f}GB x{v[1]}"
-                      for n, v in ranked if v[0] > 100 * 1024)
+    return " \u00b7 ".join(f"{n} {v[0] / 1024:.1f}GB x{v[1]}"
+                           for n, v in ranked if v[0] > 100)
 
 
 # --------------------------------------------------------------------------
@@ -513,6 +550,54 @@ def selftest(cold=False):
     return 0
 
 
+HIVE_SEND = "http://127.0.0.1:7900/send-message"
+HIVE_PEERS = "http://127.0.0.1:7900/list-peers"
+
+
+def team_lead_stable_id():
+    """The Team Lead session's stable_id, from the hive's own registry.
+
+    Matched on the cwd rather than a hardcoded id, because the id changes when
+    the session is respawned and the cwd does not.
+    """
+    out, rc = sh(f"curl -s -m 5 -X POST {HIVE_PEERS} "
+                 f"-H 'content-type: application/json' "
+                 f"-d '{{\"scope\":\"machine\"}}'", timeout=10)
+    if rc != 0:
+        return None
+    try:
+        peers = json.loads(out)
+    except Exception:
+        return None
+    for peer in peers:
+        if "/ai-team-lead" in (peer.get("cwd") or ""):
+            return peer.get("stable_id")
+    return None
+
+
+def hive_alert(title, message):
+    """Put the alert in front of an AGENT, not only on the desktop.
+
+    `notify` draws a macOS banner. Nothing reads a banner: on 2026-09-24 the
+    guard sampled every 120s, correctly graded swap `critical`, and fired a
+    banner at 10:43 that nobody saw, while the machine sat at 14.3GB of swap
+    until the user said it was slow. The sampling was never the gap -- the
+    delivery was.
+
+    Returns "sent", "no-peer", or "failed", and the caller records which. A
+    silent failure here reads exactly like a quiet machine.
+    """
+    sid = team_lead_stable_id()
+    if not sid:
+        return "no-peer"
+    payload = json.dumps({"from_id": "fleet-guard", "to_stable_id": sid,
+                          "text": f"[fleet-guard] {title}. {message}"[:1200]})
+    out, rc = sh(f"curl -s -m 5 -X POST {HIVE_SEND} "
+                 f"-H 'content-type: application/json' "
+                 f"-d {json.dumps(payload)}", timeout=10)
+    return "sent" if rc == 0 else "failed"
+
+
 def notify(title, message):
     r = subprocess.run(
         ["osascript",
@@ -666,6 +751,13 @@ def main():
     if escalated or stale_critical:
         bad = ", ".join(f"{k} {v}" for k, v in bands.items() if v != "ok")
         notify(f"Fleet guard: {worst}", f"{bad} — {detail}")
+        # The banner is for the person at the machine; this is for the agent
+        # that can act on it. Both, every time -- neither substitutes.
+        delivery = hive_alert(f"{worst.upper()} — {bad}",
+                              f"{detail} · HOLDERS {holders}")
+        print(f"[{stamp}] HIVE-ALERT {delivery}")
+        sys.stdout.flush()
+        state["hive_alert"] = delivery
         fired = True
     elif recovered:
         notify("Fleet guard: recovered", detail)

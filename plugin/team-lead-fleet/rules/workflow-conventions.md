@@ -130,6 +130,12 @@ Standalone deliverables go where the project's `CLAUDE.md` says (`docs_destinati
 
 **Before proposing a solution to a product improvement, run `product-discovery`.** This includes a request that already names its solution.
 
+### Look for signal within a week (2026-10-23)
+
+Set by Bryan on a spec that measured success at 30 days: *"we should look for signal in a week. Move faster. Make that part of fleet wide default"*.
+
+- **Every success measure, pilot or experiment names a signal you can read within one week.** A 30-day or quarterly check can follow it. It does not replace it.
+
 ### Reuse the vendor the project already runs before adding one (2026-10-21)
 
 Set by Bryan after a plan moved a workload to a new cloud provider and asked him for its account, when the

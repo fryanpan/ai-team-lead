@@ -136,3 +136,16 @@ def test_changed_trend_cause_or_band_resends():
     assert guard.should_notify(prev, "critical", sig, NOW) == "escalated"
     assert guard.should_notify(prev, "ok", sig, NOW) == "recovered"
     assert guard.should_notify({"band": "ok"}, "ok", sig, NOW) is None
+
+
+def test_a_fact_dropping_out_does_not_resend():
+    chrome = {"gb": 4.7, "renderers": 16}
+    full = guard.alert_signature("warn", {"swap": "warn", "paging": "warn"},
+                                 {"band": "warn", "rise_gb": 2.3}, chrome, [])
+    prev = {"band": "warn", "notified_sig": full, "notified_at": NOW - 120}
+    # Chrome loses first place and the paging band clears: quieter, not news.
+    less = guard.alert_signature("warn", {"swap": "warn", "paging": "ok"},
+                                 {"band": "warn", "rise_gb": 2.3}, None, [])
+    assert guard.should_notify(prev, "warn", less, NOW) is None
+    # Chrome back on top matches what was last sent: still quiet.
+    assert guard.should_notify(prev, "warn", full, NOW) is None

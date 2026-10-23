@@ -2893,8 +2893,8 @@ peer's server is broken" and went looking for a deleted resource. One of them fi
 against a peer's row before working out its own bundle was behind. **A 404 carries no
 version information, so the first hypothesis it suggests is always the wrong one.**
 
-**Four of us independently derived the same rule, and it is wrong.** SF Works, Project Beta,
-the Workspaces lead and I all concluded: calls carrying a `workspaceId` survive, calls
+**Four of us independently derived the same rule, and it is wrong.** a project peer, Project Beta,
+the board-server lead and I all concluded: calls carrying a `workspaceId` survive, calls
 addressing a resource by bare id 404. It fits every observation anyone had made, because the
 three tools everyone reached for while probing — `heartbeat`, `get_workspace`, `next_tasks` —
 happen to sit on routes that were already canonical.
@@ -2908,7 +2908,7 @@ doc_status(<docId>)             -> GET /api/docs/<id>/status     -> 404
 ```
 
 The discriminator is **which URL path the old client emits**, not what the arguments contain.
-Confirmed against the server's route table by the Workspaces lead: `matchWorkspaceRoute`
+Confirmed against the server's route table by the board-server lead: `matchWorkspaceRoute`
 accepts exactly one prefix, `/workspaces/`, nothing strips `/api` above it, and board-owned
 routes match on the resolved remainder — so a handler with no scope cannot answer at all.
 `/api/docs` and `/api/goals/<id>` survive only as prose in a comment.
@@ -2947,7 +2947,7 @@ the version check the first step and not the last.
 
 ## Two Guards That Only Fire Before A History Rewrite (2026-09-06)
 
-Both caught in prep by the Workspaces lead, before a force-push of a public repo's rewritten
+Both caught in prep by the board-server lead, before a force-push of a public repo's rewritten
 history. Neither would have produced an error — each fails by succeeding on the wrong thing.
 
 **A staleness check lies across a rewritten history.** The prepared mirror was 10 commits
@@ -2973,7 +2973,7 @@ single session. Count the object stores, not the working directories.
 
 ## Two Probes That Return Zero Without Ever Looking (2026-09-06)
 
-Both found by the Workspaces lead while verifying a history rewrite. Each returns a clean
+Both found by the board-server lead while verifying a history rewrite. Each returns a clean
 zero, and in both cases the zero means "I did not look", not "it is not there."
 
 **`git grep <ref>` searches that ref's TIP TREE, not its history.** It was used to prove a
@@ -3203,7 +3203,7 @@ will never name the culprit.
 
 ## Respawning A Session Kills Its In-Process Teammates, And I Did Not Know That (2026-09-12)
 
-Reported by the Workspaces lead after this morning's fleet restart: *"a fleet respawn of a
+Reported by the board-server lead after this morning's fleet restart: *"a fleet respawn of a
 session KILLS that session's in-process teammates. Mine were all killed when you restarted
 me — worktrees and committed work survived, running builders did not. You believed they
 were separate processes; they are not."*
@@ -3264,7 +3264,7 @@ deliberate, the wronger the number gets — which is the opposite of how care us
   the case you care about. `etime` cannot tell you when something started; it can only tell
   you how long ago, which is not the same question once you stop to think.
 
-Prompted by the Workspaces lead after the near-miss: *"elapsed time is measured from now and
+Prompted by the board-server lead after the near-miss: *"elapsed time is measured from now and
 drifts with every minute you spend reasoning… You caught it; the next session will not."*
 
 ## Per-Process Memory Attribution On macOS: `top` MEM Is The Footprint, And CMPRS Is Already Inside It (2026-09-12)
@@ -4203,7 +4203,7 @@ behaviour fails loudly when it is wrong. A surface that *instructs* it fails by 
 
 ## `timeout` does not exist on macOS, and the wrapper fails OPEN with exit 0
 
-Reported by the Research Notes peer, 2026-09-17. It invoked its own
+Reported by a research peer, 2026-09-17. It invoked its own
 `scripts/refresh-subscriptions.sh` wrapped in `timeout`. On macOS there is no such binary, so the shell
 returned **exit 0 having fetched nothing** — byte-identical to a genuinely quiet publishing window. The
 digest would have silently missed a day. It was caught only because the peer checked that the file count
@@ -4246,7 +4246,7 @@ about what Claude believed based solely on what Claude *said* it believed."
 
 ## A check that looked at the WRONG surface is not "could not look" — it is a correct answer to the wrong question
 
-Research Notes, 2026-09-17. Its digest runbook named `anthropic.com/news`. The Sep 9 alignment assessment
+A research peer, 2026-09-17. Its digest runbook named `anthropic.com/news`. The Sep 9 alignment assessment
 published to `anthropic.com/research`, a separate page with separate contents. Eight consecutive digests
 checked the source, saw nothing new, and were **right about the page they were looking at**. The miss
 surfaced eight days later, by accident, during a run looking at something else.
@@ -4403,7 +4403,7 @@ re-fires indefinitely, and each firing costs a turn at a seat that cannot act on
 
 ## When a detector's RECALL is the binding constraint, tightening it is the wrong repair
 
-Reported by the Workspaces lead, 2026-09-17, after I reported four false firings of an unfiled-ask check.
+Reported by the board-server lead, 2026-09-17, after I reported four false firings of an unfiled-ask check.
 The measured figures on their detector at that date: **precision 86%, recall on the unfiled-ask class
 15%.** A documented tuning pass raised precision to 96% and cut recall to 3%. It was reverted, because a
 false positive costs one turn and a miss costs the whole point of having the detector.
@@ -5386,15 +5386,114 @@ error codes all passed.
 
 ## The burn report names a project by its transcript directory, not by where the session runs (2026-09-28)
 
-`fleet_burn_report.py` / `fleet_budget_watch.py` attribute tokens to the `~/.claude/projects/<dir>` a transcript lives in. That directory is fixed by the cwd the session **first** started in. A session later continued from another path keeps writing into the old one. Measured 2026-09-28: 89M in 5h (63% of the fleet) reported under one project's directory while no session for that project was running. Every write in that file carried `cwd=.../research-notes`, so it was the Research Notes session.
+`fleet_burn_report.py` / `fleet_budget_watch.py` attribute tokens to the `~/.claude/projects/<dir>` a transcript lives in. That directory is fixed by the cwd the session **first** started in. A session later continued from another path keeps writing into the old one. Measured 2026-09-28: 89M in 5h (63% of the fleet) reported under one project's directory while no session for that project was running. Every write in that file carried `cwd=.../<project>`, so it was that project's session.
 
 - **Before saying a project is burning, read the `cwd` field of the transcript's recent lines.** The directory name is not evidence.
 - **A project that is down but still "burning" is this case until proven otherwise**, not a zombie process.
 
 ## Don't send HOLD off the 5h token count when the account's meter is unread (2026-09-28)
 
-At 21:00 PT `fleet_budget_watch.py` put the trailing 5h window at 509M against a 420M "ceiling" and said WATCH, admission hold-all. I sent SF Works a HOLD. Bryan checked `/usage` himself: nowhere near any limit. He lifted it within the hour and called the logic too cautious.
+At 21:00 PT `fleet_budget_watch.py` put the trailing 5h window at 509M against a 420M "ceiling" and said WATCH, admission hold-all. I sent a project peer a HOLD. Bryan checked `/usage` himself: nowhere near any limit. He lifted it within the hour and called the logic too cautious.
 
 - **The 509M was an upper bound.** No session reset was recorded for this account, so the window trailed from the time of the run.
-- **The 420M ceiling and 442M limit came from other accounts**, measured before the move to fryanpan@gmail.com that morning. A token count says nothing about a plan's limit unless the ceiling was measured on the same account.
+- **The 420M ceiling and 442M limit came from other accounts**, measured before the move to the second account that morning. A token count says nothing about a plan's limit unless the ceiling was measured on the same account.
 - **With the meter unread, the token count is not grounds for a HOLD.** Report it, and ask Bryan for his `/usage` numbers if it matters. Record them with `--record-meter` so the next pass measures instead of bounding.
+
+## `dontAsk` does not stop `Read` outside the project (2026-10-02)
+
+- **Observed:** a `claude -p` session in a folder whose settings had `defaultMode: dontAsk` and no `Read` rule
+  read a file in another repo without a prompt or a denial. Gmail calls in the same session were refused.
+- **So** a sandbox built on `dontAsk` must deny `Read`, `Glob` and `Grep` explicitly. Deny beats allow, so a
+  narrow `Read(//path/*)` allow cannot coexist with a blanket `Read` deny.
+- **Absolute paths in permission rules take `//`.** `Read(/Volumes/...)` is relative to the settings file.
+- **Probe a sandbox with `echo "<prompt>" | claude -p --model <haiku>` from its folder** and ask it to try each
+  tool. An untrusted folder ignores its `allow` list (it prints a warning) but still applies `deny`.
+
+## macOS `pkill -f <pattern> -n` kills the whole fleet (2026-10-03)
+
+On macOS, pkill/pgrep read an option placed after the pattern as a second pattern. `pkill -f probe-brain.ts -n`
+therefore matched every process whose argv contains `-n`, which is every `claude -n <name>` session. At 07:07:52Z
+it killed 14 sessions and the board server's prod supervisor; launchd left the supervisor down because it exited 0.
+Control, measured by the board-server lead: `pgrep -f probe-brain.ts -n` matched 15 processes and `pgrep -n -f probe-brain.ts` matched 0.
+- Put every flag before the pattern, or better, kill explicit PIDs resolved first (the shutdown-session skill already requires this).
+- Recovery: `respawn.py --mode missing --only …`. Sessions launched without `-n` survived, as did the killer's own ancestors.
+
+- **2026-10-10 — A bullet that starts with a numbered bold label (`- **1. Foo:**`) breaks a bound doc's disk sync.** The insert itself succeeds, but every later edit returns `syncError: ordered-list marker as literal text`, so the doc stops reaching its file. Number goals in headings or leave the bullets unnumbered. Removing the numbers cleared it.
+- **2026-10-12 — A review item on a row closed done cannot be ranked into the user's queue.** `rank_review_item` returned `not-found` for an open, unanswered item whose scheduled-run row its agent had closed after filing it; after the agent moved the row back to in-progress the same key ranked at once. When a peer files an ask on a scheduled row, the row has to stay open until the ask is answered.
+
+## `install_healthcheck.py` has no `--help`; any invocation deploys (2026-10-14)
+
+Running `python3 scripts/install_healthcheck.py --help` from a feature worktree deployed that worktree's unmerged checker and config to `/opt/fleet` and re-registered the launchd jobs. Read the script's head instead of asking it for usage, and only run it from the main checkout after merge, because the self-version check compares the deployed copy against the main checkout's file.
+
+## Swap jumps that recur at a fixed minute point at a scheduled job (2026-10-14)
+
+Nearly every fleet-guard swap jump of 2.5GB+ from 10-10 to 10-14 landed at :20, the healthcheck slot. Sampling `ps -m` every 2s through one run caught a 1.8GB `bun -e` child, which I attributed to the transcript-archive walk from its script header alone. Making that walk daily did not stop the next :20 jump. A second sample that recorded each large process's parent and full command found the real cause: the session-limit scan, which read every transcript touched in 24h whole (1.46GB). Streaming it in 1MB chunks dropped its peak to 167MB. Before naming a process from a sample, record its parent and its full command, not the first line of its script — every healthcheck bun script starts with the same two lines.
+
+## A session that `cd`s into another repo takes its conversation with it (2026-10-14)
+
+On 2026-09-14 one project's session moved its notes into another project's repo, and one Bash call ran `cd ~/dev/<project> && git status ...`. Every transcript entry after that call recorded <project> as the cwd, and `~/.claude.json` listed that conversation as <project>' last session. From then on, each `--continue` in <project> resumed the first project's conversation. The two live sessions appended to one 258 MB file for a month: Remote Control labelled the second project with the first one's name, and each session's compaction pulled in the other's history.
+
+- **What shows it:** a peer's `~/.claude/projects/<its cwd>/` folder has no recent `.jsonl` while the peer is plainly taking turns. Its turns are landing in another project's folder.
+- **Fix:** restart the session that wandered with `respawn.py --mode running --only <name> --fresh`. The old file is left untouched and can still be resumed.
+- **Prevent:** a session doing work in another repo should use `git -C <path>` and absolute paths, never `cd`.
+
+## A project `.env` can silently kill claude-hive for that one peer (2026-10-14)
+
+- **Symptom:** a peer is absent from `list_peers` across every respawn, while its transcript, board identity and other MCP servers look healthy. Its `mcp-logs-claude-hive` log shows `Connection closed` about 100ms after start, preceded by "version negotiation probe closed the stdio server".
+- **Cause:** claude-hive runs as `bun server.ts` in the project's cwd, and bun auto-loads `.env` from the cwd. A `.env` that bun cannot handle makes every bun process there exit 0 with no output and no error.
+- **Test without reading the file:** `bun -e 'console.log(1)'` in that directory prints nothing, while `bun --no-env-file -e 'console.log(1)'` prints 1.
+- **Respawning does not fix it.** The failure repeats on every start, so a peer can stay off the hive for days with nothing alerting on the absence.
+
+## The review-item gate held a production-deploy ask as "your ship method already consents" (2026-10-14)
+
+- a writing peer filed a decision item asking Bryan to approve a live deploy of his personal site. The quality gate held it with the reason "Your ship method already carries consent to push, merge and open the pull request". A production deploy is not a push or a merge.
+- **The held item never reached Bryan's queue.** `rank_review_item` returned `not-found`, and nothing told the filer or the plan lead. I had already told Bryan it was first in his queue before I found out.
+- **Before telling Bryan an item is in his queue, rank it first.** `not-found` means it is held or gone.
+- A gate's hold is not consent. The deploy still needs Bryan's own word (see the security-posture rule on gates).
+
+## A memory watchdog that trips on one sample kills good runs (2026-10-14)
+
+- A watchdog I set for a project peer' sim killed the tree whenever machine-wide `memory_pressure` free dropped under 15%.
+- One 10 s sample read 14% (42% before, 46% after), with the sim's own tree at 0.09 GB, and a 62-minute run died in its final write.
+- Machine-wide free memory spikes briefly from processes outside the job. Require consecutive samples (two in a row, 20 s) for an external trip. Keep the job's own RSS cap as a single-sample kill.
+
+## `delete_blocks_in_range` on one list item deletes the whole list (2026-10-15)
+
+It works on top-level blocks, and a bullet list counts as one block. Matching one bullet's text removed the entire Today hit list from the weekly plan, which then had to be rebuilt. To remove a single bullet, use `find_and_replace` on its text, or read the outline and delete by block id, never a range.
+
+## Pause a runaway process with `kill -STOP`, not `kill` (2026-10-18)
+
+A peer's simulation went from 10 GB to 21 GB in about six minutes. Swap filled to 16.7 of 17.4 GB and the boot disk lost 11 GB of free space, which put every session minutes from failing. `kill -STOP <pid>` stopped the growth at once and lost nothing: the owner could still choose between `kill -CONT` and a real kill. Use it when the owner cannot answer within the minutes the machine has left. Swap and disk do not come back while the process is only stopped, so the owner still has to decide.
+
+## A board grant cannot beat a deny rule (2026-10-21)
+
+- **What happened:** a grant review item approved `Bash(rm -rf <one dir>/:*)` and wrote it into `~/.claude/settings.json`. The peer was respawned so the rule loaded, and the delete was still refused twice, once as a bare command.
+- **Cause, read from the file:** the same settings hold `Bash(rm -rf:*)` under `deny`. Deny wins over allow, so no grant for an `rm -rf` can ever take effect.
+- **How to apply:** before filing a grant, grep `permissions.deny` for a rule that covers the command. If one does, file the step for Bryan with exact instructions instead of a grant.
+- **Also:** a session doesn't load a grant approved mid-session until it restarts, and a chained command (`rm … && ls`) has to match the rule in every part.
+
+## A shut-down peer's board escalates to Team Lead every hour, with no way to say "parked" (2026-10-22)
+
+After a peer was shut down on purpose (not on the week's goals), its board kept sending Team Lead a
+`workspace.stalled` frame every hour: "you are not this board's lead … take it (attach_agent) or hand
+it to a session that is here". Six repeats in one afternoon, each a full-context turn, all answered
+the same way.
+
+- **The frame offers only two exits, both wrong here:** take the seat (barred: never attach to another
+  board) or hand it to a live session (there is none, by design). "Lead is down on purpose, rows are
+  parked until it returns" has no verb.
+- **Answer it once and ignore the repeats.** Do not attach, do not edit the other board's rows.
+- **Minor-issue backlog, not a debate:** the board needs a "lead parked until <date>" state that stops
+  the escalation. Raise it in the review list with Bryan, not with the board-server peer directly.
+
+## The 5h "projects to N% of ceiling" line is a token estimate; the status bar has the real 5h meter (2026-10-23)
+
+At 00:00 the budget watch printed "last 1h: 170M — projects the 5h window to 848M (202% of ceiling) ·
+admission: hold-all", and Team Lead sent a project peer a fan-out hold. The status bar's own `five_hour.used_percentage`
+read **23%** at the same moment. Bryan caught it ("Why are you asking fleet to slow down?"). The hold
+was lifted within minutes.
+
+- **The token-to-ceiling ratio is a model, and the meter is a measurement.** Before any 5h hold, read
+  `five_hour.used_percentage` from `usage-latest.json`. If the meter disagrees, the meter wins.
+- **Fix to make:** `fleet_budget_watch.py` should print the live 5h meter next to its projection and key
+  admission off the meter when it is fresh.

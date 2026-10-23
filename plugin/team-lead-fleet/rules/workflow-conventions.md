@@ -128,6 +128,8 @@ Plans go to `docs/product/plans/<prefix>-plan.md`, `<prefix>` being the ticket o
 
 Standalone deliverables go where the project's `CLAUDE.md` says (`docs_destination`); if it says nothing, ask once and record the answer.
 
+**Before proposing a solution to a product improvement, run `discovery-first`.** This includes a request that already names its solution.
+
 ### Reuse the vendor the project already runs before adding one (2026-10-21)
 
 Set by Bryan after a plan moved a workload to a new cloud provider and asked him for its account, when the
@@ -300,7 +302,7 @@ Execution follows the default system prompt. There is no menu to present.
 ## Superpowers overrides
 
 - **Executing plans**: don't route plan execution through `superpowers:executing-plans` — it predates `Workflow` and is superseded by the section above. `superpowers:subagent-driven-development` is likewise dropped as a recommendation (2026-08-19).
-- **Brainstorming**: full design in one pass, not section by section. Fast-track to a design after one or two questions if the problem is already clear.
+- **Brainstorming**: full design in one pass, not section by section. Fast-track to a design after one or two questions if the problem is already clear. The fast-track does not skip `discovery-first` for a product improvement: run it first, then fast-track the design.
 - **Finishing a Development Branch**: use this project's ship skill — it encodes per-repo policy the default overrides.
 - **Never force-remove a worktree holding uncommitted files.** Run `git status --porcelain -uall` first and ask about anything you find. A worktree is the one place work exists nowhere else, and an agent has already destroyed a peer's uncommitted work this way.
 - **Retro**: with a human present, ask for feedback in one prompt then execute what's approved. Autonomous, do the low-risk improvements and leave skill behaviour and `CLAUDE.md` for review.

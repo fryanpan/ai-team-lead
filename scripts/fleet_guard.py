@@ -766,6 +766,11 @@ def grade(m, trend=None, paging=None, runaways=()):
         "paging": (paging or {}).get("band", "unknown"),
         "runaway tab": "warn" if runaways else "ok",
     }
+    # A swap level past the warn line says nothing new while the trend is known
+    # to be flat or falling; on 2026-10-23 it re-warned all night on 8GB that
+    # was draining. Critical stays absolute, and an unknown trend keeps the warn.
+    if bands["swap"] == "warn" and (trend or {}).get("band") == "ok":
+        bands["swap"] = "ok"
     rank = {"ok": 0, "unknown": 0, "warn": 1, "critical": 2}
     worst = max(bands.values(), key=lambda b: rank[b])
     return worst, bands

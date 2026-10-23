@@ -91,7 +91,8 @@ ANON_GB = (10.0, 13.0)         # anonymous+compressed demand on a 16GB machine
 SWAP_TREND_GB = (1.5, 4.0)            # rise over the window; (warn, critical)
 SWAP_TREND_WINDOW_SEC = 2 * 60 * 60
 SWAP_TREND_MIN_SPAN_SEC = 40 * 60     # less history than this: say so, not "flat"
-PAGING_MB_S = (50.0, 150.0)           # pageins+pageouts; the 21:43 spike was ~200
+PAGING_MB_S = (50.0, 150.0)           # pageouts + the two-way part of pageins
+PAGEIN_ONLY_MB_S = (100.0, 150.0)     # one-way pageins; the 21:43 stall was ~195
 PAGING_MAX_GAP_SEC = 15 * 60          # older previous sample: no rate, say so
 RENOTIFY_UNCHANGED_SEC = 2 * 60 * 60  # an unchanged alert is resent this rarely
 
@@ -515,7 +516,13 @@ def paging_rate(prev, cur):
         return unk("counters reset")
     size = cur.get("pagesize") or 16384
     ins, outs = dins * size / dt / 1024 ** 2, douts * size / dt / 1024 ** 2
-    return {"band": band(ins + outs, *PAGING_MB_S),
+    # Thrash is two-way traffic. Page-ins alone are usually memory coming back
+    # after pressure ended (60MB/s in, 0 out, load under 0.5/core warned twice
+    # on 2026-10-23), so they get a higher bar; a mass reload still crosses it.
+    two_way = band(outs + min(ins, outs), *PAGING_MB_S)
+    one_way = band(ins, *PAGEIN_ONLY_MB_S)
+    rank = {"ok": 0, "warn": 1, "critical": 2}
+    return {"band": max(two_way, one_way, key=rank.get),
             "in_mb_s": round(ins, 1), "out_mb_s": round(outs, 1),
             "text": f"paging {ins:.0f}MB/s in, {outs:.0f}MB/s out"}
 

@@ -149,3 +149,11 @@ def test_a_fact_dropping_out_does_not_resend():
     assert guard.should_notify(prev, "warn", less, NOW) is None
     # Chrome back on top matches what was last sent: still quiet.
     assert guard.should_notify(prev, "warn", full, NOW) is None
+
+
+def test_page_ins_alone_are_not_thrash():
+    prev = {"pageins": 0, "pageouts": 0, "epoch": NOW - 120, "pagesize": 16384}
+    ins_only = {"pageins": 120 * 64 * 60, "pageouts": 0, "epoch": NOW, "pagesize": 16384}  # 60MB/s in
+    assert guard.paging_rate(prev, ins_only)["band"] == "ok"
+    both = {"pageins": 120 * 64 * 60, "pageouts": 120 * 64 * 60, "epoch": NOW, "pagesize": 16384}
+    assert guard.paging_rate(prev, both)["band"] != "ok"

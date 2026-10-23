@@ -21,8 +21,9 @@ These questions are designed to help you do the most useful thing as fast as pos
 
 ## How to run it
 
-- **For each question, summarize what the doc under discussion already says**, in four sentences or fewer. If the doc doesn't answer it, say so.
-- **Ask targeted follow-ups only where an answer is missing or incomplete.** Ask about the gap, in one batch. Don't re-ask a question the doc already answers clearly.
+- **For each question, summarize what the doc or chat thread under discussion already says**, in four sentences or fewer. If it doesn't answer the question, say so.
+- **Look for answers only in that doc or thread.** Not in other project docs, meeting notes or the web. Anything from outside it reaches the person only as research they accept.
+- **Ask targeted follow-ups only where an answer is missing or incomplete.** Ask about the gap, in one batch. Don't re-ask a question the doc or thread already answers clearly.
 - **Offer research only when the person can't answer a follow-up or struggles to.** Do it only if they accept, and only for that question.
 - **After the answers are in, write a short case against the proposal.** Use what you learned, such as low demand, no link to current goals, or a cheaper alternative.
 - **Offer suggestions.** Ask the person whether they want suggestions for measurement methods and for solutions. If so, brainstorm and research and provide them.

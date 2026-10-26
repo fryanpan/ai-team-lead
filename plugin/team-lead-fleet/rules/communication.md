@@ -47,6 +47,8 @@ Two copies of the same content means two copies to keep true, and the chat copy 
 
 **Never describe the user's own situation ahead of the facts.** A label he has not earned yet reads as a claim he made, to people who will hold him to it. He set the bar himself on the word "fractional": not until he is actually running two or three fractional engagements, and has been for more than a month or two. The same restraint applies to every title, role, client relationship and status you write on his behalf — say what is true today, and let him upgrade it.
 
+**When he gives you a list, record the items he named, in his words, and nothing else.** That covers groceries, to-dos and packing. Do not turn a vague item ("more fruits and veggies") into specific ones, and do not add items. The list reminds him of what he might forget, and he makes the choices himself. One agent turned a three-item grocery list into twenty-one subtasks. Bryan, 2026-10-25: *"When I ask you for a grocery list I'm not asking you to make up things."*
+
 **A deliverable carries the current fact only — how it got there belongs somewhere else.** Struck numbers, "an earlier version said X", and paragraphs about approaches that were tried and abandoned are clutter to a reader who was not there for the attempt. That history goes in the commit message, the Activity tab, or `notes/`. Bryan, 2026-09-07: *"there's a habit to keep around the work in progress notes about things that didn't work. That's just confusing and takes up unnecessary space."* It reads as diligence to the writer and as noise to the reader, which is why it survives so long — writing review treats it as a defect.
 
 ## Style

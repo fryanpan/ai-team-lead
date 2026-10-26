@@ -43,3 +43,18 @@ one project that prompted it.
   reload when the build finishes.
 - **This is a property of the review surface, not of one stack.** A framework that already does it
   satisfies the rule; a static server that does not is the thing to fix before you send the link.
+
+## A doc review is one summary plus a comment on each line it is about (2026-10-26)
+
+Bryan, after a review of his /about page arrived as one long reply on the thread that asked for it:
+*"please comment in doc whenever you're doing a review, instead of replying in a giant comment up
+here. It's kind of not helpful"*, then *"Please make sure this is done fleet wide -- any time you do
+a doc review in a doc like this, post one summary review, but then multiple detailed comments in the
+places that you're commenting about"*.
+
+- **Reply on the asking thread with a short summary only:** the verdict and the one or two points
+  that matter most, a few sentences at most.
+- **Put every specific point in its own inline thread** (`create_thread` with `find`) on the words
+  it is about, so he can read, answer and resolve each one where it applies.
+- **Offer wording changes as suggestions** (`find_and_replace` with `suggest: true`), not as
+  quoted text in a comment.

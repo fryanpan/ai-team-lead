@@ -23,6 +23,7 @@ These questions are designed to help you do the most useful thing as fast as pos
 
 - **For each question, summarize what the doc or chat thread under discussion already says**, in four sentences or fewer. If it doesn't answer the question, say so.
 - **Look for answers only in that doc or thread.** Not in other project docs, meeting notes or the web. Anything from outside it reaches the person only as research they accept.
+- **Then check every declared goal against its measures.** Do this once the goals look valid and tied to real pain. List each goal the doc or thread declares. For each one, say whether it is measured, and whether that measure shows (a) whether things are getting better and (b) what to change next, by pointing at the cause when the number is bad. A goal with no measure, or with a measure that only says pass or fail, gets a follow-up. Example: a goal to make handoffs cut overhead needs a measure of that overhead, not only a count of handoffs.
 - **Ask targeted follow-ups only where an answer is missing or incomplete.** Ask about the gap, in one batch. Don't re-ask a question the doc or thread already answers clearly.
 - **Offer research only when the person can't answer a follow-up or struggles to.** Do it only if they accept, and only for that question.
 - **After the answers are in, write a short case against the proposal.** Use what you learned, such as low demand, no link to current goals, or a cheaper alternative.

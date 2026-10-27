@@ -5497,3 +5497,20 @@ was lifted within minutes.
   `five_hour.used_percentage` from `usage-latest.json`. If the meter disagrees, the meter wins.
 - **Fix to make:** `fleet_budget_watch.py` should print the live 5h meter next to its projection and key
   admission off the meter when it is fresh.
+
+## A "no page-outs" reading is not a safe swap reading — the 10-27 stall (2026-10-27)
+
+The Mac hung at ~14:47 PT and needed a manual reboot. The last fleet-guard reading (14:46) showed swap 14.3GB
+on a 16GB machine, **paging 140MB/s IN, 0MB/s out**, load 1.6/core. Swap had sat at 12–17GB for three hours, with
+Chrome holding 7–9GB and two test suites (a vitest coverage run and a Playwright run) starting at 14:2x.
+
+- **Team Lead held through 20+ CRITICAL alerts on a rule that said "act only on page-outs or a visible stall".**
+  That rule was a drift: the standing memory (Chrome killable for health) already said act when Chrome is the
+  top holder and swap is rising. The paraphrase in a compaction summary replaced it and was trusted instead.
+- **Page-outs read 0 while the machine thrashed.** Swap was full; the pressure showed as page-INS (100–386MB/s)
+  as working sets were pulled back. A high page-in rate with swap near RAM size is the stall signal.
+- **"Visible stall" arrives too late.** Bryan reported "very slow" at 14:26; the hang came 20 minutes later.
+- **Act at: swap above ~12GB and rising for 30 min, or sustained page-ins above ~100MB/s with swap above RAM/2.**
+  First move is the cheapest: quit Chrome's biggest renderers, pause heavy test runs, hold new spawns.
+- **No panic report exists for a hang that ends in a manual reboot.** The evidence is the gap in fleet-guard.log
+  and socket-watch.csv (both stop at 14:47), not DiagnosticReports.

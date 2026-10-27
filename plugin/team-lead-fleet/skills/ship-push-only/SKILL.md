@@ -25,14 +25,19 @@ git push -u origin <branch>
 
 That's it. **Do NOT** run `gh pr create`. **Do NOT** auto-open a PR.
 
-### 4. Notify the reviewer
+If the repo's own rules say only a human commits or pushes, skip this step: stop at uncommitted changes in a worktree and hand off as below.
 
-Surface to the user in a single message:
-- Branch name + commit summary (one line per commit)
-- Diff stats (`git diff --stat <base>...HEAD`)
-- Local code review findings (if any non-blocking advisories surfaced — flag them so the human reviewer can confirm or dismiss)
-- Test status (passing, list of test files)
-- Suggested PR title + 2-3 bullet description, ready to paste — but **don't** open it
+### 4. Hand off for review (set by Bryan, 2026-10-27)
+
+A review item that lists facts about the change is not a handoff. He answered one with: *"I expect a diff review of the changes, plus a markdown mdx doc with the PR draft in a format that follows team conventions. Plus I expect in the PR draft screenshots or videos that show before and after."*
+
+- **A diff review on the board**, grouped by intent (`create_diff_review` with `groups`).
+- **A PR draft as an `.mdx` doc on the board, in that team's PR format.** Learn the format from the repo's PR template and its recent merged PRs. If the team requires PR text in the human's own words, the draft is notes for him to rewrite, and says so at the top.
+- **Before and after screenshots or video in the draft for any visible change**, captured from the build where the bug shows.
+- **One review item** that links the diff review and the draft and asks for the push or the PR.
+- Also state test status, the local code-review findings he should confirm or dismiss, and the branch or worktree.
+
+**If dev and production behave differently, fix why** so dev shows the bug too, rather than only patching the symptom.
 
 Then stop. The PR opening, review cycle, merge, and deploy are the human reviewer's call.
 

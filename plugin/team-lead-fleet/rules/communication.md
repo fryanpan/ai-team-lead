@@ -70,6 +70,10 @@ lead set from that correction. They are not his own figures.
 - **Body prose, not counting the title, image captions or the `Closes` line: 40 words for a change of up to
   3 files, 60 for up to 10 files, 120 beyond that.**
 - **Count with `wc -w` before you file it**, and cut until it fits.
+- **A PR or issue he posts himself goes to him as raw markdown in code blocks:** the title in a ```` ```text ````
+  block and the body in a ```` ```markdown ```` block. GitHub takes raw markdown, and a rendered draft loses it.
+  Bryan, 2026-10-28: *"give them to me in quoted code blocks that show raw markdown. That's what github
+  accepts."*
 
 ## A code comment says why, in one line (2026-10-28)
 

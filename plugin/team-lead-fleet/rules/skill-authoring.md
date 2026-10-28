@@ -15,6 +15,16 @@ Before writing skill-body content, **ask the research agent to check the Claude 
 - **Keep only what's NOT in the harness:** the judgment call, the fleet-specific rule, the one non-obvious technique.
 - If the research agent can't locate the archive, fall back to the test: *"Would a competent agent already know this from its own tools and system prompt?"* If yes, cut it.
 
+## A process that runs on a schedule and on request lives in a skill (2026-10-27)
+
+Set by Bryan: *"The daily task should reference a checked in skill for the reply doc process rather than have
+that logic be in a task. Sometimes we trigger reply drafting or editing not from a task."*
+
+- **Put the procedure in a checked-in skill.** A scheduled task's body is invisible to every run that does
+  not start from that task.
+- **The scheduled task names the skill** and holds only what belongs to the schedule: when it runs, and what
+  window it covers.
+
 ## Keep it minimal
 
 A skill is a rule plus the one non-obvious thing — not a tutorial. No background essays, no re-explaining the harness. If the body reads like documentation an agent could have written from its tools, it's too long. (`qa-delegate` is the reference for length: two rules, ~180 words.)

@@ -5514,3 +5514,15 @@ Chrome holding 7–9GB and two test suites (a vitest coverage run and a Playwrig
   First move is the cheapest: quit Chrome's biggest renderers, pause heavy test runs, hold new spawns.
 - **No panic report exists for a hang that ends in a manual reboot.** The evidence is the gap in fleet-guard.log
   and socket-watch.csv (both stop at 14:47), not DiagnosticReports.
+
+## Peers will not change their own permission settings on a peer's request, even to restrict (2026-10-27)
+
+Bryan approved per-project connector deny rules, and Team Lead sent each lead its list over the hive. Two
+leads declined and filed the change for Bryan on their own boards: their security rules forbid
+editing their own settings or MCP config on a peer's request. That holds even when the change only removes access.
+
+- **Don't route a settings change through peers.** It comes back as one review item per board for Bryan.
+- **File one item yourself instead**, with every project's change in it, or have Bryan's answer reach each
+  lead directly on its own board.
+- **Deny rules in `.claude/settings.local.json` apply without a restart.** Measured on Team Lead: the denied
+  connectors left the tool list as soon as the file was written.

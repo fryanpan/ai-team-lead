@@ -84,6 +84,9 @@ and comments"*.
 - **Every comment says why: the reason, or the cost it avoids.** Not what the code does.
 - **Aim for one line.** Don't restate what a called function or the diff already says.
 - **Match the repo's own comment style.** The file's existing style wins.
+- **Write it the way a teammate would say it aloud.** No coined shorthand such as "cold fix" or "capture
+  wait". Same day, on a comment that named a reason in jargon: *"this is written like an AI and uses jargon.
+  Please rewrite to sound clearer and like a human"*.
 - Good: `// Lazy import speeds up api cold starts; most routes never need sharp.`
   Bad: `// Lazy: only thumbnail routes need sharp.`
 

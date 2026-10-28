@@ -184,6 +184,13 @@ ACCOUNT_DIR: Optional[str] = None
 # history, so a restart alone does not move it.
 MODEL: Optional[str] = None
 
+# Lead name in the lead-sandbox config, set by --sandbox. When set, the spawned
+# claude runs inside claude-workspaces' lead sandbox, which walls the session
+# off from other projects' folders. None spawns without it, as before.
+SANDBOX_LEAD: Optional[str] = None
+SANDBOX_SCRIPT = '"$HOME/Library/Application Support/claude-workspaces/repo/scripts/lead-sandbox.ts"'
+SANDBOX_CONFIG = "~/.config/claude-workspaces/lead-sandbox.json"
+
 
 def global_config_path() -> str:
     """The `.claude.json` a spawned session will read. Under CLAUDE_CONFIG_DIR
@@ -824,6 +831,23 @@ def account_env() -> List[str]:
     return ["-e", f"CLAUDE_CONFIG_DIR={ACCOUNT_DIR}"] if ACCOUNT_DIR else []
 
 
+def claude_launcher() -> str:
+    """The zsh words that start claude, before its own arguments.
+
+    Plain `claude` is the ~/.zshrc function, which adds the channel flags and
+    the fleet prompt file. Under --sandbox the sandbox script has to exec the
+    real binary, so the function's two additions are spelled out here instead.
+    Keep the two in step if the function changes."""
+    if not SANDBOX_LEAD:
+        return "claude"
+    return (
+        'extra=(); [[ -r $FLEET_PROMPT_APPEND ]] && '
+        'extra=(--append-system-prompt-file "$FLEET_PROMPT_APPEND"); '
+        f"bun {SANDBOX_SCRIPT} --config {SANDBOX_CONFIG} --lead {shlex.quote(SANDBOX_LEAD)} -- "
+        '"$(whence -p claude)" "${CLAUDE_CHANNEL_FLAGS[@]}" "${extra[@]}"'
+    )
+
+
 def spawn_session_tmux(session_name: str, path: str) -> bool:
     """Spawn claude in a detached tmux session via interactive zsh so the
     `claude` shell function in ~/.zshrc applies (channel + dev-channel flags).
@@ -887,7 +911,8 @@ def spawn_session_tmux(session_name: str, path: str) -> bool:
     # prompt to answer -- it polls for whatever appears and is unbothered.
     fresh = wants_fresh(path)
     claude_invocation = (
-        ("claude --continue" if (has_prior_session(path) and not fresh) else "claude")
+        claude_launcher()
+        + (" --continue" if (has_prior_session(path) and not fresh) else "")
         + name_flag
         + rc_flag
         + (f" --model {shlex.quote(MODEL)}" if MODEL else "")
@@ -1258,6 +1283,10 @@ Flags:
                    spawned without this flag use the default ~/.claude login,
                    so `--mode running` without it moves a session on a spare
                    account back to the main one.
+  --sandbox <lead> Start the session inside the claude-workspaces lead sandbox,
+                   under that lead's entry in its config, so it cannot read other
+                   projects' folders. Takes exactly one target (one --only or one
+                   --at), because each lead has its own entry.
   --model <name>   Start every spawned session on this model (an alias such as
                    `opus` or a full id). A resumed conversation can keep the
                    model it last ran on, so restarting without this flag may
@@ -1379,6 +1408,16 @@ def main() -> int:
             sys.exit("--model requires a model name or alias")
         MODEL = args[idx + 1]
         print(f"Model: {MODEL}")
+
+    global SANDBOX_LEAD
+    if "--sandbox" in args:
+        idx = args.index("--sandbox")
+        if idx + 1 >= len(args):
+            sys.exit("--sandbox requires the lead's name in the sandbox config")
+        if args.count("--only") + args.count("--at") != 1:
+            sys.exit("--sandbox takes exactly one target: one --only or one --at")
+        SANDBOX_LEAD = args[idx + 1]
+        print(f"Sandbox lead: {SANDBOX_LEAD}")
 
     running = get_running_claude_processes()
     self_pid = get_self_pid()

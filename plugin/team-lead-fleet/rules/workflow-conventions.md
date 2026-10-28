@@ -336,6 +336,16 @@ Execution follows the default system prompt. There is no menu to present.
 
 When implementation is done and tests pass, invoke the project's ship skill **before** handing control back. **Do not narrate "Want me to commit / PR / merge / deploy?"** — consent is encoded in tests passing plus an approved plan. The project's `CLAUDE.md` names the skill; default to `ship-auto`. Each skill lists its own pause conditions — don't invent more.
 
+## Work in another agent's area goes to that agent (2026-10-27)
+
+Set by Bryan after one lead started building and deploying a site another agent owns: *"Delegate instead
+of doing everything yourself."*
+
+- **A repo, a site or a deploy that another agent owns is that agent's work**, even when you could do it
+  yourself and the owner is not running.
+- **If the owner is not running, ask the team-lead to start it.** Then hand it the request and the approved
+  inputs. Do not do the work in its place.
+
 ## Do not notify the team-lead when a task completes
 
 Finishing a task is not a reason to message anyone. Ship it and pick up the next thing — the team-lead can already see your PRs, transcript and `set_summary`. Message it only for a decision you can't make or a blocker you can't clear.

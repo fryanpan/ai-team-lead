@@ -75,20 +75,21 @@ lead set from that correction. They are not his own figures.
   Bryan, 2026-10-28: *"give them to me in quoted code blocks that show raw markdown. That's what github
   accepts."*
 
-## A code comment says why, in one line (2026-10-28)
+## A code comment says why, in about 10 plain words (2026-10-28)
 
 Bryan, on a code review: *"In comments, important to keep it short, but explain why. Please have a rule for
 this."* He added that this kind of guidance should be repo-wide: *"communication standards for writing code
 and comments"*.
 
 - **Every comment says why: the reason, or the cost it avoids.** Not what the code does.
-- **Aim for one line.** Don't restate what a called function or the diff already says.
+- **About 10 words.** Don't restate what a called function or the diff already says. Same day: *"keep it
+  short 10 words please. And remember this in future with rules"*.
 - **Match the repo's own comment style.** The file's existing style wins.
 - **Write it the way a teammate would say it aloud.** No coined shorthand such as "cold fix" or "capture
   wait". Same day, on a comment that named a reason in jargon: *"this is written like an AI and uses jargon.
   Please rewrite to sound clearer and like a human"*.
-- Good: `// Lazy import speeds up api cold starts; most routes never need sharp.`
-  Bad: `// Lazy: only thumbnail routes need sharp.`
+- Good: `// GPS starts slowly; asking early gets photos the right location.`
+  Bad: `// Starting now gives a cold GPS fix the time spent framing the photo.`
 
 ## Edits
 

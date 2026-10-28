@@ -44,6 +44,17 @@ one project that prompted it.
 - **This is a property of the review surface, not of one stack.** A framework that already does it
   satisfies the rule; a static server that does not is the thing to fix before you send the link.
 
+## A link he tests runs the whole stack from the change (2026-10-28)
+
+Bryan, after a phone test link where every photo was broken because storage and the worker were not running
+from the change: *"when you're working on flows that require API and emulator, please spin up the emulator
+stack so I can test working flows. Please remember that"*.
+
+- **If the change touches the API, storage or a background worker, run all of it from the change's code**:
+  emulators, API, workers, and stubs for outside services.
+- **Before you send the link, open it at the address his device will use** and complete one upload or write
+  through the flow.
+
 ## A doc review is one summary plus a comment on each line it is about (2026-10-26)
 
 Bryan, after a review of his /about page arrived as one long reply on the thread that asked for it:

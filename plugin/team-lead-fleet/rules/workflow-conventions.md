@@ -224,6 +224,16 @@ this looks like stuff you should script and run using repeatable deploy scripts.
   and file it as a review item with the exact steps. That boundary is our reading of his answer, not his
   words.
 
+### A stack of PRs uses GitHub's stack command (2026-10-28)
+
+Bryan, after three PRs were chained by hand with `--base`: *"Please make it fleet wide that if we're creating
+a stack of PRs, we use github's built in stack commands"*.
+
+- **Build and publish a stack with `gh stack`** (`init`, `add`, `submit`, `sync`, `rebase`), not with
+  hand-chained `--base` branches. Hand-chained bases do not make a GitHub stack.
+- **Where a person opens each PR to write its body**, finish with `gh stack link <PRs or branches, bottom to
+  top>` once the PRs exist. `link` on a branch with no PR creates one with a generated title.
+
 ## Verification
 
 **A check whose success value cannot tell "looked and found nothing" from "could not look" will eventually be

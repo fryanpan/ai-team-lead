@@ -61,6 +61,16 @@ Write like an expert technical writer, in plain words you would say out loud.
 - Mermaid for diagrams, real tables for tabular data. No ASCII art in code blocks.
 - **A data report shows each series, ranking or split as a chart**, with every mark labelled with its value. Use a table only for lookup values, never as the only view of a trend or comparison. Brief a subagent that writes such a report to produce the chart. Set by Bryan 2026-10-22: *"By default if I ask you for a data report, use charts wherever appropriate to show the intended insight."*
 
+## A PR draft has a hard word limit (2026-10-27)
+
+Bryan, on a PR draft: *"Too many words. Please revise and cut to 1/3 length. Remember this for future or
+drafts. Set a hard word limit target for features of this size."* The numbers below are the limit a project
+lead set from that correction. They are not his own figures.
+
+- **Body prose, not counting the title, image captions or the `Closes` line: 40 words for a change of up to
+  3 files, 60 for up to 10 files, 120 beyond that.**
+- **Count with `wc -w` before you file it**, and cut until it fits.
+
 ## Edits
 
 Read the surrounding blocks, not just your change, and check the whole against everything above. Make sure the lede is not buried — update the intro to keep the inverted pyramid intact.

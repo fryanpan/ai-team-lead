@@ -88,8 +88,9 @@ and comments"*.
 - **Write it the way a teammate would say it aloud.** No coined shorthand such as "cold fix" or "capture
   wait". Same day, on a comment that named a reason in jargon: *"this is written like an AI and uses jargon.
   Please rewrite to sound clearer and like a human"*.
-- Good: `// GPS starts slowly; asking early gets photos the right location.`
+- Good, as Bryan rewrote it: `// Start acquiring GPS early, so we get accurate location faster when user takes a photo.`
   Bad: `// Starting now gives a cold GPS fix the time spent framing the photo.`
+- **A plain cause and effect beats the word count.** His own example runs about 15 words.
 
 ## Edits
 

@@ -71,6 +71,18 @@ lead set from that correction. They are not his own figures.
   3 files, 60 for up to 10 files, 120 beyond that.**
 - **Count with `wc -w` before you file it**, and cut until it fits.
 
+## A code comment says why, in one line (2026-10-28)
+
+Bryan, on a code review: *"In comments, important to keep it short, but explain why. Please have a rule for
+this."* He added that this kind of guidance should be repo-wide: *"communication standards for writing code
+and comments"*.
+
+- **Every comment says why: the reason, or the cost it avoids.** Not what the code does.
+- **Aim for one line.** Don't restate what a called function or the diff already says.
+- **Match the repo's own comment style.** The file's existing style wins.
+- Good: `// Lazy import speeds up api cold starts; most routes never need sharp.`
+  Bad: `// Lazy: only thumbnail routes need sharp.`
+
 ## Edits
 
 Read the surrounding blocks, not just your change, and check the whole against everything above. Make sure the lede is not buried — update the intro to keep the inverted pyramid intact.

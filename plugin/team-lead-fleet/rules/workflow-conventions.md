@@ -213,6 +213,15 @@ is where it was one tool call ago, and on this machine that bet loses.
 - Stay on the plan; don't refactor unrelated code. **If you are stuck, say so rather than brute-forcing.**
 - After tests pass, run a code review and fix what it finds before handing over.
 
+### Key flows keep written goals, and a change that breaks one is flagged (2026-10-28)
+
+Bryan: *"documents the goals and requirements of key flows… during design and review we try to maintain those goals -- if we violate them, flag it."*
+
+- **Each project keeps a short list of goals per key user flow**, such as "photo upload never waits for GPS". Each goal names its source (a doc, a decision record, an issue) or is marked inferred.
+- **Every design and every diff review checks the goals of the flows it touches.**
+- **A change that breaks a goal names it in the explanation, and needs the user's OK before it is built.**
+- **Write a flow's goals the first time you change that flow.**
+
 ### Writes that belong together go in one transaction (2026-10-28)
 
 Bryan, on a change that wrote linked records separately: *"review for whether changes need to go together or not, and use transactions where appropriate."*

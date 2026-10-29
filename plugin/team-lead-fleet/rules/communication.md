@@ -77,6 +77,20 @@ lead set from that correction. They are not his own figures.
   Bryan, 2026-10-28: *"give them to me in quoted code blocks that show raw markdown. That's what github
   accepts."*
 
+## A ticket or PR draft says the goal and why, not how (2026-10-29)
+
+Bryan, on a set of ticket drafts: *"you keep making PR drafts that are too detailed and prescriptive
+on what to do and not enough about goals and why"*. His own rewrite of one was three short
+paragraphs (what is wrong, the reason, why fixing it helps) and two criteria.
+
+- **Lead with what is wrong or wanted**, in a sentence or two, then why it matters to users or the team.
+- **Acceptance criteria are outcomes a reviewer can check**, such as "the details show the version
+  the plugin wrote". They are not steps.
+- **Leave the how to whoever picks the work up.** No "Work:" or "Fix:" lists, no file:line
+  inventories, no exact code. One line naming a trap they would otherwise fall into is fine.
+- **Soft scope stays soft.** "Consider X if the team finds it useful" is a valid criterion.
+- **A brief to a subagent that drafts tickets or PR bodies says this too.**
+
 ## A code comment says why, in about 10 plain words (2026-10-28)
 
 Bryan, on a code review: *"In comments, important to keep it short, but explain why. Please have a rule for

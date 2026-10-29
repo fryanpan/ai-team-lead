@@ -298,6 +298,14 @@ because it was plausible, and the attribution was never tested because nothing p
   dependency on the decision card so they rule on every instance at once, rather than discovering the
   others after they have answered about the first.
 
+### Run every CI check locally before a change goes to review (2026-10-28)
+
+Bryan, after a PR failed in CI on an end-to-end test that had not been run locally: *"please run all tests that run in CI locally too"*.
+
+- **Before you file a diff review or hand a change over to push, run every check the repo's CI runs.** Read `.github/workflows/*.yml` for the list. That includes the full end-to-end suite, not one spec.
+- **A failure that only happens locally counts unless it also fails on the base branch without the change.** Say which in the review.
+- **Checks that need cloud credentials, or that the repo forbids running locally, stay CI-only.** Name them as CI-only in the review.
+
 - **Never mark a UI task complete because the code is written.** State what you verified and what you could not.
 - **For a deploy changing user-facing UI**, run `/ux-review` before shipping. Skip only for purely back-end work.
 - **Validate on target what tests miss.** Report back if verification on target was not done.

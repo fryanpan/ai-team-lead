@@ -19,6 +19,11 @@ Put these on the task row as done-when lines when you start (`rewrite_task` keep
 | 3 | Run the tests. Every new test is seen to fail without its fix. | Tests pass; new tests seen failing | Test output, and the failing run for each new test |
 | 4 | Reply to every comment, including those you are not acting on, after the push. | Every comment answered | Replies per surface, matching the counts from step 1 |
 
+**Reply shape for step 4.** Set by Bryan, 2026-10-29: *"Instead of saying 'Real' and 'Half real'. Just say 'Fixed in <sha>'."* Never label a finding real or half-real.
+
+1. **First sentence: the verdict, with impact and reason.** Fully right: agree and give the impact level in under 10 words ("Agreed; high impact, since every upload fails without it."). Partly right: what is correct, what is not, and the impact, in 15 words or fewer ("Correct for multi-photo tasks; no impact today, since every task has one photo.").
+2. **New paragraph:** "Fixed in `<sha>`." or "Not changing it.", then the evidence with file:line.
+
 **The notification's count is one surface.** "6 inline comments" says nothing about review bodies or the conversation tab, which is where the missed comments usually are. Step 1's proof is three numbers, never one.
 
 **A one-comment nit still runs steps 1 and 4.** They are one command each, and a second comment elsewhere is the common miss. Steps 2 and 3 shrink to the fix and the existing test run.

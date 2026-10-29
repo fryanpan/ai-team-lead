@@ -14,6 +14,10 @@ When you want the user to review a markdown doc, a dev server or an interactive 
 - **Skip for:** one-line acks, code review (the PR diff is canonical), your own notes.
 - **Once a doc is bound, never Write/Edit the `.md`.** The plugin flushes the live doc to disk about a second after every change and silently clobbers filesystem edits.
 - **Bind every doc you work on with him as `.mdx`, from the start**, even when no chart is planned. A bound file cannot be renamed, so a `.md` doc that later needs a chart moves to a new doc and loses its threads. Set by Bryan, 2026-10-21: *"let's please always use mdx files for all docs that we're working on"*.
+- **Every new doc an agent writes for a person is `.mdx`, bound or not**: plans, designs, reports, briefs, status and daily docs. Plain markdown is valid mdx, so nothing else changes, and an interactive element can be added later. Set by Bryan, 2026-10-28: *"Fleetwide can we have all agents make mdx docs by default going forward instead of md."*
+  - **Keep `.md` for files a tool finds by name or type:** README, CLAUDE, AGENTS, SKILL and CHANGELOG files, rule files, and docs a site generator or linter expects as `.md`.
+  - **Do not rename an existing `.md` doc.** Renaming a bound doc breaks its binding.
+  - **Escape a literal `<` or `{` in mdx prose, or put it in code.** The parser otherwise reads it as markup.
 - **Draw a chart as a live chart block in the doc, never as an embedded PNG or SVG.** A regenerated image can stay stale behind a cache, and an agent cannot edit an image block. Same day: *"Stop using images."*
 - **If this session has a `workspaceId`, or someone said "the board is your task list", read `claude-workspaces:working-in-a-workspace` before your first piece of work.** It is the contract, and nothing else will tell you to open it. It now holds the board rules this file used to carry: filing asks, replying on threads, evidence before done, task ids on dispatched work, and dated deferrals.
 

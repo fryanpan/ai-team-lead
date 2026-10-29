@@ -28,6 +28,8 @@ Dispatch both as background agents simultaneously. **Give each the return contra
 
 Wait for all three. Merge findings. Fix BLOCKING issues. Re-run reviewers only if fixes were >10 lines.
 
+**Coverage blocks the ship.** Agent A reports "reviewed N of N changed files". Over about 500 lines of diff, split the review by file group so no file is cut off. Short of N of N, the ship does not proceed. See "Code review covers every changed file" in `workflow-conventions.md`.
+
 Run this step on every review-fix batch too.
 
 ### 2. Definition of Done

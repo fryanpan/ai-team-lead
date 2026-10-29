@@ -212,6 +212,17 @@ is where it was one tool call ago, and on this machine that bet loses.
 - Run all tests before asking for help.
 - Stay on the plan; don't refactor unrelated code. **If you are stuck, say so rather than brute-forcing.**
 - After tests pass, run a code review and fix what it finds before handing over.
+
+### Code review covers every changed file (2026-10-29)
+
+Set by Bryan after a review stopped reading partway through a large diff and a later bot review found
+two real bugs in the files it never reached: *"Yes, please make that fleet wide rule on all work."*
+
+- **Run the `code-review` skill at `high` effort before any handoff or push.**
+- **When the diff is over about 500 lines, run it once per file group**, by area or by commit, so no
+  file is cut off.
+- **Report coverage as "reviewed N of N changed files".** Anything short of N of N blocks the handoff.
+- **Reading the files yourself does not count as review coverage.**
 - **When repo rules stop you before the ship skill** (agents may not commit or push), run the code-review skill yourself before handing the change over. Stopping early does not skip the review. Set 2026-10-28, after a change reached Bryan with no review.
 
 ### Key flows keep written goals, and a change that breaks one is flagged (2026-10-28)

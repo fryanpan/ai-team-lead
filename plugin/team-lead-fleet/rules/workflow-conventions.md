@@ -306,6 +306,14 @@ Bryan, after a PR failed in CI on an end-to-end test that had not been run local
 - **A failure that only happens locally counts unless it also fails on the base branch without the change.** Say which in the review.
 - **Checks that need cloud credentials, or that the repo forbids running locally, stay CI-only.** Name them as CI-only in the review.
 
+### A change updates every doc it makes wrong, in the same diff (2026-10-28)
+
+Bryan: *"you must update all architecture docs related to a change where needed."*
+
+- **Fix every reference doc the change makes wrong in the same diff**: architecture, data model, data flow, runbooks, event catalogs, infra route lists.
+- **Before review, grep the docs for each route, table key, field, event and env var the change adds or renames.**
+- **List the docs you updated in the PR description**, or write "none needed" and say why.
+
 - **Never mark a UI task complete because the code is written.** State what you verified and what you could not.
 - **For a deploy changing user-facing UI**, run `/ux-review` before shipping. Skip only for purely back-end work.
 - **Validate on target what tests miss.** Report back if verification on target was not done.

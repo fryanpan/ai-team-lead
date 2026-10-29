@@ -33,6 +33,19 @@ Review item to this thread"*.
 - **Every link in a thread reply or a review item opens on the board.** A repo path does not. Bind
   the file first and link the doc's URL.
 
+## An approval to ship is one button that lists what it does (2026-10-29)
+
+Bryan, on a PR draft that asked him to approve the push and the messages in prose: *"In the future,
+just give me a button here to ask you to push the PR and send messages, and so on.  And give me a
+list of things you're planning to do with the button."*
+
+- **When shipping needs his approval, file one decision item** on the section of the doc that
+  describes the shipping. This covers a push, opening or editing a PR, and sending a message.
+  Work that ships without asking under `workflow-conventions.md` still does.
+- **The item lists, numbered, every action its approve button triggers**, and says what it will not do.
+- **One item for the whole set.** Not one item per action, and not a question in the doc body.
+- **Never ask him to run a command** to do any of it.
+
 ## A dev server you put in front of him live-reloads
 
 Set by Bryan, 2026-09-22: *"Can you please have the dev server page live reload, so i don't need

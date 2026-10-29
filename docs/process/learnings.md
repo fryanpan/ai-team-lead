@@ -5526,3 +5526,10 @@ editing their own settings or MCP config on a peer's request. That holds even wh
   lead directly on its own board.
 - **Deny rules in `.claude/settings.local.json` apply without a restart.** Measured on Team Lead: the denied
   connectors left the tool list as soon as the file was written.
+
+## `claude` in the Bash tool is a shell function, not the binary (2026-10-29)
+
+- **Symptom:** `claude plugin marketplace update …` started a prompt instead of running the subcommand.
+- **Cause:** the login shell defines `claude` as a function that treats its arguments as a prompt.
+- **Fix:** call the binary by path and close stdin, e.g.
+  `~/.local/bin/claude plugin update <plugin>@<marketplace> </dev/null`. The ship-fleet skill names the plugin.

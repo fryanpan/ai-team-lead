@@ -46,6 +46,17 @@ list of things you're planning to do with the button."*
 - **One item for the whole set.** Not one item per action, and not a question in the doc body.
 - **Never ask him to run a command** to do any of it.
 
+## A pending PR or reply draft keeps a live test link at the top (2026-10-29)
+
+Bryan, on a PR draft: *"Give me a link to test in the doc."*, then *"always give me a link to test
+while the PR draft or comment response is still pending until it's done and posted"*.
+
+- **Every pending PR draft or comment-response draft has a live test link at the top of its doc**,
+  next to the diff links.
+- **Keep the link working until the PR is pushed and the reply is posted.** The server behind it
+  stays up until then, and comes down after.
+- **If machine memory forces the server down early, say so in the doc** and tell him.
+
 ## A dev server you put in front of him live-reloads
 
 Set by Bryan, 2026-09-22: *"Can you please have the dev server page live reload, so i don't need

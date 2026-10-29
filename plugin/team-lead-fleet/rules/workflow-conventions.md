@@ -213,6 +213,14 @@ is where it was one tool call ago, and on this machine that bet loses.
 - Stay on the plan; don't refactor unrelated code. **If you are stuck, say so rather than brute-forcing.**
 - After tests pass, run a code review and fix what it finds before handing over.
 
+### Writes that belong together go in one transaction (2026-10-28)
+
+Bryan, on a change that wrote linked records separately: *"review for whether changes need to go together or not, and use transactions where appropriate."*
+
+- **When a request writes more than one record, list them.** Ask whether a failure between two writes leaves a half-done state a reader can see.
+- **If it does, write them in one transaction**, using the pattern the repo already uses. Say what happens when one record's condition fails: retry without it, or fail the request.
+- **If the writes stay separate, the PR description says why the half-done state is safe.**
+
 ### Ops steps ship as scripts an agent runs, not runbooks for him (2026-10-21)
 
 Set by Bryan when asked when he would run a runbook that starts a test machine: *"No, virtually all of

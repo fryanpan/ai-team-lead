@@ -212,6 +212,7 @@ is where it was one tool call ago, and on this machine that bet loses.
 - Run all tests before asking for help.
 - Stay on the plan; don't refactor unrelated code. **If you are stuck, say so rather than brute-forcing.**
 - After tests pass, run a code review and fix what it finds before handing over.
+- **When repo rules stop you before the ship skill** (agents may not commit or push), run the code-review skill yourself before handing the change over. Stopping early does not skip the review. Set 2026-10-28, after a change reached Bryan with no review.
 
 ### Key flows keep written goals, and a change that breaks one is flagged (2026-10-28)
 

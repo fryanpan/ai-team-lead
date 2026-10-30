@@ -49,6 +49,17 @@ it. Moving it along and getting it polished so I don't have to keep utzing."*
 
 A project with public APIs or a mature schema moves contract changes into the hard-to-reverse column; note it in its own `workflow-conventions.md`.
 
+### Don't re-ask a settled decision (2026-10-30)
+
+Set by Bryan on a plan item that asked him to confirm a choice he had already made: *"Why are you
+asking me to confirm decisions already made that have no new information?"*
+
+- **Before you list a decision as open, find where it was decided:** a decision record, a board
+  answer or a doc.
+- **If it was decided and nothing has changed since, record it as settled and cite where.** Do not
+  file it as an ask.
+- **Re-open it only with a named new fact, and lead the ask with that fact.**
+
 ### Over $50 of API or eval spend needs explicit approval first (2026-09-09)
 
 Set fleet-wide after an eval run cost several times what anyone expected, because

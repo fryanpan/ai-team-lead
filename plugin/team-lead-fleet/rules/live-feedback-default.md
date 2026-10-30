@@ -83,6 +83,18 @@ stack so I can test working flows. Please remember that"*.
 - **Before you send the link, open it at the address his device will use** and complete one upload or write
   through the flow.
 
+## A mockup's design notes sit in a margin outside the frame (2026-10-30)
+
+Bryan, on a mockup whose notes were written inside the mocked screen: *"I thought we had a
+convention of attaching comments with a line and having the comments float in the margin to the
+right of the frame."*
+
+- **Render the design in a frame that can be resized**, the way a design tool shows an artboard.
+- **Put every design note in a right-hand margin outside the frame**, level with a numbered marker
+  on the element it is about and joined to it by a line.
+- **Never write design notes inside the mocked UI.** Text inside the frame reads as part of the
+  product.
+
 ## A doc review is one summary plus a comment on each line it is about (2026-10-26)
 
 Bryan, after a review of his /about page arrived as one long reply on the thread that asked for it:

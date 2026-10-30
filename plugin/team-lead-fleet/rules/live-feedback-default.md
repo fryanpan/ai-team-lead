@@ -83,6 +83,15 @@ stack so I can test working flows. Please remember that"*.
 - **Before you send the link, open it at the address his device will use** and complete one upload or write
   through the flow.
 
+## Resolve a thread when you finish it (2026-10-30)
+
+Bryan, after 39 finished threads were left open on one mockup: *"Please do a better job at cleaning
+up comments on the mocks — anything that's been addressed already can be resolved."*
+
+- **When you reply that a doc or mockup thread is done, resolve it in the same turn.**
+- **Leave a thread open only while it waits on a person or on another task**, and say in the
+  thread what it waits on.
+
 ## A mockup's design notes sit in a margin outside the frame (2026-10-30)
 
 Bryan, on a mockup whose notes were written inside the mocked screen: *"I thought we had a

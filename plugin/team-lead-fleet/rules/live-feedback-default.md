@@ -108,6 +108,15 @@ right of the frame."*
 - **Never write design notes inside the mocked UI.** Text inside the frame reads as part of the
   product.
 
+## A demo video comes as a short highlights cut first (2026-10-31)
+
+Bryan, handed a 16-minute end-to-end video: *"Video is too long. I'm going to go try it myself."*
+
+- **Send a 2–3 minute highlights cut first:** the install, the main interaction the change is
+  about, the result, and any failure.
+- **Keep the full recording as evidence** on the PR or the task, linked from the highlights cut.
+- **Never hand him the full recording alone.**
+
 ## A doc review is one summary plus a comment on each line it is about (2026-10-26)
 
 Bryan, after a review of his /about page arrived as one long reply on the thread that asked for it:

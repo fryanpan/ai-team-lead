@@ -357,7 +357,7 @@ Bryan: *"you must update all architecture docs related to a change where needed.
 - **Never mark a UI task complete because the code is written.** State what you verified and what you could not.
 - **For a deploy changing user-facing UI**, run `/ux-review` before shipping. Skip only for purely back-end work.
 - **Validate on target what tests miss.** Report back if verification on target was not done.
-- **Prove each regression test fails without the fix.** Revert, run, confirm, restore.
+- **Tests meet `test-quality.md`**, including watching each new test fail without its fix.
 - At the start of a worktree session that will commit, check the worktree is current with its base and say so.
 
 Commit at each checkpoint, in logical commits whose messages explain *why*.

@@ -25,6 +25,14 @@ that logic be in a task. Sometimes we trigger reply drafting or editing not from
 - **The scheduled task names the skill** and holds only what belongs to the schedule: when it runs, and what
   window it covers.
 
+## A skill built from a finished project opens with what it is for (2026-10-31)
+
+Set by Bryan on a skill written from a finished project: *"You got the mechanics but missed a lot of the high level goal stuff. Review all the things [a collaborator] and I asked for and please add here (eg about persuasion and brevity)"*. The steps alone reproduce the shape of the work and lose the reason for it.
+
+- **Before writing the steps, collect every ask the owner and collaborators made**, on the project's docs and in chat. Include resolved threads.
+- **Put them in a short "What it is for" section ahead of the steps**, quoting their words.
+- **Every agent prompt in the skill or workflow reads that section first.**
+
 ## Keep it minimal
 
 A skill is a rule plus the one non-obvious thing — not a tutorial. No background essays, no re-explaining the harness. If the body reads like documentation an agent could have written from its tools, it's too long. (`qa-delegate` is the reference for length: two rules, ~180 words.)

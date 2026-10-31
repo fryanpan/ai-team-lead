@@ -158,6 +158,18 @@ another cloud provider."*
 - **Say in the plan why the existing one won't do.** A new account is a new bill, a new credential and a
   new thing to ask him for.
 
+### Decisions and tool reviews start from use cases (2026-10-30)
+
+Set by Bryan after a tool was judged against its feature list: *"When making any decision or reviewing
+any tool, always start with use cases. And identify from that the key criteria for what we need to be
+able to do."*
+
+- **List the use cases first, in the user's terms:** who does what, and what they need to see.
+- **Derive numbered criteria from them.** Each criterion names the use case it comes from. Cut a
+  criterion that traces to no use case.
+- **Judge each option against those criteria:** which it meets as it ships, which need building, and
+  which it cannot meet.
+
 ### Research the options broadly before agents converge on one (2026-10-15)
 
 Set by the user on a multi-agent design thread, after a recommendation switched providers and every

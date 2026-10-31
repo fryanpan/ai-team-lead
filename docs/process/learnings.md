@@ -5533,3 +5533,31 @@ editing their own settings or MCP config on a peer's request. That holds even wh
 - **Cause:** the login shell defines `claude` as a function that treats its arguments as a prompt.
 - **Fix:** call the binary by path and close stdin, e.g.
   `~/.local/bin/claude plugin update <plugin>@<marketplace> </dev/null`. The ship-fleet skill names the plugin.
+
+## Build and render temp files land on the internal disk, not /Volumes/Data (2026-10-30)
+
+The internal disk fell from 32 GB to 5 GB free in about 12 minutes, then recovered. Swap lives on that
+disk, so a full internal disk also stops the machine paging. Two jobs ran in the window: a video render
+(ffmpeg and auto-editor write temporary frames to `$TMPDIR`) and a Gradle test suite (its JVM writes to
+`java.io.tmpdir`, and `~/.gradle` holds transforms and caches). Matching the disk drop to these jobs by
+timing is an inference. Nobody measured which job wrote the files.
+
+- **A heavy job sets `TMPDIR` under /Volumes/Data**, and a Gradle run also passes
+  `-Djava.io.tmpdir` there. `$TMPDIR` defaults to the internal disk.
+- **`df` on `/` and `/Volumes/Data` are separate numbers.** Free space on the data volume says nothing
+  about the internal disk.
+
+## A killed job can come back before its agent reads why (2026-10-30)
+
+During a swap emergency Team Lead killed an OCR eval holding 15 GB. Its agent restarted it under a new
+pid within minutes, because the agent's message about the kill had not been read yet.
+
+- **Send the message first, then kill.** Re-check for the job by its command line, not its old pid, a
+  few minutes after.
+- **To pause a job instead of ending it, use `kill -STOP`** (see the entry from 2026-10-18).
+
+## `timeout` is not installed on this Mac (2026-10-30)
+
+GNU `timeout` is not on macOS by default and is not installed here. A command wrapped in it fails with
+"command not found" and does not run at all. Use the Bash tool's own timeout, or a `perl -e alarm`
+wrapper.

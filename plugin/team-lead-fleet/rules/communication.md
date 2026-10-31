@@ -108,6 +108,15 @@ and comments"*.
   Bad: `// Starting now gives a cold GPS fix the time spent framing the photo.`
 - **A plain cause and effect beats the word count.** His own example runs about 15 words.
 
+## A doc for an outside reader starts from that reader's questions (2026-10-31)
+
+Set by Bryan on a research workflow that brought its target readers in only to review the finished draft: *"Look into readers earlier"*. Two of the questions that forced rework, why the topic matters to the audience and cost against benefit, arrived only after the draft.
+
+- **Before research starts, have each named reader list the questions the doc must answer, in their own words.** A reader can be a person or a reviewer agent briefed as that person.
+- **Give those questions to every research step.**
+- **The draft answers each question or lists it as open.**
+- **The same readers check the draft against their own questions**, not only against general clarity.
+
 ## Edits
 
 Read the surrounding blocks, not just your change, and check the whole against everything above. Make sure the lede is not buried — update the intro to keep the inverted pyramid intact.

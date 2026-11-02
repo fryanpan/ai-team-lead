@@ -71,6 +71,9 @@ pools with staggered resets.** Report the estate, then the one call.
    Tier 2 asks the user.
 6. **First run after a weekly reset:** also run the end-of-week retro from the
    contract.
+7. **If you filed a review item on this run's row, leave the row in progress.**
+   A done row drops its open items off Bryan's queue. Close it after he answers.
+   This happened twice, on 10-31 and 11-02.
 
 ## Reading the estate panel
 

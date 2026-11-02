@@ -5561,3 +5561,11 @@ pid within minutes, because the agent's message about the kill had not been read
 GNU `timeout` is not on macOS by default and is not installed here. A command wrapped in it fails with
 "command not found" and does not run at all. Use the Bash tool's own timeout, or a `perl -e alarm`
 wrapper.
+
+## A review item on a done task drops off the review queue (2026-10-31)
+
+Filed a decision on a recurring token-watch row, then closed the row done in the same turn. The item was admitted by the gate but never appeared in `/api/review-queue`, so Bryan could not see it. Reopening the row to in-progress put it back at once.
+
+- **Leave a row open while it carries an unanswered review item.** Close it after the answer lands.
+- **After filing on a row you are about to close, grep the queue for the item id** before calling it filed.
+- **Repeated 2026-11-02** on the same row; this entry did not fire because nothing prompts a lookup at close time. The guard now sits in the token-watch skill.

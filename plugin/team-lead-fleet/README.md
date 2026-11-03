@@ -42,7 +42,8 @@ Each project picks ONE ship skill via a line in its `CLAUDE.md`:
 - `live-feedback-default.md` — bind reviews to the workspace, live-reload dev servers; board rules live in the claude-workspaces plugin
 - `notion.md` — MCP conventions, agent identification in comments, and handling notion-channel events as peer asks
 - `public-content-scrubbing.md` — review pass before publishing public content
-- `security-posture.md` — operational security rules for multi-agent setup
+
+Rules that describe one machine's own defenses are not published here. The SessionStart hook also injects every rule in a private overlay directory, named by the `rules_dir=` line of `~/.config/team-lead/private-overlay.conf` (or `TEAM_LEAD_FLEET_PRIVATE_RULES`). On a machine with that conf file, the injected block names the overlay rules it loaded and flags an overlay that is empty or missing. A plain install has no conf file and sees nothing. A rule in both sets is injected once, from the overlay. `scripts/plugin_drift_check.py` also fails when an expected overlay is missing, empty, or behind its repo.
 
 ## How peers enable it
 

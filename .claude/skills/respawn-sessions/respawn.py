@@ -883,14 +883,14 @@ def spawn_session_tmux(session_name: str, path: str) -> bool:
     # `-n <name>` is the LOCAL display name only -- pane title, agent picker,
     # terminal title. `claude --help` says exactly that, and an older comment here
     # claiming it also covered Remote Control cost a fleet that came back on the
-    # phone as a set of unnamed strangers (`bryans-mac-mini-ticklish-pie` and
+    # phone as a set of unnamed strangers (`<machine>-ticklish-pie` and
     # friends) sitting beside the previous, still-correctly-named records. The
     # pane read the right name the whole time, so from the terminal it looked fine.
     #
     # `--remote-control <name>` is documented to take a name and MEASURED NOT TO
     # APPLY IT (2026-08-11): a session launched with
     # `--remote-control 'Some Session Name'` registered as
-    # `bryans-mac-mini-abstract-sunbeam`. Proof is the RC title for the session id
+    # `<machine>-abstract-sunbeam`. Proof is the RC title for the session id
     # printed in that pane -- not the argv, which of course shows what we passed.
     # Untested whether a name with spaces is what gets rejected; single-token
     # names were never isolated. `/remote-control` offers no rename either

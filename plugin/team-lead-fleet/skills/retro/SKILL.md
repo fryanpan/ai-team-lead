@@ -168,6 +168,6 @@ This affects Steps 3 and 5 below. All other steps run the same regardless of mod
 
    Don't just ask "anything to add?" - identify candidates yourself.
 
-8. **Commit** all retro changes (actions, retrospective log, learnings) with message: `docs: retro for [brief context]`
+8. **Commit** all retro changes (actions, retrospective log, learnings) with message: `docs: retro for [brief context]`. If `learnings.md` is a symlink into another checkout, commit and push it there.
 
 9. **Confirm** what was logged and what actions were taken.

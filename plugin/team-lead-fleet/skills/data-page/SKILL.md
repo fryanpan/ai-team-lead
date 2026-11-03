@@ -32,6 +32,15 @@ Put these on the task row as done-when lines when you start (`rewrite_task` keep
 
 **Your own spot-check does not satisfy 3b.** Recomputing totals by a second method is worth doing, but in 4 of 4 measured runs where the builder's own checks passed, a figures-only reviewer still found defects. The proof is the separate reviewer's report.
 
+## Chart rules (Bryan, 2026-11-03)
+
+Every chart meets these. Reviewer (c) in step 3 checks them.
+
+- **Scale every axis so its trends are readable.** Choose log or linear on purpose. When the series in small multiples differ a lot in size, give each panel its own y-scale. His words: *"the vertical axis is scaled in a way where you can barely see the differences."*
+- **Size each panel so its slopes are visible**, near 45°, and choose the grid layout to fit that. Do not default to one row per category.
+- **Never use colour without a key.** *"No color use in a chart without legend — that's bad."* Prefer coloured labels that point straight at their category; use a legend only when there is no room for labels.
+- **On a percent chart, put "%" on the axis ticks and on the value labels**, *"so it's clear these are percentages. Without having to look up other info."*
+
 ## No workspace board?
 
 Put the same lines and proofs in the hand-off message or the PR body, one line each.

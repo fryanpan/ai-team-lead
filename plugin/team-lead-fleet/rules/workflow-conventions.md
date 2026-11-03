@@ -339,6 +339,11 @@ because it was plausible, and the attribution was never tested because nothing p
   came from an id copied off the wrong row of a listing that had been read live.
   **The test is not "did I check" but "when was this value produced".** If you cannot say, it is
   stale. A persisted result is evidence about the moment it was captured and nothing later.
+- **Before you tell the user a tool or the board cannot do something, check its current source or docs in
+  that turn**: `git log origin/main` on its repo, or the plugin's current skills. A finding from earlier in
+  the session does not count; tools here gain features every few days. Set 2026-11-03, after an agent told
+  Bryan a board doc could not embed a map, from a check made before the board gained that feature on 10-31.
+  His reply: *"Wait I thought it allowed arbitrary mdx elements and we've had maps embedded before."*
 
 - **Check the figure's DEPENDENTS, not just its source.** A per-figure source check finds "a real number
   with the wrong population" and completely misses "a real number three other sentences quietly rest on."

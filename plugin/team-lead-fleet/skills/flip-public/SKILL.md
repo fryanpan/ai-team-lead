@@ -174,6 +174,5 @@ All five should be truthy / non-null.
 ## Reference
 
 - `plugin/team-lead-fleet/rules/public-content-scrubbing.md` — principle-level rules about private vs public content.
-- `plugin/team-lead-fleet/rules/security-posture.md` — credential hygiene + ops rules.
 - `scripts/scrub-check.py` + `scripts/scrub-haiku.py` — automated scrub layers.
 - Example skills: `ai-team-lead/.claude/skills/setup/SKILL.md` and `claude-live-feedback-plugin/.claude/skills/setup/SKILL.md` are the canonical `/setup` patterns.

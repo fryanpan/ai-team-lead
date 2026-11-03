@@ -86,7 +86,7 @@ Check these every run, against this week's plan:
    - **Status**: on-track | slipping | blocked | done
    - **Today**: <one or two lines on what moved / who did what>
    - **Next for you**: <decision needed | review needed | nothing — keep moving>
-   - **Link**: <github.com/... or mac-mini.<tailnet>.ts.net/... — only if useful>
+   - **Link**: <github.com/... or <host>.<tailnet>.ts.net/... — only if useful>
 
    ## 2. <Next goal title>
 
@@ -121,12 +121,12 @@ Check these every run, against this week's plan:
 
 5. **Bring the doc under live-feedback.**
    - On first creation for the day, call `create_review_doc(docId, path)` where `docId` is `daily-review-YYYY-MM-DD` and `path` is the absolute path to the file.
-   - Capture the `reviewUrl`. Rewrite any `<your-mac>.local:8788` portion to `mac-mini.<your-tailnet>.ts.net:8788` before surfacing.
+   - Capture the `reviewUrl`. Rewrite any `<your-mac>.local:8788` portion to `<host>.<your-tailnet>.ts.net:8788` before surfacing.
    - Call `watch_doc(docId)` so thread events arrive as channel notifications.
    - On updates within the same day, the live-feedback editor stays in sync with the file. Don't re-call `create_review_doc`.
 
 6. **Surface the doc to the user — link FIRST, every time.**
-   - **The very first line of your user-facing response MUST be the WORKSPACE URL on its own line**: `http://mac-mini.<your-tailnet>.ts.net:8787/workspaces/<workspace_id>` (the Team Lead workspace id lives in `.claude/skills/weekly-plan/parent.txt`). No preamble, no "here's the review", no apology — just the URL.
+   - **The very first line of your user-facing response MUST be the WORKSPACE URL on its own line**: `http://<host>.<your-tailnet>.ts.net:8787/workspaces/<workspace_id>` (the Team Lead workspace id lives in `.claude/skills/weekly-plan/parent.txt`; take `<host>` from any `url` a workspace tool returns). No preamble, no "here's the review", no apology — just the URL.
    - **Never surface a bare `/review/<docId>` link.** `create_review_doc` returns a `reviewUrl` and pasting it is the easy mistake, but it opens the document by itself — no goal bands, no task board, none of the surface the review is meant to be read against. Attach the doc to the workspace and link the workspace.
    - This applies on every invocation: first creation, every update / re-run, and any time the user asks "what's next" / "status" / "where are we." The URL is the user's only entry point on phone or laptop; if it's buried, he has to dig for it.
    - After the URL, you may add a one-sentence pointer (morning: which goal-section to start with; evening: what shipped + tomorrow's first goal).
@@ -150,7 +150,7 @@ A RED that appears in the review with no owner is the same as a RED nobody read.
 Every actionable item in the daily review must be either:
 
 - **Inline**, if it's brief enough to scan in seconds (1-3 sentences), OR
-- **Linked via a Tailscale URL** (`mac-mini.<your-tailnet>.ts.net:...`) to a live-feedback-bound doc or other accessible artifact, if the content is longer.
+- **Linked via a Tailscale URL** (`<host>.<your-tailnet>.ts.net:...`) to a live-feedback-bound doc or other accessible artifact, if the content is longer.
 
 **Never use forward-references** like "see Decisions §N" or "see below" or "ask <peer> for details." If the user has to scroll/navigate/ping to find what they need, the daily review failed its job. The user reads on phone — every "see X" is a context switch he pays for.
 

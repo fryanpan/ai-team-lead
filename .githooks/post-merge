@@ -1,0 +1,7 @@
+#!/bin/bash
+# Run setup-private.sh after a pull or merge, so a file that moved out of the
+# tracked tree into the private companion checkout is linked back in place.
+if [ -f ./scripts/setup-private.sh ]; then
+  echo "Running setup-private.sh..."
+  ./scripts/setup-private.sh || echo "setup-private.sh FAILED: private files may be missing from this worktree. Run it by hand." >&2
+fi

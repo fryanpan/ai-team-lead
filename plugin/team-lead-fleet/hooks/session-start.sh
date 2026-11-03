@@ -74,8 +74,10 @@ except Exception:
     # reality rather than against documentation, and it is how the next gate
     # should be checked too. Never fails the hook: the redirect is guarded and
     # the line ends in `|| :`.
+    # `${HOME:-}`, not `${HOME}`: under `set -u` an unset HOME is a fatal
+    # expansion error that `|| :` cannot catch, and it killed the whole hook.
     {
-      printf '%s\n' "$hook_input" >> "${HOME}/Library/Logs/team-lead-fleet-hook-payloads.jsonl"
+      printf '%s\n' "$hook_input" >> "${HOME:-}/Library/Logs/team-lead-fleet-hook-payloads.jsonl"
     } 2>/dev/null || :
   fi
 fi
@@ -93,9 +95,10 @@ fi
 # Two gates, both driven by frontmatter in the rule file itself:
 #
 #   gate: never       Injected unconditionally, for every session and every
-#                     agent, and never deduplicated. This is the security and
-#                     untrusted-data set: a session that does not receive these
-#                     can leak a credential or execute injected instructions.
+#                     agent, and never deduplicated. For rules a session must
+#                     never be without. (Rules that describe one machine's own
+#                     defenses are not kept here at all: they come from the
+#                     private overlay below, which is injected unconditionally.)
 #                     Nothing below may skip a rule carrying this field.
 #
 #   appliesTo: main   Injected only into a top-level session. Skipped when the
@@ -144,8 +147,8 @@ fi
 #                   so a differing copy is injected, not skipped.
 #                   `gate: never` rules are exempt from dedup as well. The
 #                   evidence that project instructions always load is
-#                   observational, and the cost of being wrong about a security
-#                   rule is not worth 17KB.
+#                   observational, and the cost of being wrong about a
+#                   must-have rule is not worth 17KB.
 
 # Read one frontmatter field with builtins only. Prints the value, or nothing.
 # Always returns 0 -- a malformed rule must degrade to "no frontmatter", which
@@ -226,7 +229,7 @@ _is_subagent_type() {
 
 _is_floor_rule() {
   case "$1" in
-    security-posture.md|public-content-scrubbing.md|email-channel-capability-firewall.md) return 0 ;;
+    public-content-scrubbing.md) return 0 ;;
   esac
   return 1
 }
@@ -250,19 +253,54 @@ _dup_project_instruction() {
 # `full_content` is assembled alongside as the fail-safe: if the gated block
 # comes out empty for any reason, the ungated one is injected instead. Injecting
 # too much is a cost; injecting nothing is an outage.
-rules_content=""
-full_content=""
-skipped_agent=""
-skipped_dup=""
-for rule in "$RULES_DIR"/*.md; do
-  [ -f "$rule" ] || continue
-  rule_name="${rule##*/}"
-  printf -v header '\n\n<!-- team-lead-fleet rule: %s -->\n' "$rule_name"
-  if ! body="$(_rule_body "$rule")"; then
+
+# Sets `header` and `body` for one rule file. `$2` labels the source in the
+# header comment ("rule" or "private rule").
+_render_rule() {
+  local f="$1" label="$2"
+  printf -v header '\n\n<!-- team-lead-fleet %s: %s -->\n' "$label" "${f##*/}"
+  if ! body="$(_rule_body "$f")"; then
     # Unreadable or empty. No fallback can recover the text, so make it LOUD:
     # a blank rule that looks present is worse than one announced as missing.
     body=$'\n**RULE FILE UNREADABLE — this session is missing this fleet rule. Tell the user.**\n'
   fi
+}
+
+# Private overlay location (see "Private overlay" below). Resolved here so the
+# public loop can step aside for an overlay rule of the same name.
+#
+# The location is machine-local config, never a path in this public file: the
+# `rules_dir=` line of OVERLAY_CONF, unless TEAM_LEAD_FLEET_PRIVATE_RULES
+# overrides it. The conf file existing is what marks this machine as one that
+# must have the overlay. Parsed with builtins only.
+OVERLAY_CONF="${TEAM_LEAD_FLEET_PRIVATE_CONF:-${HOME:-}/.config/team-lead/private-overlay.conf}"
+overlay_expected=""
+PRIVATE_RULES_DIR=""
+if [ -r "$OVERLAY_CONF" ]; then
+  overlay_expected=1
+  while IFS= read -r _line || [ -n "$_line" ]; do
+    case "$_line" in rules_dir=*) PRIVATE_RULES_DIR="${_line#rules_dir=}" ;; esac
+  done < "$OVERLAY_CONF" || :
+elif [ -e "$OVERLAY_CONF" ]; then
+  overlay_expected=1   # present but unreadable: still an alarm, never a silent pass
+fi
+[ -n "${TEAM_LEAD_FLEET_PRIVATE_RULES:-}" ] && PRIVATE_RULES_DIR="$TEAM_LEAD_FLEET_PRIVATE_RULES"
+
+rules_content=""
+full_content=""
+skipped_agent=""
+skipped_dup=""
+shadowed=""
+for rule in "$RULES_DIR"/*.md; do
+  [ -f "$rule" ] || continue
+  rule_name="${rule##*/}"
+  # A rule that exists in both sets is injected once, from the overlay: two
+  # copies would put two possibly different policies in the window.
+  if [ -n "$PRIVATE_RULES_DIR" ] && [ -f "${PRIVATE_RULES_DIR}/${rule_name}" ]; then
+    shadowed+=" ${rule_name}"
+    continue
+  fi
+  _render_rule "$rule" rule
   full_content+="${header}${body}"
 
   gate="$(_fm_field "$rule" gate)"
@@ -287,12 +325,54 @@ for rule in "$RULES_DIR"/*.md; do
 done
 
 # Fail safe: an empty gated block with a non-empty ungated one means the gating
-# went wrong. Ship everything rather than nothing.
+# went wrong. Ship everything rather than nothing. Checked on the PUBLIC rules,
+# before the overlay appends, so loaded private rules cannot mask it.
 if [ -z "$rules_content" ] && [ -n "$full_content" ]; then
   rules_content="$full_content"
   skipped_agent=""
   skipped_dup=""
 fi
+
+# ---------------------------------------------------------------------------
+# Private overlay
+# ---------------------------------------------------------------------------
+#
+# Some fleet rules are machine-specific and are not published with this plugin.
+# A machine that has them names their directory in OVERLAY_CONF (above),
+# typically the clone of a second, private marketplace that is never enabled:
+# this hook reads its rules/ directly, so a project that enables this plugin
+# gets both sets with one enable.
+#
+# Every overlay rule is injected unconditionally, like `gate: never`: no
+# agent-type gate, no dedup. On a machine that expects the overlay its state is
+# always reported -- loaded (with names), present-but-empty, or missing -- so a
+# session that lost it says so instead of looking complete. A plain install of
+# this plugin has no conf file and sees nothing.
+
+private_loaded=""
+private_status=""
+if [ -d "$PRIVATE_RULES_DIR" ]; then
+  for rule in "$PRIVATE_RULES_DIR"/*.md; do
+    [ -f "$rule" ] || continue
+    rule_name="${rule##*/}"
+    _render_rule "$rule" "private rule"
+    rules_content+="${header}${body}"
+    private_loaded+=" ${rule_name}"
+  done
+  if [ -n "$private_loaded" ]; then
+    private_status="Private overlay rules loaded:${private_loaded}"
+    [ -n "$shadowed" ] && private_status+=$'\nIn both sets, injected once from the overlay:'"${shadowed}"
+  else
+    private_status="**Private overlay rules: NONE FOUND.** ${PRIVATE_RULES_DIR} exists but holds no rules. Tell the user: this session is missing rules it is meant to have."
+  fi
+elif [ -n "$overlay_expected" ]; then
+  private_status="**Private overlay rules: NOT LOADED.** ${OVERLAY_CONF} says this machine has an overlay, but its rules directory '${PRIVATE_RULES_DIR}' does not exist or is not set. This session is missing fleet rules: tell the user."
+else
+  # No overlay configured and none expected: a plain install of this public
+  # plugin. Nothing is missing, so say nothing.
+  private_status=""
+fi
+
 
 # Wrap with a container so it's visually distinct in the transcript.
 # $'...' ANSI-C quoting gives real newlines.
@@ -309,6 +389,7 @@ fi
 if [ -n "$skipped_agent" ]; then
   session_context+=$'\nScoped to top-level sessions and omitted for this agent:'"${skipped_agent}"$'\n'
 fi
+[ -n "$private_status" ] && session_context+=$'\n'"${private_status}"$'\n'
 session_context+="${rules_content}"
 session_context+=$'\n\n</team-lead-fleet-rules>'
 

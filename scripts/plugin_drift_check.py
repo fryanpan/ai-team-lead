@@ -446,6 +446,89 @@ def check_plugin(marketplace, plugin, plugin_dir, manifest_ver, quiet, ref=None)
     return 1
 
 
+# Machine-local overlay config, the same file the SessionStart hook reads. Its
+# existence marks this machine as one that must have the overlay. Keys:
+#   rules_dir=    the directory the hook injects rules from
+#   checkout=     a local clone of the overlay's repo, to compare against
+#   marketplace=  the marketplace whose clone rules_dir sits in
+OVERLAY_CONF = os.environ.get("TEAM_LEAD_FLEET_PRIVATE_CONF") or os.path.expanduser(
+    "~/.config/team-lead/private-overlay.conf")
+
+
+def read_overlay_conf(path):
+    """{key: value} from the conf file, or None when it does not exist."""
+    if not os.path.exists(path):
+        return None
+    conf = {}
+    try:
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    conf[k.strip()] = v.strip()
+    except OSError:
+        pass
+    return conf
+
+
+def top_level_md(files):
+    """Only what the hook reads: `rules/*.md`, not subfolders."""
+    return {k: v for k, v in files.items() if k.endswith(".md") and os.sep not in k}
+
+
+def check_overlay(quiet, conf_path=None):
+    """The fleet plugin's SessionStart hook injects private overlay rules from a
+    directory named in the overlay conf, not from a version-keyed cache, so the
+    plugin check above never sees them. Returns 0 ok / 1 drift / 2 cannot check.
+
+    Fails when the conf exists but its rules directory holds no rules (every
+    session is then missing them, and only the model sees the hook's warning),
+    or when that directory differs from the checkout's origin/main (pushed but
+    `marketplace update` not run).
+    """
+    conf_path = conf_path or OVERLAY_CONF
+    conf = read_overlay_conf(conf_path)
+    if conf is None:
+        if not quiet:
+            print("[drift] overlay: no overlay conf on this machine — skipping")
+        return 0
+    rules_dir = os.environ.get("TEAM_LEAD_FLEET_PRIVATE_RULES") or conf.get("rules_dir", "")
+    market = conf.get("marketplace", "<marketplace>")
+    update = f"Run `{CLAUDE_BIN} plugin marketplace update {market}`."
+    clone = top_level_md(tree(rules_dir)) if rules_dir and os.path.isdir(rules_dir) else {}
+    if not clone:
+        print(f"[drift] overlay: DRIFT — {conf_path} names rules_dir "
+              f"'{rules_dir}', which holds no rules, so no session receives them. "
+              f"{update}")
+        return 1
+    # realpath: ref_tree compares against `rev-parse --show-toplevel`, which is
+    # always physical, and ~/dev is a symlink on this machine.
+    checkout = os.path.realpath(conf["checkout"]) if conf.get("checkout") else ""
+    if not checkout or not os.path.isdir(checkout):
+        if not quiet:
+            print(f"[drift] overlay: {len(clone)} rule(s) loaded; no local checkout "
+                  f"to compare against")
+        return 0
+    # Fetch first: a checkout that is behind would otherwise read as drift
+    # that `marketplace update` cannot clear.
+    sh(["git", "fetch", "--quiet", "origin"], cwd=checkout)
+    want, _ = ref_tree(os.path.join(checkout, "plugin", "rules"), "origin/main")
+    if want is None:
+        print(f"[drift] overlay: CANNOT CHECK — no readable origin/main in {checkout}")
+        return 2
+    want = top_level_md(want)
+    if want != clone:
+        diff = sorted(set(want) ^ set(clone)) + sorted(
+            k for k in set(want) & set(clone) if want[k] != clone[k])
+        print(f"[drift] overlay: DRIFT — {rules_dir} differs from origin/main: "
+              f"{', '.join(diff)}. {update}")
+        return 1
+    if not quiet:
+        print(f"[drift] overlay: OK — {len(clone)} rule(s) match origin/main")
+    return 0
+
+
 def main():
     quiet = "--quiet" in sys.argv
 
@@ -480,6 +563,9 @@ def main():
             checked += 1
             # Drift (1) outranks can't-tell (2): a known problem beats an unknown.
             worst = 1 if (rc == 1 or worst == 1) else max(worst, rc)
+
+    rc = check_overlay(quiet)
+    worst = 1 if (rc == 1 or worst == 1) else max(worst, rc)
 
     if worst == 0 and not quiet:
         print(f"[drift] ALL CLEAR — {checked} plugin(s) checked")

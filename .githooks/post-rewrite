@@ -1,0 +1,8 @@
+#!/bin/bash
+# Same as post-merge, for `git pull --rebase`: relink files kept in the private
+# companion checkout. $1 is "amend" or "rebase"; an amend needs nothing.
+[ "$1" = "rebase" ] || exit 0
+if [ -f ./scripts/setup-private.sh ]; then
+  echo "Running setup-private.sh..."
+  ./scripts/setup-private.sh || echo "setup-private.sh FAILED: private files may be missing from this worktree. Run it by hand." >&2
+fi

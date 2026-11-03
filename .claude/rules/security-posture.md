@@ -1,1 +1,0 @@
-../../plugin/team-lead-fleet/rules/security-posture.md

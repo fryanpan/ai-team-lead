@@ -27,10 +27,6 @@ fi
 # therefore unrecoverable from git.
 CURRENT_DIR=$(cd "$(pwd -P)" && pwd -P)
 MAIN_WORKTREE=$(cd "$MAIN_WORKTREE" && pwd -P)
-if [ "$CURRENT_DIR" = "$MAIN_WORKTREE" ]; then
-  echo "Already in main worktree, nothing to link."
-  exit 0
-fi
 
 # Belt and braces: never link a file onto itself, whatever the path compare said.
 link_private() {
@@ -42,6 +38,47 @@ link_private() {
   fi
   ln -sf "$src" "$dst"
 }
+
+# Files kept in the private companion checkout. Linked into EVERY worktree,
+# main included, because main has no copy of its own. A regular file already at
+# the destination is replaced only when it is byte-identical to the private
+# copy; otherwise it may hold edits that exist nowhere else, so it is left
+# alone and reported.
+# The checkout's path is machine-local: the `checkout=` line of the overlay conf.
+OVERLAY_CONF="${TEAM_LEAD_FLEET_PRIVATE_CONF:-$HOME/.config/team-lead/private-overlay.conf}"
+PRIVATE_CHECKOUT="${TEAM_LEAD_PRIVATE_CHECKOUT:-}"
+if [ -z "$PRIVATE_CHECKOUT" ] && [ -r "$OVERLAY_CONF" ]; then
+  PRIVATE_CHECKOUT="$(sed -n 's/^checkout=//p' "$OVERLAY_CONF" | head -1)"
+fi
+link_from_private_checkout() {
+  local rel="$1" src="$PRIVATE_CHECKOUT/$1" dst="./$1"
+  if [ -z "$PRIVATE_CHECKOUT" ]; then
+    echo "WARNING: no private checkout configured (checkout= in $OVERLAY_CONF) — $rel is not linked."
+    return 0
+  fi
+  if [ ! -f "$src" ]; then
+    echo "WARNING: $src not found — $rel is not linked."
+    return 0
+  fi
+  # On a branch from before the split git still tracks this path. Linking over
+  # it would turn a tracked file into a symlink that a later `git add -A` could
+  # commit, private path and all.
+  if git ls-files --error-unmatch "$dst" >/dev/null 2>&1; then
+    return 0
+  fi
+  if [ -f "$dst" ] && [ ! -L "$dst" ] && ! cmp -s "$src" "$dst"; then
+    echo "WARNING: $dst is a regular file that differs from $src — left alone. Merge it into the private copy, then rerun."
+    return 0
+  fi
+  link_private "$src" "$dst"
+}
+link_from_private_checkout docs/process/fleet-ops.md
+link_from_private_checkout docs/process/learnings.md
+
+if [ "$CURRENT_DIR" = "$MAIN_WORKTREE" ]; then
+  echo "In main worktree: private-checkout files linked, nothing else to link."
+  exit 0
+fi
 
 # Registry (project list, team metadata, IDs)
 link_private "$MAIN_WORKTREE/registry.yaml" ./registry.yaml

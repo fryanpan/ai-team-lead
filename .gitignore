@@ -2,6 +2,9 @@ registry.yaml
 docs/process/retrospective.md
 docs/process/propagation-log.md
 docs/process/aggregation-log.md
+# Kept in the private companion repo, symlinked in by scripts/setup-private.sh
+docs/process/fleet-ops.md
+docs/process/learnings.md
 .context/
 .worktrees/
 .claude/worktrees/

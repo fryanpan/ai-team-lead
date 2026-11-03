@@ -48,6 +48,10 @@ Filtering on `type == "attachment"` is what separates a real injection from the 
 
 Resolution mode can also be established positively: put a side effect in the repo copy of `hooks/session-start.sh` that the cached copy does not have — a line appending to a log — and check whether it fires. On 2026-08-20 that log had 88 entries while the cached hook contained no such line, which proves the source hook is what executes. A side effect present in only one copy beats any amount of inspecting both.
 
+## Private overlay rules ship separately
+
+Private overlay rules are not in this plugin. `~/.config/team-lead/private-overlay.conf` names their checkout, the directory the hook reads, and the marketplace that directory belongs to. Shipping one is: commit and push in that checkout, then `~/.local/bin/claude plugin marketplace update <marketplace from the conf>`. No version bump. Confirm delivery the same way as below: a session's latest injected block lists the file under `Private overlay rules loaded:`. `scripts/plugin_drift_check.py` fails while the directory lags the checkout's origin/main.
+
 ## Steps
 
 1. **Probe resolution mode** for the peers you care about. It is per-session, not fleet-wide.

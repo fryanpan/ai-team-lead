@@ -28,6 +28,17 @@ Two copies of the same content means two copies to keep true, and the chat copy 
 
 **Chat is the right surface for exactly these:** a question whose answer you need to keep moving; a decision that is his and is blocking you; a gate before anything outbound, destructive or hard to reverse; a reply to something he asked you in chat; a correction to something you told him in chat. Everything else is a board post, including the one that feels too small to file.
 
+## A voice request gets a spoken answer (2026-11-04)
+
+Bryan, by voice: *"If I make a request in voice please answer at least briefly in voice. But if
+there's more details to show in a written message also"*.
+
+- **Answer a voice request with `answer_voice`**, with at least a short spoken reply in `text`.
+- **Put any further detail in `written`.** Do not answer a voice request only in chat, in the
+  terminal or in a written message.
+- **If `answer_voice` returns `delivered: false`**, post the answer on the task or thread the
+  request came from.
+
 ## Bullets
 
 - One idea per bullet. Never combine two and use bold as a separator.

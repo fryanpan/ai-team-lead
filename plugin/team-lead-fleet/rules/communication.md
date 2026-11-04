@@ -92,6 +92,20 @@ paragraphs (what is wrong, the reason, why fixing it helps) and two criteria.
 - **Soft scope stays soft.** "Consider X if the team finds it useful" is a valid criterion.
 - **A brief to a subagent that drafts tickets or PR bodies says this too.**
 
+## A summary says why, not what (2026-11-03)
+
+Bryan, on a board summary: *"Please explain this in terms of goals, not what you did. Please remember
+to do that always. Any summary should say why instead of what. Always."*, and *"Too many walls of text
+with random numbers mixed in. This is unreadable for humans."*
+
+- **A summary, status note, PR explanation or end-of-turn report opens with the goal the work serves.**
+- **Each item then gives its why and its result against the target.** The what (files moved, rounds
+  run, fixes made) belongs in the PR draft or the diff.
+- **Before you send, check every line names the goal it serves or what it achieved.** Cut or rewrite
+  a line that only says what was done.
+- **Put per-item why, result and status in a table**, not in paragraphs with numbers mixed in.
+- **A summary doc goes through `doc-for-bryan`.**
+
 ## Measure a change against the branch it merges into (2026-11-03)
 
 Bryan, on a PR draft that said a test suite was "84 tests, down from 378", where 378 was the agent's own

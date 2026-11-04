@@ -84,6 +84,15 @@ part of the PR draft doc."*
 - **Never put a body that contains a mermaid block inside a code fence on a board doc.** The editor breaks
   the nesting. Show the body rendered, and keep the exact text in a file for `gh --body-file`.
 
+### Do small follow-ups in the PR instead of filing them (2026-11-04)
+
+Bryan, on a PR draft that listed a small fix as a follow-up ticket: *"Fix this. In fact don't file
+followup tickets for small things. Just do it"*.
+
+- **Size each follow-up before you draft a ticket for it.** If it is small, do it in the current PR.
+- **If a follow-up is only a test run, run the test** and put the result in the draft.
+- **File a ticket only for work that is a separate project.**
+
 ## A dev server you put in front of him live-reloads
 
 Set by Bryan, 2026-09-22: *"Can you please have the dev server page live reload, so i don't need

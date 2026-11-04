@@ -248,6 +248,18 @@ two real bugs in the files it never reached: *"Yes, please make that fleet wide 
 - **Reading the files yourself does not count as review coverage.**
 - **When repo rules stop you before the ship skill** (agents may not commit or push), run the code-review skill yourself before handing the change over. Stopping early does not skip the review. Set 2026-10-28, after a change reached Bryan with no review.
 
+### Check every PR against the repo's own review checklist (2026-11-03)
+
+Bryan, after a draft PR added 88 end-to-end tests against a repo review guide that limits them to a short
+list of key user journeys: *"How did this get past review? Did you use the review.md before sharing this
+draft PR with me? I assume that must always happen."*
+
+- **Before you hand a PR to a person, and again after any change to its diff, a separate agent checks the
+  final diff against every item in the repo's review checklist**: REVIEW.md, the PR template's checklist,
+  AGENTS.md or CONTRIBUTING.md, whichever exist.
+- **The handoff lists each item as met, missed (with the reason) or not applicable.**
+- **The code-review skill finds bugs; it does not replace this pass.**
+
 ### Key flows keep written goals, and a change that breaks one is flagged (2026-10-28)
 
 Bryan: *"documents the goals and requirements of key flows… during design and review we try to maintain those goals -- if we violate them, flag it."*

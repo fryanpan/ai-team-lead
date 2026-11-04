@@ -57,6 +57,22 @@ while the PR draft or comment response is still pending until it's done and post
   stays up until then, and comes down after.
 - **If machine memory forces the server down early, say so in the doc** and tell him.
 
+## A PR goes to him as one draft doc, follow-up tickets included (2026-11-03)
+
+Bryan, on a PR whose diff and follow-up tickets reached him as separate items: *"I want to have the diff
+linked from the draft PR doc that follows [another project's] format (link to diff up top, summarize what
+you did, then draft PR, draft tickets, and any other follow up actions)"*, then *"Followup tickets should be
+part of the PR draft doc."*
+
+- **One board doc per PR, in this order:** the diff-review link (and the test link above); what was done
+  and why it is ready; the PR title and body; draft follow-up tickets; other follow-ups; ship steps.
+- **Follow-up tickets are drafted in that doc.** Never a separate doc, and never a separate "file the
+  tickets?" review item.
+- **Filing the tickets is a ship step** that runs after his approval. Put their keys back into the doc and
+  onto the PR.
+- **Never put a body that contains a mermaid block inside a code fence on a board doc.** The editor breaks
+  the nesting. Show the body rendered, and keep the exact text in a file for `gh --body-file`.
+
 ## A dev server you put in front of him live-reloads
 
 Set by Bryan, 2026-09-22: *"Can you please have the dev server page live reload, so i don't need

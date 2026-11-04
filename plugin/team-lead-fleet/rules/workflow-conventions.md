@@ -49,6 +49,18 @@ it. Moving it along and getting it polished so I don't have to keep utzing."*
 
 A project with public APIs or a mature schema moves contract changes into the hard-to-reverse column; note it in its own `workflow-conventions.md`.
 
+### A security fix has to meet every top goal (2026-11-04)
+
+Bryan, on a deploy-token fix that made every deploy wait for his tap: *"Bad call. Please remember going
+forward that when you do security review, you want to satisfy security goals. But also more importantly
+all other top goals."*
+
+- **Judge each security fix against every goal the project states**, such as easy deploys, quick setup,
+  few taps for him, uptime, and features working as they do today. Security alone is not the test.
+- **A fix that closes the gap but breaks a goal is not a recommendation.** Look for an option that meets both.
+- **Give each option one line on what it costs each goal.**
+- **If no option meets every goal, say which goal loses and by how much**, and file it as his decision.
+
 ### Don't re-ask a settled decision (2026-10-30)
 
 Set by Bryan on a plan item that asked him to confirm a choice he had already made: *"Why are you

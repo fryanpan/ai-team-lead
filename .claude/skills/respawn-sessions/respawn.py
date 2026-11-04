@@ -183,6 +183,11 @@ ACCOUNT_DIR: Optional[str] = None
 # settings, but a resumed conversation can keep an older model from its own
 # history, so a restart alone does not move it.
 MODEL: Optional[str] = None
+# --resume-id <uuid>: resume this exact conversation instead of `--continue`.
+# `--continue` picks the most recent transcript in the cwd's project dir, and
+# that dir can hold another project's conversation (measured 2026-11-04: a
+# relaunch came back as a different peer). One --at only.
+RESUME_ID: Optional[str] = None
 
 # Lead name in the lead-sandbox config, set by --sandbox. When set, the spawned
 # claude runs inside claude-workspaces' lead sandbox, which walls the session
@@ -803,14 +808,60 @@ def get_self_pid() -> Optional[int]:
 
 # --- tmux spawning + interaction ---------------------------------------------
 
-def has_prior_session(path: str) -> bool:
+def transcript_dir_for(path: str) -> str:
     # Use realpath so a symlinked ~/dev (e.g., ~/dev -> /Volumes/Data/Users/...)
     # encodes to the same dir name Claude Code uses for transcripts when started
     # from a symlinked cwd. Without this, has_prior_session would miss every
     # session and we'd fall back to plain `claude` (no --continue).
     real = os.path.realpath(path)
     encoded = real.replace("/", "-").replace("_", "-").replace(".", "-")
-    transcript_dir = os.path.join(os.path.expanduser("~"), ".claude", "projects", encoded)
+    return os.path.join(os.path.expanduser("~"), ".claude", "projects", encoded)
+
+
+_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+
+
+def resume_id_problem(path: str, resume_id: str) -> Optional[str]:
+    """Why --resume-id cannot be used at `path`, or None if it can.
+
+    The transcript must live in THIS cwd's project dir. A conversation from
+    another cwd is exactly the failure --resume-id exists to avoid."""
+    if not _UUID_RE.match(resume_id):
+        return f"{resume_id!r} is not a conversation id (expected a lowercase uuid)"
+    transcript = os.path.join(transcript_dir_for(path), resume_id + ".jsonl")
+    if not os.path.isfile(transcript):
+        return f"no transcript {transcript} for {path}"
+    # The project-dir name is lossy (/, _ and . all become -), so two cwds can
+    # share it. Each transcript line records its real cwd; check that instead.
+    want = os.path.realpath(path)
+    seen = None
+    with open(transcript) as f:
+        for line in f:
+            try:
+                cwd = json.loads(line).get("cwd")
+            except (ValueError, AttributeError):
+                continue
+            if cwd:
+                seen = os.path.realpath(cwd)
+                break
+    if seen is None:
+        return f"{transcript} records no cwd, so it cannot be matched to {path}"
+    if seen != want:
+        return f"conversation {resume_id} ran in {seen}, not {want}"
+    return None
+
+
+def resume_flag(path: str) -> str:
+    """The resume part of the claude command line for a session at `path`."""
+    if RESUME_ID:
+        return f" --resume {shlex.quote(RESUME_ID)}"
+    if has_prior_session(path) and not wants_fresh(path):
+        return " --continue"
+    return ""
+
+
+def has_prior_session(path: str) -> bool:
+    transcript_dir = transcript_dir_for(path)
     if not os.path.isdir(transcript_dir):
         return False
     for entry in os.listdir(transcript_dir):
@@ -909,10 +960,9 @@ def spawn_session_tmux(session_name: str, path: str) -> bool:
     # A fresh session is spawned as bare `claude`. Note this also skips the
     # resume-from-summary dialog, so the post-spawn auto-accept has one fewer
     # prompt to answer -- it polls for whatever appears and is unbothered.
-    fresh = wants_fresh(path)
     claude_invocation = (
         claude_launcher()
-        + (" --continue" if (has_prior_session(path) and not fresh) else "")
+        + resume_flag(path)
         + name_flag
         + rc_flag
         + (f" --model {shlex.quote(MODEL)}" if MODEL else "")
@@ -1267,6 +1317,11 @@ Flags:
                    missing` spawns at the registry path, which resumes a
                    different conversation and brings the peer back blank. Kills
                    anything live at that cwd first, like `--mode running`.
+  --resume-id <uuid> With exactly one --at: resume that conversation
+                   (`claude --resume <uuid>`) instead of `--continue`. Use it
+                   when `--continue` would pick the wrong transcript, e.g. the
+                   cwd's project dir holds another peer's conversation. Refuses
+                   unless <uuid>.jsonl is in that cwd's own project dir.
   --execute        Actually perform kills/spawns. Without this it's dry-run.
   --no-auto-accept After spawning, skip the post-spawn cleanup pass:
                      - polling new tmux panes for startup dialogs and sending
@@ -1408,6 +1463,28 @@ def main() -> int:
             sys.exit("--model requires a model name or alias")
         MODEL = args[idx + 1]
         print(f"Model: {MODEL}")
+
+    global RESUME_ID
+    if "--resume-id" in args:
+        idx = args.index("--resume-id")
+        if idx + 1 >= len(args):
+            sys.exit("--resume-id requires a conversation id")
+        if args.count("--resume-id") != 1:
+            sys.exit("--resume-id takes one conversation id")
+        if len(ats) != 1 or "--only" in args:
+            sys.exit("--resume-id takes exactly one --at <path> and no --only")
+        if FORCE_FRESH:
+            sys.exit("--resume-id and --fresh contradict each other")
+        at_path = os.path.realpath(os.path.expanduser(ats[0]))
+        if at_path in fresh_start_paths():
+            print(f"Note: {at_path} is marked fresh_start in the registry; "
+                  f"--resume-id overrides that for this run.")
+        problem = resume_id_problem(at_path, args[idx + 1])
+        if problem:
+            print(f"\n[abort] --resume-id: {problem}", file=sys.stderr)
+            return 2
+        RESUME_ID = args[idx + 1]
+        print(f"Resume conversation: {RESUME_ID}")
 
     global SANDBOX_LEAD
     if "--sandbox" in args:

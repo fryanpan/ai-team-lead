@@ -92,6 +92,20 @@ paragraphs (what is wrong, the reason, why fixing it helps) and two criteria.
 - **Soft scope stays soft.** "Consider X if the team finds it useful" is a valid criterion.
 - **A brief to a subagent that drafts tickets or PR bodies says this too.**
 
+## Measure a change against the branch it merges into (2026-11-03)
+
+Bryan, on a PR draft that said a test suite was "84 tests, down from 378", where 378 was the agent's own
+unshipped draft and the target branch had no such suite: *"In general, don't ever use our work in progress
+as a baseline. It's confusing ... when the assumption is we're talking about the diff between this work and
+what is on dev. Please update the doc to remove any irrelevant intermediate work."*
+
+- **Every before/after number, and every "added" or "removed" count, in a PR draft, PR body, review reply
+  or status is measured against the branch the PR merges into.**
+- **Never cite an earlier draft, round or restack of your own work as a baseline.** Remove that history
+  from the doc.
+- **What changed since the reviewer last looked goes in one "changed since your review" line**, and
+  nowhere else.
+
 ## A code comment says why, in about 10 plain words (2026-10-28)
 
 Bryan, on a code review: *"In comments, important to keep it short, but explain why. Please have a rule for

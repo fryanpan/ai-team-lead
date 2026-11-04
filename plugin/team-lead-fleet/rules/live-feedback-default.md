@@ -46,6 +46,17 @@ list of things you're planning to do with the button."*
 - **One item for the whole set.** Not one item per action, and not a question in the doc body.
 - **Never ask him to run a command** to do any of it.
 
+## Keep your board's review queue short, with goal blockers first (2026-11-03)
+
+Bryan, on a project board with 23 open items in no useful order: *"Can you please prioritize your review
+items so blockers that keep you from meeting weekly goals come up top. Same for other workspaces? ...
+once I go down to the project level, the review queue is a mess."*
+
+- **At each task boundary, withdraw your stale items:** an item whose goal is archived, or whose question
+  a later answer has settled.
+- **When your board has 10 or more open items, send the team-lead your order**, with the items that block
+  this week's goals first. Only the plan lead can set ranks, so the team-lead applies your order.
+
 ## A pending PR or reply draft keeps a live test link at the top (2026-10-29)
 
 Bryan, on a PR draft: *"Give me a link to test in the doc."*, then *"always give me a link to test

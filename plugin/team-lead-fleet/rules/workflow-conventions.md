@@ -260,6 +260,15 @@ is where it was one tool call ago, and on this machine that bet loses.
 - Stay on the plan; don't refactor unrelated code. **If you are stuck, say so rather than brute-forcing.**
 - After tests pass, run a code review and fix what it finds before handing over.
 
+### Use what the repo already has before writing your own tool (2026-11-05)
+
+Bryan, on a 124-line test runner an agent wrote, as relayed by one lead: *"In the future, before inventing
+your own, use what's in the repo."*
+
+- **Before you write a tool, helper, runner, loader or harness, check what the repo and its dependencies
+  already provide**: the test runner other packages use, the framework's built-in options.
+- **Use that.** If none fits, say in the plan why, and get the plan approved before you write your own.
+
 ### Code review covers every changed file (2026-10-29)
 
 Set by Bryan after a review stopped reading partway through a large diff and a later bot review found

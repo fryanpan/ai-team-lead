@@ -400,15 +400,18 @@ because it was plausible, and the attribution was never tested because nothing p
   dependency on the decision card so they rule on every instance at once, rather than discovering the
   others after they have answered about the first.
 
-### A UI with an approved mock is built from the mock (2026-11-05)
+### A build goes out on one reconciled spec (2026-11-05)
 
-Bryan, on built pages, as relayed by one lead: *"Lots of extra explanatory text that doesn't match the
-mockups. Also layout is a mess -- doesn't match the mockups either."*
+Bryan, on a multi-hour build whose builders worked from a plan section that later mock comments had
+replaced, as relayed by one lead: *"we sent the builders the wrong spec to do the build on a multi-hour
+build that took a really long time."*
 
-- **Build from the mock's own markup, layout and text.**
-- **Before you call it done, compare screenshots of the build and the mock side by side, at the same widths.**
-- **List every element or line of text the build adds, with the decision that asked for it.** Cut the ones
-  nobody asked for. A builder never adds help text on its own.
+- **Before you dispatch a build, reconcile one spec**: the latest approved mock, every decision on its
+  threads, and any later answers. Where an older plan disagrees, update it or mark that section superseded.
+- **The builder prompt names that one spec as its scope.** Other docs are background. A conflict goes back
+  to the lead, never to the builder's judgement.
+- **For a build expected to run over an hour, run a separate spec check first** that lists every place the
+  spec disagrees with the mock or its threads.
 
 ### Run every CI check locally before a change goes to review (2026-10-28)
 

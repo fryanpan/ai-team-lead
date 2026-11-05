@@ -260,14 +260,17 @@ is where it was one tool call ago, and on this machine that bet loses.
 - Stay on the plan; don't refactor unrelated code. **If you are stuck, say so rather than brute-forcing.**
 - After tests pass, run a code review and fix what it finds before handing over.
 
-### Use what the repo already has before writing your own tool (2026-11-05)
+### Use what the app already does before choosing your own (2026-11-05)
 
-Bryan, on a 124-line test runner an agent wrote, as relayed by one lead: *"In the future, before inventing
-your own, use what's in the repo."*
+Bryan, on two builds the same day, as relayed by one lead. On a 124-line test runner: *"In the future,
+before inventing your own, use what's in the repo."* On a new data source for a feed the app already
+read: *"Above all else, default to using the same design decision as the rest of the app uses, unless you
+see a strong reason not to."* He said he has seen the second one "multiple times".
 
-- **Before you write a tool, helper, runner, loader or harness, check what the repo and its dependencies
-  already provide**: the test runner other packages use, the framework's built-in options.
-- **Use that.** If none fits, say in the plan why, and get the plan approved before you write your own.
+- **Before you pick a tool, runner, data source, library, pattern, label or UI convention, find how the
+  rest of the app already does it.** Check the repo and its existing dependencies.
+- **Use the same thing.** Deviate only for a strong reason, and name that reason in the plan so it gets
+  reviewed before you build.
 
 ### Code review covers every changed file (2026-10-29)
 

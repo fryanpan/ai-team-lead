@@ -119,6 +119,16 @@ stack so I can test working flows. Please remember that"*.
 - **Before you send the link, open it at the address his device will use** and complete one upload or write
   through the flow.
 
+## An answer to a line comment goes on the top-level status (2026-11-05)
+
+Bryan, on a diff-review file thread, as relayed by one lead: *"Don't bring it back here -- I won't see this
+comment again."*, and *"Please update the top level status as you're looking into this."*
+
+- **Put the plan or result that answers a file or diff-line comment on the project's top-level status**:
+  the stack summary doc or the task's status page. If he must decide, file the review item there.
+- **Reply on the line thread once**, to say where the answer will appear.
+- **Never promise to bring the answer back to the line thread.** He does not revisit file and line threads.
+
 ## Resolve a thread when you finish it (2026-10-30)
 
 Bryan, after 39 finished threads were left open on one mockup: *"Please do a better job at cleaning

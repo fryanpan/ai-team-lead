@@ -108,6 +108,11 @@ one project that prompted it.
 - **This is a property of the review surface, not of one stack.** A framework that already does it
   satisfies the rule; a static server that does not is the thing to fix before you send the link.
 
+- **Edit the worktree the dev server serves (2026-11-05).** Bryan, after a builder rebuilt pages in a
+  separate worktree and the server he was reviewing kept showing the old version, as relayed by one lead:
+  *"in the future, let's make sure we're making edits from where the dev server can live reload from."*
+  Before you dispatch a builder to a new worktree, move the dev server and its API to that worktree.
+
 ## A link he tests runs the whole stack from the change (2026-10-28)
 
 Bryan, after a phone test link where every photo was broken because storage and the worker were not running

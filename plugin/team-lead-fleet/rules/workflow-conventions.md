@@ -404,7 +404,8 @@ because it was plausible, and the attribution was never tested because nothing p
 
 Bryan, on a multi-hour build whose builders worked from a plan section that later mock comments had
 replaced, as relayed by one lead: *"we sent the builders the wrong spec to do the build on a multi-hour
-build that took a really long time."*
+build that took a really long time."* His rule: *"if we're starting work, that we use the most up-to-date
+mocks and specs, but make sure that everything is in sync beforehand."*
 
 - **Before you dispatch a build, reconcile one spec**: the latest approved mock, every decision on its
   threads, and any later answers. Where an older plan disagrees, update it or mark that section superseded.

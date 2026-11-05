@@ -41,6 +41,18 @@ it. Moving it along and getting it polished so I don't have to keep utzing."*
 - **When he says he will be away, give him a timed plan:** what is running, what he will see when he
   is back, and what is at risk.
 
+### A long command runs in the background, so the lead stays free to talk (2026-11-04)
+
+Bryan, to one lead: *"please run any long-running commands in a subagent ... So that you're available
+to discuss and respond."*
+
+- **Run any command expected to take more than about a minute in a background subagent or a
+  background shell**: a verify, a test suite, a Terraform run, a report that reaches other machines,
+  a CI wait.
+- **Never run one in the foreground.** Messages, board comments and scheduled runs that arrive during
+  a foreground call wait until it ends. On the same day a team-lead call ran about four hours and
+  every scheduled run in that window was missed.
+
 ## Decision Framework
 
 **Reversible — decide yourself, log to `docs/product/decisions.md`:** file structure, naming, code organization, implementation approach, dependencies, test strategy, error handling, and schema or API-contract changes on non-public APIs.

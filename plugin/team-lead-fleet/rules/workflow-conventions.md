@@ -400,6 +400,16 @@ because it was plausible, and the attribution was never tested because nothing p
   dependency on the decision card so they rule on every instance at once, rather than discovering the
   others after they have answered about the first.
 
+### A UI with an approved mock is built from the mock (2026-11-05)
+
+Bryan, on built pages, as relayed by one lead: *"Lots of extra explanatory text that doesn't match the
+mockups. Also layout is a mess -- doesn't match the mockups either."*
+
+- **Build from the mock's own markup, layout and text.**
+- **Before you call it done, compare screenshots of the build and the mock side by side, at the same widths.**
+- **List every element or line of text the build adds, with the decision that asked for it.** Cut the ones
+  nobody asked for. A builder never adds help text on its own.
+
 ### Run every CI check locally before a change goes to review (2026-10-28)
 
 Bryan, after a PR failed in CI on an end-to-end test that had not been run locally: *"please run all tests that run in CI locally too"*.

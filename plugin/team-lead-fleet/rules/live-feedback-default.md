@@ -118,6 +118,15 @@ one project that prompted it.
   reload the page"*, and *"Batching is for code review and doing work on a feature before sending out in
   batch(es) for PR review."* Make the fix in the served worktree, check that the page reloaded (a reload
   watcher can miss a file that is replaced rather than edited), then reply on the thread.
+- **During a live review, a tweak is live within about a minute (2026-11-06).** Bryan, on a mock whose
+  header fix waited overnight: *"We're trying to optimize my focused attention, and fast turnaround is
+  key"*, and *"there should be an agent dedicated to quickly responding and making tweaks, so that tweaks
+  land within about a minute or less. And live reload needs to work reliably for this to happen."*
+  - **One agent only answers and edits while he reviews.** Builds, reviews and data work go to background
+    agents.
+  - **Edit in a throwaway worktree off the top of the stack**, the one the dev server serves. Port the
+    changes into the right PRs when the review is done.
+  - **Confirm live reload works before the review starts.** If it breaks, fixing it comes first.
 
 ## A link he tests runs the whole stack from the change (2026-10-28)
 

@@ -295,3 +295,19 @@ if __name__ == "__main__":
     test_reap_kills_only_the_real_orphan_and_logs_pid_profile_size()
     test_process_that_exited_before_kill_is_skipped_not_killed_blind()
     print("\nALL TESTS PASSED")
+
+
+def test_team_lead_stable_id_matches_the_checkout_exactly(tmp_path, monkeypatch):
+    import json as _json
+    lead = tmp_path / "ai-team-lead"
+    (lead / ".claude/worktrees/x").mkdir(parents=True)
+    (tmp_path / "ai-team-lead-private").mkdir()
+    monkeypatch.setenv("TEAM_LEAD_DIR", str(lead))
+    peers = [
+        {"stable_id": "wt", "cwd": str(lead / ".claude/worktrees/x")},
+        {"stable_id": "priv", "cwd": str(tmp_path / "ai-team-lead-private")},
+        {"stable_id": "lead-ab12", "cwd": str(lead), "last_seen": "2026-11-06T20:00:00Z"},
+        {"stable_id": "lead", "cwd": str(lead), "last_seen": "2026-11-06T19:00:00Z"},
+    ]
+    monkeypatch.setattr(fg, "sh", lambda cmd, timeout=None: (_json.dumps(peers), 0))
+    assert fg.team_lead_stable_id() == "lead"

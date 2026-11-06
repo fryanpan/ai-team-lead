@@ -254,25 +254,26 @@ is where it was one tool call ago, and on this machine that bet loses.
 - **After any write you did not fully path, run `git status` before moving on.** That is the check that caught
   this one, and it is cheap next to reconstructing whose edit is whose.
 
+- Read existing files before writing; write tests alongside code, not after.
+- Test key interfaces, nontrivial logic and data transformations. Skip pass-throughs, constants and third-party behaviour.
+- Run all tests before asking for help.
+- Stay on the plan; don't refactor unrelated code. **If you are stuck, say so rather than brute-forcing.**
+- After tests pass, run a code review and fix what it finds before handing over.
+
 ### A path outside your own folder stops you on a permission dialog (2026-11-06)
 
 Bryan, after the team-lead and several peers sat on permission dialogs nobody else could see: *"you
 just got stuck, and multiple other agents got stuck on permissions -- and that's not visible
 elsewhere"*, then *"Can we find a way to avoid this?"*
 
-- **Write only inside your own working folder or your session scratchpad.** A write anywhere else
-  raises a dialog that stops the session until a person answers it at that terminal.
-- **A brief never sends an agent to write outside its own folder.** For a big download, name a
+- **Write only inside your own working folder, a folder your session was given at launch, or your
+  session scratchpad.** A write anywhere else raises a dialog that stops the session until a person
+  answers it at that terminal.
+- **A brief never sends an agent to write outside those folders.** For a big download, name a
   gitignored folder inside the agent's repo, not a sibling folder on the same drive.
-- **The fleet plugin reports every permission dialog to the team-lead**, which files it on the
-  board. A log line in `~/Library/Application Support/team-lead/permission-waits.log` records
-  each one.
-
-- Read existing files before writing; write tests alongside code, not after.
-- Test key interfaces, nontrivial logic and data transformations. Skip pass-throughs, constants and third-party behaviour.
-- Run all tests before asking for help.
-- Stay on the plan; don't refactor unrelated code. **If you are stuck, say so rather than brute-forcing.**
-- After tests pass, run a code review and fix what it finds before handing over.
+- **The fleet plugin reports a peer's permission dialog to the team-lead**, which files it on the
+  board. The team-lead's own dialogs, and any report that could not be delivered, show only as a
+  desktop notification. A local log keeps each one.
 
 ### Code review covers every changed file (2026-10-29)
 

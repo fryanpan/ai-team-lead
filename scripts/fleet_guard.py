@@ -862,10 +862,17 @@ def team_lead_stable_id():
         peers = json.loads(out)
     except Exception:
         return None
-    for peer in peers:
-        if "/ai-team-lead" in (peer.get("cwd") or ""):
-            return peer.get("stable_id")
-    return None
+    root = os.path.realpath(os.path.expanduser(
+        os.environ.get("TEAM_LEAD_DIR", "~/dev/ai-team-lead")))
+    matches = [p for p in peers if isinstance(p, dict) and p.get("stable_id")
+               and p.get("cwd") and os.path.realpath(p["cwd"]) == root]
+    if not matches:
+        return None
+    # A second session in the checkout gets a suffixed <id>-xxxx; prefer the
+    # unsuffixed one, then the most recently seen.
+    matches.sort(key=lambda p: str(p.get("last_seen") or ""), reverse=True)
+    matches.sort(key=lambda p: "-" in str(p["stable_id"]))
+    return matches[0]["stable_id"]
 
 
 def hive_alert(title, message):

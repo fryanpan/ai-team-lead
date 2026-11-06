@@ -112,6 +112,12 @@ one project that prompted it.
   separate worktree and the server he was reviewing kept showing the old version, as relayed by one lead:
   *"in the future, let's make sure we're making edits from where the dev server can live reload from."*
   Before you dispatch a builder to a new worktree, move the dev server and its API to that worktree.
+- **Fix a mockup comment at once; batch only work that waits for approval (2026-11-05).** Bryan, on a
+  live mock whose comments had been queued for a batch pass, as relayed by one lead: *"for mockup edits
+  that I (or any other human requests, that has authority), please make fixes immediately and live
+  reload the page"*, and *"Batching is for code review and doing work on a feature before sending out in
+  batch(es) for PR review."* Make the fix in the served worktree, check that the page reloaded (a reload
+  watcher can miss a file that is replaced rather than edited), then reply on the thread.
 
 ## A link he tests runs the whole stack from the change (2026-10-28)
 

@@ -149,6 +149,7 @@ And then also if it's waiting for me to review"*, and *"none of them have passed
   check.
 - **Never imply a person's review happened.** Show the review state separately from dev state, and
   move an item back to In progress as soon as new work (a rebase, a fix) starts on it.
+- **A status list keeps every item, finished ones included (2026-11-07).** Mark the done state; never drop the row. Before you show a list built from a source, check its count against the source's count. Bryan, on a status table that left out the first brief he had reviewed: *"Please keep all \"done\" things in the list here and don't drop them"*.
 
 ## A "where are we" answer in chat is a three-column table (2026-11-04)
 

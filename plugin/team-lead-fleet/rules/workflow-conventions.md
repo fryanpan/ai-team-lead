@@ -206,6 +206,14 @@ discussions."*
 - **Agreement among agents is not evidence.** Several peers checking their own fit against one option
   only tells you that option fits; it says nothing about the options nobody looked at.
 - **Say which options you did not research.** An unexamined option left unnamed reads as rejected.
+- **When you brainstorm, filter late, not early (2026-11-05).** Bryan, on an idea list cut to the ideas
+  with low or medium opposition: *"No I don't want to prioritize just low/medium opposition. I want all
+  ideas that have worked well. Please research them all"*. The next cut, to ideas with a measured effect,
+  he also sent back the same day. His rule, as relayed by the lead: *"When brainstorming filter late rather
+  than early."*
+  - **Keep every idea through research.** Do not drop one for expected opposition, a needed law change or
+    weak first evidence before the owner has seen it.
+  - **Do not offer a shortlist as the default.** Show the full list. A filter is a view he can ask for.
 
 ### Plan tight and realistic: no sandbagging, no cut corners (2026-10-19)
 

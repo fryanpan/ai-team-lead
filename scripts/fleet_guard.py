@@ -123,6 +123,15 @@ LOOPS = {
     "fleet-monitor":
         "/Volumes/Data/Users/bryanchan/dev/ai-team-lead/scripts/fleet_monitor_loop.sh",
 }
+# The hive broker is checked by its /health route, not by a tmux session: it
+# may be running outside tmux (started by the first hive client), and that copy
+# holds the port. It is revived into a tmux session only when /health fails.
+# It died silently on 2026-11-06; every hive alert, this guard's included,
+# then failed with "Unable to connect" until it was restarted by hand.
+HIVE_BROKER = "hive-broker"
+HIVE_HEALTH = "http://127.0.0.1:7900/health"
+LOOPS[HIVE_BROKER] = ("/Users/bryanchan/.bun/bin/bun "
+                      "/Users/bryanchan/claude-hive-mcp/broker.ts")
 TMUX = "/opt/homebrew/bin/tmux"
 # Socket override, used only by `--selftest --cold`. A named socket that no
 # server is listening on forces tmux to START one, which is the cold-boot
@@ -776,6 +785,14 @@ def grade(m, trend=None, paging=None, runaways=()):
     return worst, bands
 
 
+def hive_broker_up():
+    out, rc = sh(f"curl -s -m 3 {HIVE_HEALTH}")
+    try:
+        return rc == 0 and json.loads(out).get("status") == "ok"
+    except Exception:
+        return False
+
+
 def loop_status():
     """Which monitor loops are alive.
 
@@ -785,13 +802,16 @@ def loop_status():
     own. Reporting it as "no-server" made the one case that matters the one
     case the guard refused to act on.
     """
+    broker = "up" if hive_broker_up() else "down"
     if not os.path.exists(TMUX):
-        return {name: "no-tmux" for name in LOOPS}
-    out, rc = sh(f"{tmux()} ls")
-    if rc != 0:
-        return {name: "down" for name in LOOPS}
-    live = {line.split(":", 1)[0] for line in out.splitlines() if ":" in line}
-    return {name: ("up" if name in live else "down") for name in LOOPS}
+        status = {name: "no-tmux" for name in LOOPS}
+    else:
+        out, rc = sh(f"{tmux()} ls")
+        live = ({line.split(":", 1)[0] for line in out.splitlines() if ":" in line}
+                if rc == 0 else set())
+        status = {name: ("up" if name in live else "down") for name in LOOPS}
+    status[HIVE_BROKER] = broker
+    return status
 
 
 def revive(name, command):
@@ -809,6 +829,8 @@ def revive(name, command):
     out, rc = sh(f"{tmux()} has-session -t {name}")
     if rc != 0:
         return False, "session did not survive 3s -- loop script exited"
+    if name == HIVE_BROKER and not hive_broker_up():
+        return False, "broker session is up but /health does not answer"
     pane, _ = sh(f"{tmux()} capture-pane -p -t {name}")
     return True, (pane.strip().splitlines() or ["(no output yet)"])[-1][:120]
 
@@ -862,10 +884,17 @@ def team_lead_stable_id():
         peers = json.loads(out)
     except Exception:
         return None
-    for peer in peers:
-        if "/ai-team-lead" in (peer.get("cwd") or ""):
-            return peer.get("stable_id")
-    return None
+    root = os.path.realpath(os.path.expanduser(
+        os.environ.get("TEAM_LEAD_DIR", "~/dev/ai-team-lead")))
+    matches = [p for p in peers if isinstance(p, dict) and p.get("stable_id")
+               and p.get("cwd") and os.path.realpath(p["cwd"]) == root]
+    if not matches:
+        return None
+    # A second session in the checkout gets a suffixed <id>-xxxx; prefer the
+    # unsuffixed one, then the most recently seen.
+    matches.sort(key=lambda p: str(p.get("last_seen") or ""), reverse=True)
+    matches.sort(key=lambda p: "-" in str(p["stable_id"]))
+    return matches[0]["stable_id"]
 
 
 def hive_alert(title, message):

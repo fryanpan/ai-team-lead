@@ -268,6 +268,21 @@ is where it was one tool call ago, and on this machine that bet loses.
 - Stay on the plan; don't refactor unrelated code. **If you are stuck, say so rather than brute-forcing.**
 - After tests pass, run a code review and fix what it finds before handing over.
 
+### A path outside your own folder stops you on a permission dialog (2026-11-06)
+
+Bryan, after the team-lead and several peers sat on permission dialogs nobody else could see: *"you
+just got stuck, and multiple other agents got stuck on permissions -- and that's not visible
+elsewhere"*, then *"Can we find a way to avoid this?"*
+
+- **Write only inside your own working folder, a folder your session was given at launch, or your
+  session scratchpad.** A write anywhere else raises a dialog that stops the session until a person
+  answers it at that terminal.
+- **A brief never sends an agent to write outside those folders.** For a big download, name a
+  gitignored folder inside the agent's repo, not a sibling folder on the same drive.
+- **The fleet plugin reports a peer's permission dialog to the team-lead**, which files it on the
+  board. The team-lead's own dialogs, and any report that could not be delivered, show only as a
+  desktop notification. A local log keeps each one.
+
 ### Use what the app already does before choosing your own (2026-11-05)
 
 Bryan, on two builds the same day, as relayed by one lead. On a 124-line test runner: *"In the future,

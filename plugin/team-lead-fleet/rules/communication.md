@@ -118,6 +118,47 @@ with random numbers mixed in. This is unreadable for humans."*
 - **Put per-item why, result and status in a table**, not in paragraphs with numbers mixed in.
 - **A summary doc goes through `doc-for-bryan`.**
 
+## Report the number the idea is trying to move (2026-11-06)
+
+After Bryan corrected three policy summaries on one board. Each figure was accurate, and each measured
+the wrong thing or read as a different claim. Relayed by that board's lead: *"take all of my guidance as
+cases where your judgement was a little weak"*.
+
+- **Before you write a summary figure, say in one sentence how the idea works and which number it moves.**
+  Report that number, even when another is easier to compute.
+- **Size an idea at its intended scale, and label that figure as projected.** Put what funding or capacity
+  allows today beside it, as a separate finding.
+- **Say what every figure counts**, and whether people are only touched or change what they do.
+- **Take the purpose from why the idea exists**, not from how a source report frames it.
+- **Read the summary as the person deciding.** If it does not answer "how close does this get us, compared
+  with what?", rewrite it.
+
+## A work item's status uses plain words, and separates done from reviewed (2026-11-04)
+
+Bryan, on a stack summary that marked four PRs "Ready" with a "Ship it" line: *"Ship it is totally
+jargon. Please instead express if development is done ... Or if work is in progress or not started.
+And then also if it's waiting for me to review"*, and *"none of them have passed my human review yet."*
+
+- **Use these status words:** Not started, In progress, Dev done, Waiting for Bryan's review, Reviewed
+  by Bryan. Never "Ready", "Ship it" or another label of the agent's own.
+- **Say blocked or merged in plain words when that is the state.** Where someone else reviews, name that
+  person.
+- **Dev done means every check that can run has passed:** tests, code review, and the repo's ADRs and
+  review checklist, where they exist. Say which ones ran, and name any that has not run, such as a CI-only
+  check.
+- **Never imply a person's review happened.** Show the review state separately from dev state, and
+  move an item back to In progress as soon as new work (a rebase, a fix) starts on it.
+
+## A "where are we" answer in chat is a three-column table (2026-11-04)
+
+Bryan, on an update: *"Your update is unintelligible and full of jargon. Please write in clear english."*
+
+- **The columns are the item, where it is, and what's next.** "Where it is" carries both dev and review
+  state, such as "Dev done, waiting for Bryan's review".
+- **Keep each cell under about 12 words.**
+- **Leave out names from inside the work**, such as worktree, patch, gate or an agent's label.
+- **Put detail below the table**, and only if he needs to act on it.
+
 ## Measure a change against the branch it merges into (2026-11-03)
 
 Bryan, on a PR draft that said a test suite was "84 tests, down from 378", where 378 was the agent's own

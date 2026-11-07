@@ -13,6 +13,7 @@ The overriding standard for anything you write for someone else — a message, a
 - **Cut as much as possible** while still serving that audience and purpose. A method comment gets under 5 lines of explanation; an overview README under 200 lines even for a complex module; a decision discussion under 10 lines, linking to detail below.
 - **Inverted pyramid.** State the purpose early and fully. Put all key details in the first section. Where you recommend something, that first section gives the decision, the criteria it turns on, then the recommendation — criteria first, so the reader can judge it rather than just read it.
 - **Score options on criteria the decider would choose on.** Name what the reader cares about: does it solve the problem, what it costs to build and keep running, how setup scales, what it costs to run. Never score on what is merely easy to count, such as number of PRs or files. Drop any criterion on which a different score would not change the choice. If the reader has stated criteria, use theirs. Bryan, 2026-10-28: *"The ones you judged solutions on were largely irrelevant. Number of PRs? Who cares."*
+  - **Before you rank, read the owner's written goal and rank in its order.** Do not let the measure become whatever the data can price. Where the evidence does not cover the goal, show that gap. Bryan, 2026-11-04, on 28 options ranked by benefit-cost ratios that mostly priced one thing his goal ranked lower: *"You went after the wrong goal. Look at my top level post."*
 - **Take a quality bar from the spec that already defines good.** Before you judge an output, read the skill, prompt or doc its producer follows, take every criterion from there, and name the source. Bryan, 2026-10-28: *"you're missing a bunch of key criteria from the note taking skill... Check the skills."*
 - **A story backed by data starts top down.** Open with the reader's goals and the action you want from them, then the data that supports it. A bottom-up version and a top-down version are not two options to offer; they are one summary written in the wrong order.
 - **Each ask or recommendation opens with one sentence of why, then 1 to 3 bullets of what.** A list of actions with no reason in front of it reads as a to-do list the reader has to reverse-engineer. Bryan, 2026-11-02, on a doc for an outside group: *"Says what not why. Always lead with why. Make what 1-3 bullets. And more clear."*
@@ -144,6 +145,10 @@ and comments"*.
 - **Write it the way a teammate would say it aloud.** No coined shorthand such as "cold fix" or "capture
   wait". Same day, on a comment that named a reason in jargon: *"this is written like an AI and uses jargon.
   Please rewrite to sound clearer and like a human"*.
+- **Readable from what is on screen (2026-11-05).** Name the actual field, function or screen, never "the
+  app" or "those modules", and use no term the reader would have to look up in another file. A doc comment
+  gets at most two lines of description. Bryan, on a PR doc comment, as relayed by one lead: *"clear and
+  readable in simple English assuming the reader just has the context of what's in front of them."*
 - Good, as Bryan rewrote it: `// Start acquiring GPS early, so we get accurate location faster when user takes a photo.`
   Bad: `// Starting now gives a cold GPS fix the time spent framing the photo.`
 - **A plain cause and effect beats the word count.** His own example runs about 15 words.

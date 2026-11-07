@@ -116,6 +116,10 @@ Turn count is what the weekly meter weights most heavily. Beyond the harness's o
 - **Combine communication with work.** Never spend a turn only sending a progress message.
 - **Chain bash with `&&`** when sequential — one call, not three.
 - **Name a cheap model when you dispatch mechanical work.** Sizing passes, QA walkers, sweeps and file scans do not need the model you are running. Measured 2026-08-28: of 3,163 subagent requests across the fleet, **0 ran on Haiku and 45 on Sonnet** — everything else was Opus or Fable, including the mechanical passes. The Agent tool takes a `model` argument; use it. This shifts load off the expensive meter, which is not the same as cutting tokens — a cheaper model that needs twice the turns is a loss.
+- **That choice is the dispatching agent's, for its own subagents. The team-lead never picks a model for another agent's work (2026-11-07).** Bryan, after the team-lead told a lead to run its merges on Sonnet: *"you can slow down work on a team, but don't choose models for the team. Thats silently changing my intentions"*, then *"It's okay if you think that's useful bring it up for my review"*.
+  - **To cut a peer's spend, limit how much runs**: fewer agents at once, a pause, a later start. Do not name a model in the message.
+  - **Respawn a peer without `--model`** unless Bryan named the model for that respawn.
+  - **If you think a different model would help, file a review item** that names the peer, the model and the reason.
 
 ## The 5-hour session limit is a shared resource, and it is not hypothetical
 

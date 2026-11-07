@@ -156,6 +156,10 @@ Every session runs on one machine, so one project's heavy job can take memory fr
 - **A brief to such an agent names the VM's ssh host** and says the local machine is for reading code
   and logs only.
 - **Local runs are for light jobs** that stay inside the existing worker and memory limits.
+- **A CPU stress run, a load test or a repeat-until-it-fails loop runs on a VM, never on the shared
+  machine.** This includes any brief that asks a builder to try a test "under load". The short repeat runs
+  that `test-quality.md` requires are not included. It is the user's main work computer. Set 2026-11-06, after 8 `yes` processes plus a test loop took load to 40 on 10 cores: *"you
+  can do that on a VM, not my main work computer!"*
 
 ## Planning
 
@@ -283,6 +287,31 @@ draft PR with me? I assume that must always happen."*
   AGENTS.md or CONTRIBUTING.md, whichever exist.
 - **The handoff lists each item as met, missed (with the reason) or not applicable.**
 - **The code-review skill finds bugs; it does not replace this pass.**
+
+**The checklist shapes the work from the start; the review pass only confirms it (2026-11-04).** Bryan,
+after a final pass found misses on a 7-PR stack: *"catching things from code review via REVIEW.md is
+late. Can we make sure that for anything important, it goes into the planning, design and implementation
+of the work up front. And we rarely ever miss conditions in the REVIEW.md"*
+
+- **Plan:** before any code, read the checklist and write down in the plan each item that applies and how
+  the work will meet it: which tests at which layer, the figures to measure, and what the PR text must
+  state. Name any planned miss in the plan, with its reason, so the person can object before it is built.
+- **Build:** every builder prompt carries those items, and the builder checks its own diff against each one
+  before reporting done.
+- **Review:** the separate pass then only confirms. A miss it finds is a process failure: log it in
+  `docs/process/learnings.md` with the step that should have caught it.
+- **Find everything, then batch-fix.** Bryan, same day: *"Find everything that's broken and then go batch
+  fix. Instead of fixing a thing, then going back and reviewing for more."* Code review and the checklist
+  pass run side by side on the same diff. One pass then fixes every finding, and the checklist pass runs once
+  more on the fixed diff. The PR text is written after that and checked against the checklist items about it.
+
+### Speed up only what sets the total (2026-11-04)
+
+Bryan, after test-speed work on one suite left a
+10-minute CI run unchanged: *"We went down some rabbit holes optimizing test performance when the overall
+CI suite took forever to run anyway and so the value of that work was not much."* Before any speed work,
+measure the whole time it is part of and which step sets it. Work only on that step, unless he asks
+otherwise.
 
 ### Key flows keep written goals, and a change that breaks one is flagged (2026-10-28)
 

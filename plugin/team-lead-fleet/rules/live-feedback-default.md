@@ -108,6 +108,26 @@ one project that prompted it.
 - **This is a property of the review surface, not of one stack.** A framework that already does it
   satisfies the rule; a static server that does not is the thing to fix before you send the link.
 
+- **Edit the worktree the dev server serves (2026-11-05).** Bryan, after a builder rebuilt pages in a
+  separate worktree and the server he was reviewing kept showing the old version, as relayed by one lead:
+  *"in the future, let's make sure we're making edits from where the dev server can live reload from."*
+  Before you dispatch a builder to a new worktree, move the dev server and its API to that worktree.
+- **Fix a mockup comment at once; batch only work that waits for approval (2026-11-05).** Bryan, on a
+  live mock whose comments had been queued for a batch pass, as relayed by one lead: *"for mockup edits
+  that I (or any other human requests, that has authority), please make fixes immediately and live
+  reload the page"*, and *"Batching is for code review and doing work on a feature before sending out in
+  batch(es) for PR review."* Make the fix in the served worktree, check that the page reloaded (a reload
+  watcher can miss a file that is replaced rather than edited), then reply on the thread.
+- **During a live review, a tweak is live within about a minute (2026-11-06).** Bryan, on a mock whose
+  header fix waited overnight: *"We're trying to optimize my focused attention, and fast turnaround is
+  key"*, and *"there should be an agent dedicated to quickly responding and making tweaks, so that tweaks
+  land within about a minute or less. And live reload needs to work reliably for this to happen."*
+  - **One agent only answers and edits while he reviews.** Builds, reviews and data work go to background
+    agents.
+  - **Edit in a throwaway worktree off the top of the stack**, the one the dev server serves. Port the
+    changes into the right PRs when the review is done.
+  - **Confirm live reload works before the review starts.** If it breaks, fixing it comes first.
+
 ## A link he tests runs the whole stack from the change (2026-10-28)
 
 Bryan, after a phone test link where every photo was broken because storage and the worker were not running
@@ -118,6 +138,16 @@ stack so I can test working flows. Please remember that"*.
   emulators, API, workers, and stubs for outside services.
 - **Before you send the link, open it at the address his device will use** and complete one upload or write
   through the flow.
+
+## An answer to a line comment goes on the top-level status (2026-11-05)
+
+Bryan, on a diff-review file thread, as relayed by one lead: *"Don't bring it back here -- I won't see this
+comment again."*, and *"Please update the top level status as you're looking into this."*
+
+- **Put the plan or result that answers a file or diff-line comment on the project's top-level status**:
+  the stack summary doc or the task's status page. If he must decide, file the review item there.
+- **Reply on the line thread once**, to say where the answer will appear.
+- **Never promise to bring the answer back to the line thread.** He does not revisit file and line threads.
 
 ## Resolve a thread when you finish it (2026-10-30)
 

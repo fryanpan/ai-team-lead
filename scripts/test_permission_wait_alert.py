@@ -15,7 +15,7 @@ HOOK = Path(__file__).resolve().parent.parent / "plugin/team-lead-fleet/hooks/pe
 def hook(tmp_path, monkeypatch):
     lead = tmp_path / "ai-team-lead"
     (lead / ".claude/worktrees/x").mkdir(parents=True)
-    (tmp_path / "ai-team-lead-private").mkdir()
+    (tmp_path / "ai-team-lead-sibling").mkdir()
     (tmp_path / "other").mkdir()
     monkeypatch.setenv("TEAM_LEAD_DIR", str(lead))
     monkeypatch.delenv("CW_AGENT_NAME", raising=False)
@@ -53,7 +53,7 @@ def logged(mod):
 def test_peer_wait_is_sent_to_the_team_lead_only(hook):
     peers = [
         {"stable_id": "worktree", "cwd": str(hook.lead / ".claude/worktrees/x")},
-        {"stable_id": "private", "cwd": str(hook.tmp / "ai-team-lead-private")},
+        {"stable_id": "private", "cwd": str(hook.tmp / "ai-team-lead-sibling")},
         {"stable_id": "lead", "cwd": str(hook.lead)},
     ]
     fake_post(hook, peers)

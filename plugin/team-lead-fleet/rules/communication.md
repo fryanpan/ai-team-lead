@@ -145,6 +145,10 @@ and comments"*.
 - **Write it the way a teammate would say it aloud.** No coined shorthand such as "cold fix" or "capture
   wait". Same day, on a comment that named a reason in jargon: *"this is written like an AI and uses jargon.
   Please rewrite to sound clearer and like a human"*.
+- **Readable from what is on screen (2026-11-05).** Name the actual field, function or screen, never "the
+  app" or "those modules", and use no term the reader would have to look up in another file. A doc comment
+  gets at most two lines of description. Bryan, on a PR doc comment, as relayed by one lead: *"clear and
+  readable in simple English assuming the reader just has the context of what's in front of them."*
 - Good, as Bryan rewrote it: `// Start acquiring GPS early, so we get accurate location faster when user takes a photo.`
   Bad: `// Starting now gives a cold GPS fix the time spent framing the photo.`
 - **A plain cause and effect beats the word count.** His own example runs about 15 words.

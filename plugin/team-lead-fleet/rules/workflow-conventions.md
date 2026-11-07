@@ -268,6 +268,18 @@ is where it was one tool call ago, and on this machine that bet loses.
 - Stay on the plan; don't refactor unrelated code. **If you are stuck, say so rather than brute-forcing.**
 - After tests pass, run a code review and fix what it finds before handing over.
 
+### Use what the app already does before choosing your own (2026-11-05)
+
+Bryan, on two builds the same day, as relayed by one lead. On a 124-line test runner: *"In the future,
+before inventing your own, use what's in the repo."* On a new data source for a feed the app already
+read: *"Above all else, default to using the same design decision as the rest of the app uses, unless you
+see a strong reason not to."* He said he has seen the second one "multiple times".
+
+- **Before you pick a tool, runner, data source, library, pattern, label or UI convention, find how the
+  rest of the app already does it.** Check the repo and its existing dependencies.
+- **Use the same thing.** Deviate only for a strong reason, and name that reason in the plan so it gets
+  reviewed before you build.
+
 ### Code review covers every changed file (2026-10-29)
 
 Set by Bryan after a review stopped reading partway through a large diff and a later bot review found
@@ -398,6 +410,20 @@ because it was plausible, and the attribution was never tested because nothing p
 - **Where a dependent sits in text the user approved, do not fix it on your own judgement.** Put the
   dependency on the decision card so they rule on every instance at once, rather than discovering the
   others after they have answered about the first.
+
+### A build goes out on one reconciled spec (2026-11-05)
+
+Bryan, on a multi-hour build whose builders worked from a plan section that later mock comments had
+replaced, as relayed by one lead: *"we sent the builders the wrong spec to do the build on a multi-hour
+build that took a really long time."* His rule: *"if we're starting work, that we use the most up-to-date
+mocks and specs, but make sure that everything is in sync beforehand."*
+
+- **Before you dispatch a build, reconcile one spec**: the latest approved mock, every decision on its
+  threads, and any later answers. Where an older plan disagrees, update it or mark that section superseded.
+- **The builder prompt names that one spec as its scope.** Other docs are background. A conflict goes back
+  to the lead, never to the builder's judgement.
+- **For a build expected to run over an hour, run a separate spec check first** that lists every place the
+  spec disagrees with the mock or its threads.
 
 ### Run every CI check locally before a change goes to review (2026-10-28)
 

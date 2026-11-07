@@ -295,3 +295,43 @@ if __name__ == "__main__":
     test_reap_kills_only_the_real_orphan_and_logs_pid_profile_size()
     test_process_that_exited_before_kill_is_skipped_not_killed_blind()
     print("\nALL TESTS PASSED")
+
+
+def test_team_lead_stable_id_matches_the_checkout_exactly(tmp_path, monkeypatch):
+    import json as _json
+    lead = tmp_path / "ai-team-lead"
+    (lead / ".claude/worktrees/x").mkdir(parents=True)
+    (tmp_path / "ai-team-lead-private").mkdir()
+    monkeypatch.setenv("TEAM_LEAD_DIR", str(lead))
+    peers = [
+        {"stable_id": "wt", "cwd": str(lead / ".claude/worktrees/x")},
+        {"stable_id": "priv", "cwd": str(tmp_path / "ai-team-lead-private")},
+        {"stable_id": "lead-ab12", "cwd": str(lead), "last_seen": "2026-11-06T20:00:00Z"},
+        {"stable_id": "lead", "cwd": str(lead), "last_seen": "2026-11-06T19:00:00Z"},
+    ]
+    monkeypatch.setattr(fg, "sh", lambda cmd, timeout=None: (_json.dumps(peers), 0))
+    assert fg.team_lead_stable_id() == "lead"
+
+
+def _fake_sh(health_ok, tmux_ls="fleet-budget: 1 windows\nfleet-monitor: 1 windows"):
+    def sh(cmd, timeout=10):
+        if fg.HIVE_HEALTH in cmd:
+            return ('{"status":"ok"}', 0) if health_ok else ("", 7)
+        if cmd.endswith(" ls"):
+            return tmux_ls, 0
+        return "", 0
+    return sh
+
+
+def test_broker_status_comes_from_health_not_tmux(monkeypatch):
+    monkeypatch.setattr(fg, "sh", _fake_sh(health_ok=True))
+    assert fg.loop_status()[fg.HIVE_BROKER] == "up"
+    monkeypatch.setattr(fg, "sh", _fake_sh(health_ok=False, tmux_ls="hive-broker: 1 windows"))
+    assert fg.loop_status()[fg.HIVE_BROKER] == "down"
+
+
+def test_broker_revive_fails_when_health_stays_down(monkeypatch):
+    monkeypatch.setattr(fg, "sh", _fake_sh(health_ok=False))
+    monkeypatch.setattr(fg.time, "sleep", lambda s: None)
+    ok, detail = fg.revive(fg.HIVE_BROKER, fg.LOOPS[fg.HIVE_BROKER])
+    assert not ok and "/health" in detail

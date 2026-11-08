@@ -287,6 +287,11 @@ elsewhere"*, then *"Can we find a way to avoid this?"*
   answers it at that terminal.
 - **A brief never sends an agent to write outside those folders.** For a big download, name a
   gitignored folder inside the agent's repo, not a sibling folder on the same drive.
+- **Start every command with the tool name an allow rule names (2026-11-07).** A repo that allows
+  `git commit` still raises a dialog for a command that starts with a variable assignment, such as
+  `T=$'...' && git add ... && git commit ...`. Bryan, after a builder stopped on exactly that: *"Wrapper
+  repo already allows commits... Why is this coming up again?"* Run `git add` and `git commit` as
+  separate calls, and pass a long message with `git commit -F <file>`.
 - **The fleet plugin reports a peer's permission dialog to the team-lead**, which files it on the
   board. The team-lead's own dialogs, and any report that could not be delivered, show only as a
   desktop notification. A local log keeps each one.

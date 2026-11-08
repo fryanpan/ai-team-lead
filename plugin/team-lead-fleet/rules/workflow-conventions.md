@@ -120,6 +120,16 @@ Turn count is what the weekly meter weights most heavily. Beyond the harness's o
   - **To cut a peer's spend, limit how much runs**: fewer agents at once, a pause, a later start. Do not name a model in the message.
   - **Respawn a peer without `--model`** unless Bryan named the model for that respawn.
   - **If you think a different model would help, file a review item** that names the peer, the model and the reason.
+- **Before you slow a team for tokens, prove the gap from the numbers (2026-11-08).** The team-lead paused one
+  team's work overnight on a 3-points-an-hour rate taken from one busy 3-hour window. The rate over the past
+  21 hours was 1.5, and the active account outlasted the next reset by 11 hours. Bryan: *"please make sure
+  you're not making errors like this. You just wasted multiple team hours"*.
+  - **Use the rate measured over at least 12 hours**, the one the budget panel prints. Never project from a
+    window shorter than that.
+  - **Compare against the next reset of every account**, including any account the panel does not list.
+  - **Put the rate, its window, the runway and that reset in the message to the team.** If the gap goes away
+    when you use those numbers, do not send the message.
+  - **Re-check at the next token watch and lift the limit as soon as the gap is gone.**
 
 ## The 5-hour session limit is a shared resource, and it is not hypothetical
 

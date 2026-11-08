@@ -14,6 +14,14 @@ When a fetch cannot read a page you need (it renders only with JavaScript, it re
 2. If the extension is not connected, render the page headless: `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --disable-gpu --virtual-time-budget=15000 --dump-dom <url>`, then strip the tags. Say in your report which of the two you used.
 3. Only if both fail, say what failed and give the answer you have. Do not end with an offer to try again.
 
+## No agent plays audio overnight (2026-11-08)
+
+A build agent's test page played spoken cues out of the shared machine's speakers in the middle of the night. Bryan: *"Why are you talking?"*, *"Silence now!!!"*, then *"It's fine for agents to use a visible browser. Just don't play any audio overnight. That's the cardinal rule"*.
+
+- **Between 21:00 and 08:00 Pacific, no agent plays any sound on any machine:** speech, sound effects, or video with sound. This includes `say`, `afplay` and any page you opened.
+- **Visible browsers are fine.** A page that makes sound is the problem, not the window.
+- **Run overnight browser tests with `--mute-audio`**, Playwright included, and keep a page's sound off until a person presses a button on it.
+
 ## What this does not change
 
 This rule is about reading. Opening a page does not authorize anything you do on it. Signing in, submitting a form, accepting terms, posting, buying and downloading files still follow the session's permission rules. Reading a page that needs Bryan's sign-in is also not covered: say it needs his sign-in and move on.

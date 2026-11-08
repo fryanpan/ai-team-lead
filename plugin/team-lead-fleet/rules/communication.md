@@ -38,8 +38,10 @@ Bryan, by voice: *"If I make a request in voice please answer at least briefly i
 there's more details to show in a written message also"*.
 
 - **Answer a voice request with `answer_voice`**, with at least a short spoken reply in `text`.
-- **Put any further detail in `written`.** Do not answer a voice request only in chat, in the
-  terminal or in a written message.
+- **Keep the spoken reply to a few words (2026-11-07).** Use `written` only for a link or a figure he
+  must have, in one or two lines. Scope and detail go on the task. Bryan, by voice: *"You're far too
+  chatty...voice is supposed to be short. Even shorter please"*.
+- **Do not answer a voice request only in chat, in the terminal or in a written message.**
 - **If `answer_voice` returns `delivered: false`**, post the answer on the task or thread the
   request came from.
 

@@ -82,9 +82,14 @@ def test_service_name_normalisation():
     assert f.service_from_tool("Bash") is None
 
 
-def test_subagents_and_non_fleet_sessions_skipped(tmp_path):
-    use(tmp_path, "mcp__notion__search", NOON, agent_id="sub1")
-    assert prompt(tmp_path, NOON + 2 * HOUR) is None
+def test_subagent_use_counts_for_parent_and_non_fleet_sessions_skipped(tmp_path):
+    out = run(tmp_path, "record", {"session_id": "s1", "tool_name": "mcp__notion__search",
+                                   "agent_id": "sub1"}, NOON)
+    assert out is None
+    assert run(tmp_path, "record", {"session_id": "s1", "tool_name": "mcp__notion__search",
+                                    "agent_id": "sub1"}, NOON + 2 * HOUR) is None  # never asks a subagent
+    out = prompt(tmp_path, NOON + 2 * HOUR)
+    assert out and "notion" in out["hookSpecificOutput"]["additionalContext"]
     run(tmp_path, "record", {"session_id": "s2", "tool_name": "mcp__notion__search"}, NOON, agent="")
     assert prompt(tmp_path, NOON + 2 * HOUR, sid="s2", agent="") is None
 
@@ -237,10 +242,9 @@ def test_use_after_todays_ask_is_asked_about_next_day(tmp_path):
 
 def test_status_recovers_after_a_transient_error(tmp_path):
     use(tmp_path, "mcp__notion__search", NOON)
-    os.makedirs(tmp_path, exist_ok=True)
-    with open(tmp_path / "errors.log", "a") as f:
-        stamp = datetime.datetime.fromtimestamp(NOON + 60).astimezone().isoformat(timespec="seconds")
-        f.write("%s Tester record: OSError: disk hiccup\n" % stamp)
+    (tmp_path / "errors").mkdir()
+    with open(tmp_path / "errors" / "Tester.log", "a") as f:
+        f.write("%r 2026-10-30T12:01 record: OSError: disk hiccup\n" % (NOON + 60))
     assert _status_rc(tmp_path, NOON + 120)[0] == 1
     use(tmp_path, "mcp__notion__search", NOON + 2 * 60)   # a later run succeeds
     rc, out = _status_rc(tmp_path, NOON + 3 * 60)
@@ -261,15 +265,15 @@ def test_status_tells_answered_from_unanswered(tmp_path):
     run(tmp_path, "collect", {"session_id": "s1", "transcript_path": _transcript(tmp_path, BLOCK)},
         NOON + 120)
     out = _status_rc(tmp_path, NOON + 180)[1]
-    assert "unanswered" not in out and "answered" in out
+    assert "unanswered" not in out and "notion" in out.split("answered today:")[1]
 
 
 def test_status_ignores_errors_of_agents_with_overlapping_names(tmp_path):
     use(tmp_path, "mcp__notion__search", NOON, )
-    with open(tmp_path / "errors.log", "a") as f:
-        stamp = datetime.datetime.fromtimestamp(NOON + 60).astimezone().isoformat(timespec="seconds")
-        f.write("%s Team_Tester record: OSError: other agent\n" % stamp)
-        f.write("%s Team Tester record: OSError: other agent\n" % stamp)
+    (tmp_path / "errors").mkdir()
+    for other in ("Team_Tester", "Tester2"):
+        with open(tmp_path / "errors" / (other + ".log"), "a") as f:
+            f.write("%r 2026-10-30T12:01 record: OSError: other agent\n" % (NOON + 60))
     rc, out = _status_rc(tmp_path, NOON + 120)
     assert rc == 0 and "could not run" not in out
 
@@ -298,3 +302,64 @@ def test_plugin_name_with_underscore_uses_installed_name(tmp_path):
     empty = tmp_path / "none"
     empty.mkdir()
     assert _service("mcp__plugin_a_b__x", empty) == "a/b"
+
+
+def _ts(epoch):
+    return datetime.datetime.fromtimestamp(epoch).astimezone().isoformat()
+
+
+def _transcript_at(tmp, *entries):
+    p = tmp / "tt.jsonl"
+    p.write_text("".join(json.dumps({"type": "assistant", "timestamp": _ts(t), "message": {
+        "content": [{"type": "text", "text": x}]}}) + "\n" for t, x in entries))
+    return {"session_id": "s1", "transcript_path": str(p)}
+
+
+def test_failed_write_keeps_the_ask_open_and_status_shows_it(tmp_path):
+    _open_ask(tmp_path)
+    (tmp_path / "notion.jsonl").mkdir()          # the write will fail
+    tp = _transcript_at(tmp_path, (NOON + 60, BLOCK))
+    run(tmp_path, "collect", tp, NOON + 120)
+    rc, out = _status_rc(tmp_path, NOON + 120)
+    assert rc == 1 and "could not run" in out
+    (tmp_path / "notion.jsonl").rmdir()          # writable again
+    run(tmp_path, "collect", tp, NOON + 180)
+    assert len((tmp_path / "notion.jsonl").read_text().splitlines()) == 1
+
+
+def test_answer_after_midnight_is_stored(tmp_path):
+    late = datetime.datetime(2026, 10, 30, 23, 50).timestamp()
+    _open_ask(tmp_path, late)
+    run(tmp_path, "collect", _transcript_at(tmp_path, (late + 15 * MIN, BLOCK)), late + 16 * MIN)
+    assert (tmp_path / "notion.jsonl").exists()
+
+
+def test_no_second_ask_an_hour_after_a_late_ask(tmp_path):
+    use(tmp_path, "mcp__notion__search", datetime.datetime(2026, 10, 30, 22, 0).timestamp())
+    t = datetime.datetime(2026, 10, 30, 23, 30).timestamp()
+    assert run(tmp_path, "record", {"session_id": "s1", "tool_name": "mcp__notion__x"}, t)
+    assert prompt(tmp_path, t + HOUR + MIN) is None
+
+
+def test_earlier_unanswered_ask_survives_a_later_ask(tmp_path):
+    use(tmp_path, "mcp__notion__search", NOON)
+    assert prompt(tmp_path, NOON + HOUR + MIN) is not None       # notion asked
+    use(tmp_path, "mcp__claude-hive__send_message", NOON + 30 * MIN)
+    assert prompt(tmp_path, NOON + 2 * HOUR) is not None          # hive asked
+    hive_only = "Ok.\n```interface-feedback\nclaude-hive | fine | none | none\n```\n"
+    run(tmp_path, "collect", _transcript_at(tmp_path, (NOON + 2 * HOUR + MIN, hive_only)),
+        NOON + 2 * HOUR + 2 * MIN)
+    assert "unanswered: notion" in _status_rc(tmp_path, NOON + 2 * HOUR + 3 * MIN)[1]
+    run(tmp_path, "collect", _transcript_at(tmp_path, (NOON + 2 * HOUR + 4 * MIN, BLOCK)),
+        NOON + 2 * HOUR + 5 * MIN)
+    assert (tmp_path / "notion.jsonl").exists()
+
+
+def test_duplicate_and_unasked_blocks_store_one_row_per_asked_service(tmp_path):
+    use(tmp_path, "mcp__notion__search", NOON - 2 * HOUR)
+    assert prompt(tmp_path, NOON) is not None
+    extra = "```interface-feedback\nnobody-asked | a | b | c\n```\n"
+    run(tmp_path, "collect", _transcript_at(tmp_path, (NOON + MIN, BLOCK), (NOON + 2 * MIN, BLOCK + extra)),
+        NOON + 3 * MIN)
+    assert len((tmp_path / "notion.jsonl").read_text().splitlines()) == 1
+    assert not (tmp_path / "nobody-asked.jsonl").exists()

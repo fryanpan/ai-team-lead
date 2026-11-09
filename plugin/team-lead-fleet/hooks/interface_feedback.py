@@ -17,7 +17,8 @@ Subcommands
 
 When a service is due
   A service is due when it has use that no ask has covered yet, that use began at
-  least an hour ago, and the agent has not been asked about it today. "Began" is
+  least an hour ago, and the agent has not been asked about it today or in the
+  last 12 hours. "Began" is
   the first uncovered use, so steady use is asked about after an hour of use, and
   use late at night is still asked about the next day.
 
@@ -28,10 +29,11 @@ Design notes
     stores it. No Bash call, so no shell expansion of free text and no permission
     dialog on peers with narrow allow lists.
   * No network, stdlib only. Hooks never print to the session on failure, but
-    every failure is written to errors.log and shown by `status`, so "could not
+    every failure is written to errors/<agent>.log and shown by `status`, so "could not
     run" never looks like "nothing due".
   * One locked read-modify-write per hook call.
-  * Subagents are skipped (payload carries agent_id); they report to their parent.
+  * A subagent's tool use (payload carries agent_id) counts for its parent agent;
+    the ask and the answer happen in the parent's context.
   * Sessions with neither CW_AGENT_NAME nor FEEDBACK_AGENT_NAME are skipped.
 """
 import argparse
@@ -45,7 +47,10 @@ import time
 import traceback
 
 GAP_SECONDS = 3600
+MIN_ASK_INTERVAL = 12 * 3600
+ANSWER_WINDOW = 24 * 3600
 REFRESH_SECONDS = 600
+LOG_MAX_BYTES = 256_000
 FORGET_SECONDS = 7 * 86400
 TRANSCRIPT_TAIL_BYTES = 200_000
 BLOCK_RE = re.compile(r"```interface-feedback[^\n]*\n(.*?)```", re.S)
@@ -116,37 +121,59 @@ def load_json(path):
         return {}
 
 
-def locked_update(path, fn):
+def locked_update(path, fn, write_on_error=False):
+    """Locked read-modify-write. With write_on_error, state changes made before
+    fn raised are still saved (then the error is re-raised)."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path + ".lock", "w") as lk:
         fcntl.flock(lk, fcntl.LOCK_EX)
         state = load_json(path)
-        result = fn(state)
-        tmp = path + ".tmp"
-        with open(tmp, "w") as f:
-            json.dump(state, f)
-        os.replace(tmp, path)
+        try:
+            result = fn(state)
+        except Exception:
+            if write_on_error:
+                save_json(path, state)
+            raise
+        save_json(path, state)
         return result
+
+
+def save_json(path, state):
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(state, f)
+    os.replace(tmp, path)
+
+
+def is_due(e, now):
+    """The one due rule: uncovered use began GAP_SECONDS ago, the service was not
+    asked today, and the last ask was MIN_ASK_INTERVAL ago (so an ask at 23:30 is
+    not repeated at 00:31)."""
+    since = e.get("pending_since")
+    return (isinstance(since, (int, float)) and now - since >= GAP_SECONDS
+            and e.get("asked_day") != day_of(now)
+            and now - e.get("asked_ts", 0) >= MIN_ASK_INTERVAL)
 
 
 def take_due(state, now):
     """Mark every due service as asked; return their names. Mutates state."""
-    today = day_of(now)
     services = state.setdefault("services", {})
-    due = []
-    for svc, e in sorted(services.items()):
-        since = e.get("pending_since")
-        if (isinstance(since, (int, float)) and now - since >= GAP_SECONDS
-                and e.get("asked_day") != today):
-            due.append(svc)
-            e["asked_day"] = today
-            e.pop("pending_since", None)
+    due = [svc for svc, e in sorted(services.items()) if is_due(e, now)]
+    for svc in due:
+        e = services[svc]
+        e["asked_day"] = day_of(now)
+        e["asked_ts"] = now
+        e.pop("pending_since", None)
     for svc in [s for s, e in services.items()
                 if now - e.get("last_used", now) > FORGET_SECONDS]:
         del services[svc]
+    asks = state.setdefault("open_asks", {})
+    for svc in [s for s, t in asks.items() if now - t > ANSWER_WINDOW]:
+        del asks[svc]  # unanswered for a day: dropped, still shown by status
+    for svc in due:
+        asks[svc] = now
     if due:
-        state["last_outcome"] = {"ts": now, "outcome": "asked", "services": due,
-                                 "answered": []}
+        state["last_outcome"] = {"ts": now, "outcome": "asked", "services": due}
     state["last_run"] = now
     return due
 
@@ -166,15 +193,38 @@ def build_ask(services, event):
         "file a review item. Keep it to those lines.")}}
 
 
+def errors_path(agent=None):
+    return os.path.join(base_dir(), "errors", safe(agent or agent_name() or "-") + ".log")
+
+
 def log_error(event, exc):
     now = time.time()
-    line = "%s %s %s: %s\n" % (stamp(now), safe(agent_name()) or "-", event, exc)
+    line = "%r %s %s: %s\n" % (now, stamp(now), event, exc)
+    path = errors_path()
     try:
-        os.makedirs(base_dir(), exist_ok=True)
-        with open(os.path.join(base_dir(), "errors.log"), "a") as f:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        if os.path.exists(path) and os.path.getsize(path) > LOG_MAX_BYTES:
+            os.replace(path, path + ".1")
+        with open(path, "a") as f:
             f.write(line)
     except OSError:
         sys.stderr.write("interface_feedback: COULD NOT RUN and could not log: " + line)
+
+
+def last_error(agent=None):
+    """(epoch, line) of this agent's newest logged error, or (None, None)."""
+    try:
+        with open(errors_path(agent)) as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return None, None
+    if not lines:
+        return None, None
+    ts, _, rest = lines[-1].partition(" ")
+    try:
+        return float(ts), rest
+    except ValueError:
+        return float("inf"), lines[-1]
 
 
 def eligible(payload):
@@ -182,30 +232,34 @@ def eligible(payload):
 
 
 def record(payload, now):
-    if not eligible(payload):
+    if not agent_name():
         return None
     svc = service_from_tool(payload.get("tool_name") or "", payload.get("tool_input"))
     if not svc:
         return None
-
-    if not needs_write(load_json(state_path()), svc, now):
+    sub = bool(payload.get("agent_id"))
+    if not needs_write(load_json(state_path()), svc, now, sub):
         return None
 
     def upd(state):
-        # Ask before stamping this call, so the call that ends a long gap counts
-        # its previous use, not itself. Use after today's ask gets a new
-        # pending_since; take_due holds it until tomorrow.
-        due = take_due(state, now)
-        e = state["services"].setdefault(svc, {})
+        # A subagent's use counts for its parent agent, but the ask goes to the
+        # parent's context, so a subagent call never takes it.
+        # Otherwise ask before stamping this call, so the call that ends a long
+        # gap counts its previous use, not itself.
+        due = [] if sub else take_due(state, now)
+        e = state.setdefault("services", {}).setdefault(svc, {})
         e["last_used"] = now
-        e.setdefault("pending_since", now)
+        if svc not in due:
+            e.setdefault("pending_since", now)
+        if sub:
+            state["last_run"] = now
         return due
 
     due = locked_update(state_path(), upd)
     return build_ask(due, "PostToolUse") if due else None
 
 
-def needs_write(state, svc, now):
+def needs_write(state, svc, now, sub=False):
     """False when this call would change nothing worth a locked write: the
     service already has pending use, nothing is due, last_used and last_run
     are under REFRESH_SECONDS old, and no error was logged since last_run."""
@@ -219,14 +273,11 @@ def needs_write(state, svc, now):
     if now - e.get("last_used", 0) > REFRESH_SECONDS or now - last_run > REFRESH_SECONDS:
         return True
     try:  # an error since the last run: write, so status can see the recovery
-        if os.stat(os.path.join(base_dir(), "errors.log")).st_mtime >= last_run:
+        if os.stat(errors_path()).st_mtime >= last_run:
             return True
     except OSError:
         pass
-    today = day_of(now)
-    return any(isinstance(x.get("pending_since"), (int, float))
-               and now - x["pending_since"] >= GAP_SECONDS and x.get("asked_day") != today
-               for x in services.values())
+    return not sub and any(is_due(x, now) for x in services.values())
 
 
 def ask(payload, now, event):
@@ -237,11 +288,9 @@ def ask(payload, now, event):
 
 
 def open_services(state, now):
-    """Services in today's ask that have no answer stored yet."""
-    last = state.get("last_outcome") or {}
-    if last.get("outcome") != "asked" or day_of(last.get("ts", 0)) != day_of(now):
-        return []
-    return [s for s in last.get("services") or [] if s not in (last.get("answered") or [])]
+    """Services asked about in the last ANSWER_WINDOW with no answer stored yet."""
+    return sorted(svc for svc, t in (state.get("open_asks") or {}).items()
+                  if now - t <= ANSWER_WINDOW)
 
 
 def read_tail(path):
@@ -251,17 +300,17 @@ def read_tail(path):
         return f.read().decode("utf-8", "replace")
 
 
-def entry_day(ts):
-    """Local day of a transcript timestamp, or None if it cannot be read."""
+def entry_epoch(ts):
     try:
-        return day_of(datetime.datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp())
+        return datetime.datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
     except (AttributeError, ValueError):
         return None
 
 
-def assistant_texts(raw, today):
-    """Text of today's assistant messages. Older blocks in the tail were stored
-    on the day they were written, or are too old to store now."""
+def assistant_texts(raw, since):
+    """(epoch, text) of assistant messages written at or after `since`. A block
+    from before the ask it would answer is never stored, so a block left in the
+    tail is not stored again on a later day."""
     for line in raw.splitlines():
         try:
             o = json.loads(line)
@@ -269,12 +318,13 @@ def assistant_texts(raw, today):
             continue
         if o.get("type") != "assistant":
             continue
-        day = entry_day(o.get("timestamp"))
-        if day is not None and day != today:
+        ts = entry_epoch(o.get("timestamp"))
+        if ts is not None and ts < since:
             continue
+        ts = since if ts is None else ts  # no timestamp: cannot rule it out
         for b in (o.get("message") or {}).get("content") or []:
             if isinstance(b, dict) and b.get("type") == "text":
-                yield b.get("text") or ""
+                yield ts, b.get("text") or ""
 
 
 def collect(payload, now):
@@ -283,33 +333,35 @@ def collect(payload, now):
     tp = payload.get("transcript_path")
     if not tp or not os.path.exists(tp):
         return None
-    today = day_of(now)
-    if not open_services(load_json(state_path()), now):
+    asks = load_json(state_path()).get("open_asks") or {}
+    waiting = {svc: asks[svc] for svc in open_services({"open_asks": asks}, now)}
+    if not waiting:
         return None  # no ask waiting for an answer: skip reading the transcript
-    rows = []
-    for text in assistant_texts(read_tail(tp), today):
+    rows = {}  # service -> fields; the newest block wins
+    for ts, text in assistant_texts(read_tail(tp), min(waiting.values())):
         for block in BLOCK_RE.findall(text):
             for line in block.splitlines():
                 parts = [p.strip() for p in line.split(" | ")]
-                if len(parts) >= 4 and parts[0] and not parts[0].startswith("<"):
-                    rows.append((parts[0], parts[1], parts[2], " | ".join(parts[3:])))
+                svc = parts[0] if parts else ""
+                if len(parts) >= 4 and svc in waiting and ts >= waiting[svc]:
+                    rows[svc] = (parts[1], parts[2], " | ".join(parts[3:]))
     if not rows:
         return None
 
     def upd(state):
-        done = state.setdefault("recorded", {})
-        fresh = [r for r in rows if done.get(r[0]) != today]
-        for r in fresh:
-            done[r[0]] = today
-        last = state.get("last_outcome") or {}
-        if last.get("outcome") == "asked":
-            got = set(last.get("answered") or []) | {r[0] for r in rows}
-            last["answered"] = sorted(got & set(last.get("services") or []))
-        state["last_run"] = now
-        return fresh
+        # Store under the lock, and close an ask only once its row is written:
+        # a failed write leaves the ask open for the next Stop.
+        open_now = state.setdefault("open_asks", {})
+        answered = state.setdefault("answered", {})
+        for svc, (well, issue, improve) in sorted(rows.items()):
+            if open_now.get(svc) != waiting[svc]:
+                continue  # another Stop already stored it, or it was re-asked
+            append_row(svc, well, issue, improve, agent_name(), now)
+            del open_now[svc]
+            answered[svc] = now
+            state["last_run"] = now
 
-    for svc, well, issue, improve in locked_update(state_path(), upd):
-        append_row(svc, well, issue, improve, agent_name(), now)
+    locked_update(state_path(), upd, write_on_error=True)
     return None
 
 
@@ -352,33 +404,23 @@ def cmd_status(a):
               "the hooks skip unnamed sessions")
         return 1
     os.environ["CW_AGENT_NAME"] = agent
-    last_err = None
-    try:
-        with open(os.path.join(base_dir(), "errors.log")) as f:
-            mine = [l for l in f if l.split(" ", 2)[1:2] == [safe(agent)]]
-        last_err = mine[-1].strip() if mine else None
-    except OSError:
-        pass
     state = load_json(state_path())
     last_run = state.get("last_run", 0)
-    if last_err:
-        try:
-            err_ts = datetime.datetime.fromisoformat(last_err.split(" ", 1)[0]).timestamp()
-        except ValueError:
-            err_ts = now
-        if err_ts >= last_run and now - err_ts < 86400:
-            print("could not run: " + last_err)
-            return 1
+    err_ts, err = last_error(agent)
+    if err_ts is not None and err_ts >= last_run and now - min(err_ts, now) < 86400:
+        print("could not run: " + err)
+        return 1
     if not last_run:
         print("never run: no hook run recorded for %s (plugin not loaded, or no MCP or "
               "Skill call yet) at %s" % (agent, state_path()))
         return 2
     last = state.get("last_outcome") or {}
-    if last.get("outcome") == "asked" and day_of(last["ts"]) == day_of(now):
-        answered = last.get("answered") or []
-        waiting = open_services(state, now)
-        print("asked at %s about %s; answered: %s%s"
-              % (stamp(last["ts"]), ", ".join(last["services"]),
+    waiting = open_services(state, now)
+    if last.get("outcome") == "asked" and day_of(last["ts"]) == day_of(now) or waiting:
+        answered = sorted(s for s, t in (state.get("answered") or {}).items()
+                          if day_of(t) == day_of(now))
+        print("asked at %s about %s; answered today: %s%s"
+              % (stamp(last.get("ts", 0)), ", ".join(last.get("services") or []),
                  ", ".join(answered) or "none",
                  "; unanswered: " + ", ".join(waiting) if waiting else ""))
         return 0

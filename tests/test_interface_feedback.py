@@ -42,7 +42,7 @@ def test_used_today_with_hour_gap_fires_once(tmp_path):
     out = prompt(tmp_path, NOON + HOUR + 60)
     ctx = out["hookSpecificOutput"]["additionalContext"]
     assert out["hookSpecificOutput"]["hookEventName"] == "UserPromptSubmit"
-    assert "notion" in ctx and "interface_feedback.py" in ctx and "--agent \"Tester\"" in ctx
+    assert "notion" in ctx and "interface-feedback" in ctx
 
 
 def test_under_an_hour_does_not_fire(tmp_path):
@@ -56,8 +56,9 @@ def test_second_ask_same_day_does_not_fire(tmp_path):
     assert prompt(tmp_path, NOON + 2 * HOUR + 600) is None  # notion already asked; hive used 10m ago
 
 
-def test_service_not_used_today_does_not_fire(tmp_path):
+def test_service_asked_yesterday_and_not_used_since_does_not_fire(tmp_path):
     use(tmp_path, "mcp__notion__search", NOON - 86400)
+    assert prompt(tmp_path, NOON - 86400 + 2 * HOUR) is not None
     assert prompt(tmp_path, NOON + 2 * HOUR) is None
 
 
@@ -112,3 +113,88 @@ def test_record_hook_asks_for_session_woken_without_typed_prompt(tmp_path):
     assert out["hookSpecificOutput"]["hookEventName"] == "PostToolUse"
     assert "notion" in out["hookSpecificOutput"]["additionalContext"]
     assert prompt(tmp_path, NOON + 2 * HOUR + 600) is None  # notion already asked; hive used 10m ago
+
+
+# --- fix round: behaviours the first review found missing ---------------------
+
+MIN = 60
+
+
+def test_steady_use_is_asked_after_an_hour_of_use(tmp_path):
+    # A service called every 10 minutes never leaves an hour's gap; it must still
+    # be asked about once it has been in use for an hour.
+    for i in range(7):
+        out = run(tmp_path, "record", {"session_id": "s1", "tool_name": "mcp__notion__search"},
+                  NOON + i * 10 * MIN)
+    assert out is not None and "notion" in out["hookSpecificOutput"]["additionalContext"]
+
+
+def test_late_night_use_is_asked_about_next_morning(tmp_path):
+    late = datetime.datetime(2026, 10, 30, 23, 30).timestamp()
+    morning = datetime.datetime(2026, 10, 31, 8, 0).timestamp()
+    use(tmp_path, "mcp__notion__search", late)
+    out = prompt(tmp_path, morning)
+    assert out is not None and "notion" in out["hookSpecificOutput"]["additionalContext"]
+
+
+def test_no_repeat_ask_after_clear_or_respawn(tmp_path):
+    # A /clear or respawn gives a new session id; the same agent must not be
+    # asked again about the same service on the same day.
+    use(tmp_path, "mcp__notion__search", NOON, sid="s1")
+    assert prompt(tmp_path, NOON + 2 * HOUR, sid="s1") is not None
+    use(tmp_path, "mcp__notion__search", NOON + 2 * HOUR + MIN, sid="s2")
+    assert prompt(tmp_path, NOON + 4 * HOUR, sid="s2") is None
+
+
+def test_ask_needs_no_shell_command(tmp_path):
+    # No Bash call: avoids shell expansion of free text and permission dialogs
+    # on peers with narrow allow lists.
+    use(tmp_path, "mcp__notion__search", NOON)
+    ctx = prompt(tmp_path, NOON + 2 * HOUR)["hookSpecificOutput"]["additionalContext"]
+    assert "python3" not in ctx and "--well" not in ctx
+    assert "interface-feedback" in ctx
+
+
+def _transcript(tmp, text):
+    p = tmp / "t.jsonl"
+    p.write_text(json.dumps({"type": "assistant", "message": {"content": [
+        {"type": "text", "text": text}]}}) + "\n")
+    return str(p)
+
+
+BLOCK = ("Done with the task.\n\n```interface-feedback\n"
+         "notion | search was fast | fetch by URL failed | accept URLs | `$(rm -rf x)`\n"
+         "claude-hive | fine | none | none\n```\n")
+
+
+def test_collect_records_block_from_transcript_once(tmp_path):
+    tp = _transcript(tmp_path, BLOCK)
+    for _ in range(2):  # the Stop hook can fire again on the same transcript
+        run(tmp_path, "collect", {"session_id": "s1", "transcript_path": tp}, NOON)
+    rows = [json.loads(l) for l in (tmp_path / "notion.jsonl").read_text().splitlines()]
+    assert len(rows) == 1
+    assert rows[0]["agent"] == "Tester" and rows[0]["issue"] == "fetch by URL failed"
+    assert "$(rm -rf x)" in rows[0]["improve"]  # stored literally, never run
+    assert (tmp_path / "claude-hive.jsonl").exists()
+
+
+def _status(tmp, now):
+    env = dict(os.environ, INTERFACE_FEEDBACK_DIR=str(tmp), INTERFACE_FEEDBACK_NOW=str(now),
+               CW_AGENT_NAME="Tester")
+    r = subprocess.run([sys.executable, SCRIPT, "status"], capture_output=True, text=True, env=env)
+    return r.stdout
+
+
+def test_status_reports_three_states(tmp_path):
+    use(tmp_path, "mcp__notion__search", NOON)
+    assert "nothing due" in _status(tmp_path, NOON + MIN)
+    prompt(tmp_path, NOON + 2 * HOUR)
+    assert "asked" in _status(tmp_path, NOON + 2 * HOUR)
+    # Break the state store: the hook must stay silent to the session, but the
+    # failure must be visible to anyone who checks.
+    import shutil
+    shutil.rmtree(tmp_path / "state")
+    (tmp_path / "state").write_text("not a dir")
+    assert run(tmp_path, "record", {"session_id": "s1", "tool_name": "mcp__notion__x"},
+               NOON + 3 * HOUR) is None
+    assert "could not run" in _status(tmp_path, NOON + 3 * HOUR)

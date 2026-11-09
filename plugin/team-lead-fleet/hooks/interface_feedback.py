@@ -2,24 +2,36 @@
 """Daily interface-feedback ping for the plugins and MCP services a session uses.
 
 Subcommands
-  record            PostToolUse hook. Notes which service a tool call belonged to,
-                    and also asks (same rules) if one is due, so sessions woken by
-                    channel events rather than typed prompts are covered.
-  ask [EVENT]       Prompt hook. If a service was used today, was last used at
-                    least an hour ago and has not been asked about today, inject
-                    ONE additionalContext asking for short feedback on all of them.
-  add  ...          Append one feedback line for a service (run by the agent).
+  record            PostToolUse hook. Notes which service a tool call belonged to
+                    and, in the same write, asks if any service is due. Sessions
+                    woken by channel events rather than typed prompts make tool
+                    calls, so this covers them.
+  ask [EVENT]       Prompt hook. Asks if any service is due, without stamping use.
+  collect           Stop hook. Reads the agent's last messages for an
+                    ```interface-feedback``` block and stores each line.
+  status            Prints the agent's last hook outcome: asked, nothing due, or
+                    could not run.
+  add  ...          Append one feedback line for a service by hand.
   read ...          Print feedback lines for a service (run by the owner).
 
+When a service is due
+  A service is due when it has use that no ask has covered yet, that use began at
+  least an hour ago, and the agent has not been asked about it today. "Began" is
+  the first uncovered use, so steady use is asked about after an hour of use, and
+  use late at night is still asked about the next day.
+
+State is per AGENT, not per session, so a /clear or a respawn does not ask again.
+
 Design notes
-  * No network, stdlib only, and the hook paths fail open and silent: a broken
-    hook must never wedge a session or add a turn. Only `add` reports failure.
-  * No Stop-hook blocking: that forces an extra full-context turn. The ask rides
-    on a turn that is happening anyway.
+  * The agent answers by writing a fenced block in its normal reply; the Stop hook
+    stores it. No Bash call, so no shell expansion of free text and no permission
+    dialog on peers with narrow allow lists.
+  * No network, stdlib only. Hooks never print to the session on failure, but
+    every failure is written to errors.log and shown by `status`, so "could not
+    run" never looks like "nothing due".
+  * One locked read-modify-write per hook call.
   * Subagents are skipped (payload carries agent_id); they report to their parent.
-  * Sessions with neither CW_AGENT_NAME nor FEEDBACK_AGENT_NAME are skipped:
-    those are interactive or headless sessions outside the fleet, with nobody
-    to attribute feedback to and nobody expected to write it.
+  * Sessions with neither CW_AGENT_NAME nor FEEDBACK_AGENT_NAME are skipped.
 """
 import argparse
 import datetime
@@ -29,9 +41,12 @@ import os
 import re
 import sys
 import time
+import traceback
 
 GAP_SECONDS = 3600
-STATE_KEEP_SECONDS = 7 * 86400
+FORGET_SECONDS = 7 * 86400
+TRANSCRIPT_TAIL_BYTES = 200_000
+BLOCK_RE = re.compile(r"```interface-feedback[^\n]*\n(.*?)```", re.S)
 
 
 def base_dir():
@@ -45,6 +60,10 @@ def safe(name):
 
 def day_of(epoch):
     return datetime.date.fromtimestamp(epoch).isoformat()
+
+
+def stamp(epoch):
+    return datetime.datetime.fromtimestamp(epoch).astimezone().isoformat(timespec="seconds")
 
 
 def service_from_tool(tool_name, tool_input=None):
@@ -67,19 +86,15 @@ def service_from_tool(tool_name, tool_input=None):
     return None
 
 
-def is_fleet_session():
-    return bool(os.environ.get("CW_AGENT_NAME") or os.environ.get("FEEDBACK_AGENT_NAME"))
-
-
 def agent_name():
     return os.environ.get("CW_AGENT_NAME") or os.environ.get("FEEDBACK_AGENT_NAME") or ""
 
 
-def state_path(session_id):
-    return os.path.join(base_dir(), "state", safe(session_id) + ".json")
+def state_path():
+    return os.path.join(base_dir(), "state", safe(agent_name()) + ".json")
 
 
-def load_state(path):
+def load_json(path):
     try:
         with open(path) as f:
             data = json.load(f)
@@ -92,125 +107,213 @@ def locked_update(path, fn):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path + ".lock", "w") as lk:
         fcntl.flock(lk, fcntl.LOCK_EX)
-        state = load_state(path)
-        fn(state)
+        state = load_json(path)
+        result = fn(state)
         tmp = path + ".tmp"
         with open(tmp, "w") as f:
             json.dump(state, f)
         os.replace(tmp, path)
+        return result
 
 
-def prune(state_dir, now):
+def take_due(state, now):
+    """Mark every due service as asked; return their names. Mutates state."""
+    today = day_of(now)
+    services = state.setdefault("services", {})
+    due = []
+    for svc, e in sorted(services.items()):
+        since = e.get("pending_since")
+        if (isinstance(since, (int, float)) and now - since >= GAP_SECONDS
+                and e.get("asked_day") != today):
+            due.append(svc)
+            e["asked_day"] = today
+            e.pop("pending_since", None)
+    for svc in [s for s, e in services.items()
+                if now - e.get("last_used", now) > FORGET_SECONDS]:
+        del services[svc]
+    if due:
+        state["last_outcome"] = {"ts": now, "outcome": "asked", "services": due}
+    return due
+
+
+def build_ask(services, event):
+    names = ", ".join(services)
+    return {"hookSpecificOutput": {"hookEventName": event, "additionalContext": (
+        "Interface feedback (about once a day, so the tools you use can improve). "
+        "You used these plugins/services and have not given feedback on them today: "
+        + names + ". At the END of your next reply, add one fenced block tagged "
+        "interface-feedback, one line per service, fields separated by ' | ':\n"
+        "```interface-feedback\n"
+        "<service> | what went well | what was confusing or broke | one concrete improvement\n"
+        "```\n"
+        "If a service had nothing notable, write: <service> | fine | none | none. "
+        "A hook stores the block; do not run a command for it, message anyone, or "
+        "file a review item. Keep it to those lines.")}}
+
+
+def log_error(event, exc):
+    now = time.time()
+    line = "%s %s %s: %s\n" % (stamp(now), agent_name() or "-", event, exc)
     try:
-        for n in os.listdir(state_dir):
-            p = os.path.join(state_dir, n)
-            if now - os.path.getmtime(p) > STATE_KEEP_SECONDS:
-                os.remove(p)
+        os.makedirs(base_dir(), exist_ok=True)
+        with open(os.path.join(base_dir(), "errors.log"), "a") as f:
+            f.write(line)
     except OSError:
-        pass
+        sys.stderr.write("interface_feedback: COULD NOT RUN and could not log: " + line)
+
+
+def eligible(payload):
+    return not payload.get("agent_id") and bool(agent_name())
 
 
 def record(payload, now):
-    if payload.get("agent_id") or not is_fleet_session():
-        return
-    sid = payload.get("session_id")
+    if not eligible(payload):
+        return None
     svc = service_from_tool(payload.get("tool_name") or "", payload.get("tool_input"))
-    if not sid or not svc:
-        return
-
-    # Ask BEFORE stamping this call: a session woken by a channel event may
-    # never see a typed prompt, but it makes tool calls. The gap is measured
-    # against the previous use, so the call that ends a long gap triggers it.
-    out = ask(payload, now, "PostToolUse")
+    if not svc:
+        return None
 
     def upd(state):
-        entry = state.setdefault(svc, {})
-        entry["last_used"] = now
+        # Ask before stamping this call, so the call that ends a long gap counts
+        # its previous use, not itself.
+        due = take_due(state, now)
+        e = state["services"].setdefault(svc, {})
+        e["last_used"] = now
+        if e.get("asked_day") != day_of(now):
+            e.setdefault("pending_since", now)
+        return due
 
-    locked_update(state_path(sid), upd)
-    prune(os.path.join(base_dir(), "state"), now)
-    return out
-
-
-def build_ask(services, script):
-    names = ", ".join(services)
-    return (
-        "Interface feedback (about once a day, so the tools you use can improve). "
-        "You used these plugins/services today and have not given feedback on them yet: "
-        + names + ". For EACH, in 2-4 lines: what went well, what was confusing or "
-        "broke, and one concrete improvement. Record it with one command per service "
-        "(batch them in a single Bash call, before or alongside your next step; do not "
-        "message anyone and do not file a review item):\n"
-        "python3 \"" + script + "\" add --service <name> --well \"...\" "
-        "--issue \"...\" --improve \"...\" --agent \"" + agent_name() + "\"\n"
-        "If a service had nothing notable, use --well \"fine\" --issue \"none\" --improve \"none\". "
-        "Do not mention this ask to the user unless asked."
-    )
+    due = locked_update(state_path(), upd)
+    return build_ask(due, "PostToolUse") if due else None
 
 
 def ask(payload, now, event):
-    if payload.get("agent_id") or not is_fleet_session():
+    if not eligible(payload) or not os.path.exists(state_path()):
         return None
-    sid = payload.get("session_id")
-    if not sid:
+    due = locked_update(state_path(), lambda s: take_due(s, now))
+    return build_ask(due, event) if due else None
+
+
+def read_tail(path):
+    with open(path, "rb") as f:
+        f.seek(0, os.SEEK_END)
+        f.seek(max(0, f.tell() - TRANSCRIPT_TAIL_BYTES))
+        return f.read().decode("utf-8", "replace")
+
+
+def assistant_texts(raw):
+    for line in raw.splitlines():
+        try:
+            o = json.loads(line)
+        except ValueError:
+            continue
+        if o.get("type") != "assistant":
+            continue
+        for b in (o.get("message") or {}).get("content") or []:
+            if isinstance(b, dict) and b.get("type") == "text":
+                yield b.get("text") or ""
+
+
+def collect(payload, now):
+    if not eligible(payload):
+        return None
+    tp = payload.get("transcript_path")
+    if not tp or not os.path.exists(tp):
+        return None
+    rows = []
+    for text in assistant_texts(read_tail(tp)):
+        for block in BLOCK_RE.findall(text):
+            for line in block.splitlines():
+                parts = [p.strip() for p in line.split(" | ")]
+                if len(parts) >= 4 and parts[0] and not parts[0].startswith("<"):
+                    rows.append((parts[0], parts[1], parts[2], " | ".join(parts[3:])))
+    if not rows:
         return None
     today = day_of(now)
-    due = []
 
     def upd(state):
-        for svc, e in sorted(state.items()):
-            last = e.get("last_used")
-            if (isinstance(last, (int, float)) and day_of(last) == today
-                    and now - last >= GAP_SECONDS and e.get("asked_day") != today):
-                due.append(svc)
-                e["asked_day"] = today
+        done = state.setdefault("recorded", {})
+        fresh = [r for r in rows if done.get(r[0]) != today]
+        for r in fresh:
+            done[r[0]] = today
+        return fresh
 
-    path = state_path(sid)
-    if not os.path.exists(path):
-        return None
-    locked_update(path, upd)
-    if not due:
-        return None
-    return {"hookSpecificOutput": {
-        "hookEventName": event,
-        "additionalContext": build_ask(due, os.path.abspath(__file__))}}
+    for svc, well, issue, improve in locked_update(state_path(), upd):
+        append_row(svc, well, issue, improve, agent_name(), now)
+    return None
+
+
+def append_row(service, well, issue, improve, agent, now):
+    path = os.path.join(base_dir(), safe(service) + ".jsonl")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    row = {"ts": stamp(now), "service": service, "agent": agent,
+           "well": well, "issue": issue, "improve": improve}
+    with open(path, "a") as f:
+        f.write(json.dumps(row) + "\n")
+    return path
 
 
 def hook_main(mode, event):
     try:
         payload = json.load(sys.stdin)
         now = float(os.environ.get("INTERFACE_FEEDBACK_NOW") or time.time())
-        out = record(payload, now) if mode == "record" else ask(payload, now, event)
+        if mode == "record":
+            out = record(payload, now)
+        elif mode == "collect":
+            out = collect(payload, now)
+        else:
+            out = ask(payload, now, event)
         if out:
             print(json.dumps(out))
-    except Exception:
-        pass  # fail open and quiet
+    except Exception as e:  # never wedge the session; make the failure visible
+        log_error(mode, "%s: %s" % (type(e).__name__, e) or traceback.format_exc())
     return 0
 
 
-def feedback_file(service):
-    return os.path.join(base_dir(), safe(service) + ".jsonl")
+def cmd_status(a):
+    now = float(os.environ.get("INTERFACE_FEEDBACK_NOW") or time.time())
+    agent = a.agent or agent_name()
+    os.environ["CW_AGENT_NAME"] = agent
+    last_err = None
+    try:
+        with open(os.path.join(base_dir(), "errors.log")) as f:
+            mine = [l for l in f if (" %s " % agent) in l]
+        last_err = mine[-1].strip() if mine else None
+    except OSError:
+        pass
+    state = load_json(state_path())
+    last = state.get("last_outcome") or {}
+    err_ts = None
+    if last_err:
+        try:
+            err_ts = datetime.datetime.fromisoformat(last_err.split(" ", 1)[0]).timestamp()
+        except ValueError:
+            err_ts = now
+    if err_ts and err_ts >= last.get("ts", 0) and now - err_ts < 86400:
+        print("could not run: " + last_err)
+        return 1
+    if last.get("outcome") == "asked" and day_of(last["ts"]) == day_of(now):
+        print("asked at %s about %s" % (stamp(last["ts"]), ", ".join(last["services"])))
+        return 0
+    print("nothing due (%d services tracked for %s)"
+          % (len(state.get("services", {})), agent or "-"))
+    return 0
 
 
 def cmd_add(a):
-    row = {"ts": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
-           "service": a.service, "agent": a.agent or agent_name(),
-           "well": a.well, "issue": a.issue, "improve": a.improve}
-    path = feedback_file(a.service)
     try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "a") as f:
-            f.write(json.dumps(row) + "\n")
+        path = append_row(a.service, a.well, a.issue, a.improve, a.agent or agent_name(),
+                          time.time())
     except OSError as e:
-        print("interface_feedback: COULD NOT WRITE feedback for %r to %s: %s"
-              % (a.service, path, e), file=sys.stderr)
+        print("interface_feedback: COULD NOT WRITE feedback for %r: %s" % (a.service, e),
+              file=sys.stderr)
         return 1
     print("recorded feedback for %s -> %s" % (a.service, path))
     return 0
 
 
 def cmd_read(a):
-    path = feedback_file(a.service)
+    path = os.path.join(base_dir(), safe(a.service) + ".jsonl")
     if not os.path.exists(path):
         print("no feedback file for %s (%s)" % (a.service, path), file=sys.stderr)
         return 0
@@ -232,7 +335,7 @@ def cmd_read(a):
 
 
 def main(argv):
-    if len(argv) > 1 and argv[1] in ("record", "ask"):
+    if len(argv) > 1 and argv[1] in ("record", "ask", "collect"):
         return hook_main(argv[1], argv[2] if len(argv) > 2 else "UserPromptSubmit")
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -247,6 +350,9 @@ def main(argv):
     r.add_argument("--service", required=True)
     r.add_argument("--since", default="", help="YYYY-MM-DD")
     r.set_defaults(fn=cmd_read)
+    st = sub.add_parser("status")
+    st.add_argument("--agent", default="")
+    st.set_defaults(fn=cmd_status)
     a = p.parse_args(argv[1:])
     return a.fn(a)
 

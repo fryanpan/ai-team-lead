@@ -405,9 +405,10 @@ def test_block_without_timestamp_is_not_stored(tmp_path):
 
 def test_prompt_with_nothing_due_does_not_rewrite_state(tmp_path):
     use(tmp_path, "mcp__notion__search", NOON)
+    assert prompt(tmp_path, NOON + MIN) is None     # first prompt stamps ask health
     st = tmp_path / "state" / "Tester.json"
     before = st.stat().st_mtime_ns
-    assert prompt(tmp_path, NOON + MIN) is None
+    assert prompt(tmp_path, NOON + 2 * MIN) is None
     assert st.stat().st_mtime_ns == before
 
 
@@ -429,3 +430,30 @@ def test_hooks_json_skips_unnamed_sessions_before_python(tmp_path):
     assert r.returncode == 0 and not (tmp_path / "state").exists()
     r = subprocess.run(["sh", "-c", cmd], input=payload, text=True, env=dict(base, CW_AGENT_NAME="X"))
     assert r.returncode == 0 and (tmp_path / "state" / "X.json").exists()
+
+
+def test_record_success_does_not_hide_a_failing_collect(tmp_path):
+    _open_ask(tmp_path)
+    (tmp_path / "errors").mkdir()
+    with open(tmp_path / "errors" / "Tester.log", "a") as f:
+        f.write("%r 2026-10-30T12:01 collect: OSError: cannot read transcript\n" % (NOON + 60))
+    use(tmp_path, "mcp__notion__search", NOON + 2 * MIN)
+    rc, out = _status_rc(tmp_path, NOON + 3 * MIN)
+    assert rc == 1 and "could not run" in out
+
+
+def test_common_block_variants_are_parsed(tmp_path):
+    _open_ask(tmp_path)
+    text = ("```interface-feedback\n- `Notion`|fast|none|accept URLs\n"
+            "* claude-hive | fine | none | none\n```\n")
+    run(tmp_path, "collect", {"session_id": "s1", "transcript_path": _transcript(tmp_path, text)},
+        NOON + MIN)
+    row = json.loads((tmp_path / "notion.jsonl").read_text())
+    assert row["well"] == "fast" and row["improve"] == "accept URLs"
+    assert (tmp_path / "claude-hive.jsonl").exists()
+
+
+def test_directory_scoped_skill_is_not_a_plugin():
+    assert _call('f.service_from_tool("Skill", {"skill": "apps/web:deploy"})') is None
+    assert _call('f.service_from_tool("Skill", {"skill": "superpowers:brainstorming"})') == "superpowers"
+

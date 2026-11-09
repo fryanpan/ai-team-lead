@@ -52,6 +52,7 @@ MIN_ASK_INTERVAL = 12 * 3600
 ANSWER_WINDOW = 24 * 3600
 REFRESH_SECONDS = 600
 LOG_MAX_BYTES = 256_000
+LOCK_WAIT_SECONDS = 2
 COLLECT_RETRY_SECONDS = float(os.environ.get("INTERFACE_FEEDBACK_RETRY", "1"))
 FORGET_SECONDS = 7 * 86400
 TRANSCRIPT_TAIL_BYTES = 200_000
@@ -64,7 +65,8 @@ def base_dir():
 
 
 def safe(name):
-    """Reversible file-name form: distinct names never share a file."""
+    """Reversible file-name form. On a case-insensitive volume, names that
+    differ only in case still share a file; agent and plugin names do not."""
     return urllib.parse.quote(name, safe="-.")
 
 
@@ -96,8 +98,9 @@ def service_from_tool(tool_name, tool_input=None):
         return server
     if tool_name == "Skill":
         skill = (tool_input or {}).get("skill") or (tool_input or {}).get("name") or ""
-        if ":" in skill:
-            return skill.split(":", 1)[0]
+        prefix = skill.split(":", 1)[0] if ":" in skill else ""
+        if prefix and "/" not in prefix:  # "apps/web:deploy" is a project skill
+            return prefix
     return None
 
 
@@ -129,7 +132,15 @@ def locked_update(path, fn, write_on_error=False):
     fn raised are still saved (then the error is re-raised)."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path + ".lock", "w") as lk:
-        fcntl.flock(lk, fcntl.LOCK_EX)
+        deadline = time.monotonic() + LOCK_WAIT_SECONDS
+        while True:  # bounded: the sync hooks have a 5s budget
+            try:
+                fcntl.flock(lk, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() > deadline:
+                    raise TimeoutError("state lock held for over %ss" % LOCK_WAIT_SECONDS)
+                time.sleep(0.05)
         state = load_json(path)
         try:
             result = fn(state)
@@ -177,7 +188,6 @@ def take_due(state, now):
         asks[svc] = now
     if due:
         state["last_outcome"] = {"ts": now, "outcome": "asked", "services": due}
-    state["last_run"] = now
     return due
 
 
@@ -257,31 +267,37 @@ def record(payload, now):
         e["last_used"] = now
         if svc not in due:
             e.setdefault("pending_since", now)
-        if sub:
-            state["last_run"] = now
+        mark_ok(state, "record", now)
         return due
 
     due = locked_update(state_path(), upd)
     return build_ask(due, "PostToolUse") if due else None
 
 
-def needs_write(state, svc, now, sub=False):
+def mark_ok(state, mode, now):
+    """Record a successful run of one hook mode. status checks each mode's
+    errors against that mode's own last success."""
+    state.setdefault("last_ok", {})[mode] = now
+    state["last_run"] = now
+
+
+def needs_write(state, svc, now, sub=False, mode="record"):
     """False when this call would change nothing worth a locked write: nothing
-    is due, last_run is under REFRESH_SECONDS old, no error was logged since
-    last_run, and (for a tool call) the service already has pending use
+    is due, this mode last succeeded under REFRESH_SECONDS ago, no error was
+    logged since then, and (for a tool call) the service already has pending use
     stamped under REFRESH_SECONDS ago."""
     services = state.get("services")
     if not isinstance(services, dict):
         return True
-    last_run = state.get("last_run", 0)
-    if now - last_run > REFRESH_SECONDS:
+    last_ok = (state.get("last_ok") or {}).get(mode, 0)
+    if now - last_ok > REFRESH_SECONDS:
         return True
     if svc is not None:  # svc None: a prompt, which stamps no use
         e = services.get(svc)
         if not e or "pending_since" not in e or now - e.get("last_used", 0) > REFRESH_SECONDS:
             return True
     try:  # an error since the last run: write, so status can see the recovery
-        if os.stat(errors_path()).st_mtime >= last_run:
+        if os.stat(errors_path()).st_mtime >= last_ok:
             return True
     except OSError:
         pass
@@ -291,9 +307,14 @@ def needs_write(state, svc, now, sub=False):
 def ask(payload, now, event):
     if not eligible(payload) or not os.path.exists(state_path()):
         return None
-    if not needs_write(load_json(state_path()), None, now):
+    if not needs_write(load_json(state_path()), None, now, mode="ask"):
         return None
-    due = locked_update(state_path(), lambda s: take_due(s, now))
+    def upd(state):
+        due = take_due(state, now)
+        mark_ok(state, "ask", now)
+        return due
+
+    due = locked_update(state_path(), upd)
     return build_ask(due, event) if due else None
 
 
@@ -350,20 +371,28 @@ def collect(payload, now):
     if not rows:  # the Stop hook can fire before the last message is flushed
         time.sleep(COLLECT_RETRY_SECONDS)
         rows = find_rows(tp, waiting)
-    if not rows:
-        return None
-    return store_rows(rows, waiting, now)
+    if rows:
+        return store_rows(rows, waiting, now)
+    err_ts, _ = last_error()
+    state = load_json(state_path())
+    if err_ts is not None and err_ts >= (state.get("last_ok") or {}).get("collect", 0):
+        locked_update(state_path(), lambda st: mark_ok(st, "collect", now))
+    return None
 
 
 def find_rows(tp, waiting):
     rows = {}  # service -> fields; the newest block wins
+    by_name = {svc.lower(): svc for svc in waiting}
     for ts, text in assistant_texts(read_tail(tp), min(waiting.values())):
         for block in BLOCK_RE.findall(text):
             for line in block.splitlines():
-                parts = [p.strip() for p in line.split(" | ")]
-                svc = parts[0] if parts else ""
-                if len(parts) >= 4 and svc in waiting and ts >= waiting[svc]:
-                    rows[svc] = (parts[1], parts[2], " | ".join(parts[3:]))
+                parts = [p.strip() for p in line.split("|", 3)]
+                if len(parts) < 4:
+                    continue
+                name = re.sub(r"^[-*+]\s+", "", parts[0]).strip("`* ").lower()
+                svc = by_name.get(name)
+                if svc and ts >= waiting[svc]:
+                    rows[svc] = (parts[1], parts[2], parts[3])
     return rows
 
 
@@ -379,7 +408,7 @@ def store_rows(rows, waiting, now):
             append_row(svc, well, issue, improve, agent_name(), now)
             del open_now[svc]
             answered[svc] = now
-            state["last_run"] = now
+            mark_ok(state, "collect", now)
 
     locked_update(state_path(), upd, write_on_error=True)
     return None
@@ -427,7 +456,9 @@ def cmd_status(a):
     state = load_json(state_path())
     last_run = state.get("last_run", 0)
     err_ts, err = last_error(agent)
-    if err_ts is not None and err_ts >= last_run and now - min(err_ts, now) < 86400:
+    err_mode = (err or "").split(" ")[1].rstrip(":") if err and " " in err else ""
+    mode_ok = (state.get("last_ok") or {}).get(err_mode, 0)
+    if err_ts is not None and err_ts >= mode_ok and now - err_ts < 86400:
         print("could not run: " + err)
         return 1
     if not last_run:

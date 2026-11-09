@@ -457,3 +457,42 @@ def test_directory_scoped_skill_is_not_a_plugin():
     assert _call('f.service_from_tool("Skill", {"skill": "apps/web:deploy"})') is None
     assert _call('f.service_from_tool("Skill", {"skill": "superpowers:brainstorming"})') == "superpowers"
 
+
+
+def test_service_back_after_a_week_is_asked_once_that_day(tmp_path):
+    use(tmp_path, "mcp__notion__search", NOON)
+    later = NOON + 8 * 86400
+    assert run(tmp_path, "record", {"session_id": "s1", "tool_name": "mcp__notion__x"}, later)
+    use(tmp_path, "mcp__notion__search", later + MIN)
+    assert prompt(tmp_path, later + 2 * HOUR) is None
+
+
+def test_status_checks_every_mode_not_just_the_newest_error(tmp_path):
+    _open_ask(tmp_path)
+    (tmp_path / "errors").mkdir()
+    with open(tmp_path / "errors" / "Tester.log", "a") as f:
+        f.write("%r x collect: OSError: broken\n" % (NOON + 60))
+        f.write("%r x record: OSError: blip\n" % (NOON + 90))
+    use(tmp_path, "mcp__notion__search", NOON + 2 * MIN)   # record recovers
+    rc, out = _status_rc(tmp_path, NOON + 3 * MIN)
+    assert rc == 1 and "collect" in out
+
+
+def test_failed_tool_calls_count_as_use(tmp_path):
+    hooks = json.load(open(os.path.join(os.path.dirname(SCRIPT), "hooks.json")))["hooks"]
+    cmd = hooks["PostToolUseFailure"][-1]["hooks"][0]["command"]
+    assert "record PostToolUseFailure" in cmd
+    run(tmp_path, "record", {"session_id": "s1", "tool_name": "mcp__notion__x"}, NOON, "Tester",
+        "PostToolUseFailure")
+    out = run(tmp_path, "record", {"session_id": "s1", "tool_name": "mcp__notion__x"},
+              NOON + 2 * HOUR, "Tester", "PostToolUseFailure")
+    assert out["hookSpecificOutput"]["hookEventName"] == "PostToolUseFailure"
+
+
+def test_hooks_pin_python_path():
+    hooks = json.load(open(os.path.join(os.path.dirname(SCRIPT), "hooks.json")))["hooks"]
+    for ev in ("PostToolUse", "PostToolUseFailure", "UserPromptSubmit", "Stop"):
+        for h in hooks[ev]:
+            for c in h["hooks"]:
+                if "interface_feedback.py" in c["command"]:
+                    assert "/usr/bin/python3 " in c["command"]

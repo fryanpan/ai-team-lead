@@ -9,8 +9,9 @@ Subcommands
   ask [EVENT]       Prompt hook. Asks if any service is due, without stamping use.
   collect           Stop hook. Reads the agent's last messages for an
                     ```interface-feedback``` block and stores each line.
-  status            Prints the agent's last hook outcome: asked, nothing due, or
-                    could not run.
+  status            Prints the agent's last hook outcome: asked (with which
+                    services were answered), nothing due, could not run, or
+                    never run.
   add  ...          Append one feedback line for a service by hand.
   read ...          Print feedback lines for a service (run by the owner).
 
@@ -44,6 +45,7 @@ import time
 import traceback
 
 GAP_SECONDS = 3600
+REFRESH_SECONDS = 600
 FORGET_SECONDS = 7 * 86400
 TRANSCRIPT_TAIL_BYTES = 200_000
 BLOCK_RE = re.compile(r"```interface-feedback[^\n]*\n(.*?)```", re.S)
@@ -75,6 +77,11 @@ def service_from_tool(tool_name, tool_input=None):
         if server.startswith("plugin_"):
             rest = server[len("plugin_"):]
             plugin, _, srv = rest.partition("_")
+            if rest.count("_") > 1:  # ambiguous split: prefer an installed plugin name
+                for name in sorted(installed_plugins(), key=len, reverse=True):
+                    if rest == name or rest.startswith(name + "_"):
+                        plugin, srv = name, rest[len(name) + 1:]
+                        break
             if not srv or srv == plugin:
                 return plugin
             return plugin + "/" + srv
@@ -84,6 +91,12 @@ def service_from_tool(tool_name, tool_input=None):
         if ":" in skill:
             return skill.split(":", 1)[0]
     return None
+
+
+def installed_plugins():
+    cfg = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+    data = load_json(os.path.join(cfg, "plugins", "installed_plugins.json"))
+    return {k.split("@", 1)[0] for k in (data.get("plugins") or {})}
 
 
 def agent_name():
@@ -132,7 +145,9 @@ def take_due(state, now):
                 if now - e.get("last_used", now) > FORGET_SECONDS]:
         del services[svc]
     if due:
-        state["last_outcome"] = {"ts": now, "outcome": "asked", "services": due}
+        state["last_outcome"] = {"ts": now, "outcome": "asked", "services": due,
+                                 "answered": []}
+    state["last_run"] = now
     return due
 
 
@@ -153,7 +168,7 @@ def build_ask(services, event):
 
 def log_error(event, exc):
     now = time.time()
-    line = "%s %s %s: %s\n" % (stamp(now), agent_name() or "-", event, exc)
+    line = "%s %s %s: %s\n" % (stamp(now), safe(agent_name()) or "-", event, exc)
     try:
         os.makedirs(base_dir(), exist_ok=True)
         with open(os.path.join(base_dir(), "errors.log"), "a") as f:
@@ -173,18 +188,45 @@ def record(payload, now):
     if not svc:
         return None
 
+    if not needs_write(load_json(state_path()), svc, now):
+        return None
+
     def upd(state):
         # Ask before stamping this call, so the call that ends a long gap counts
-        # its previous use, not itself.
+        # its previous use, not itself. Use after today's ask gets a new
+        # pending_since; take_due holds it until tomorrow.
         due = take_due(state, now)
         e = state["services"].setdefault(svc, {})
         e["last_used"] = now
-        if e.get("asked_day") != day_of(now):
-            e.setdefault("pending_since", now)
+        e.setdefault("pending_since", now)
         return due
 
     due = locked_update(state_path(), upd)
     return build_ask(due, "PostToolUse") if due else None
+
+
+def needs_write(state, svc, now):
+    """False when this call would change nothing worth a locked write: the
+    service already has pending use, nothing is due, last_used and last_run
+    are under REFRESH_SECONDS old, and no error was logged since last_run."""
+    services = state.get("services")
+    if not isinstance(services, dict):
+        return True
+    e = services.get(svc)
+    if not e or "pending_since" not in e:
+        return True
+    last_run = state.get("last_run", 0)
+    if now - e.get("last_used", 0) > REFRESH_SECONDS or now - last_run > REFRESH_SECONDS:
+        return True
+    try:  # an error since the last run: write, so status can see the recovery
+        if os.stat(os.path.join(base_dir(), "errors.log")).st_mtime >= last_run:
+            return True
+    except OSError:
+        pass
+    today = day_of(now)
+    return any(isinstance(x.get("pending_since"), (int, float))
+               and now - x["pending_since"] >= GAP_SECONDS and x.get("asked_day") != today
+               for x in services.values())
 
 
 def ask(payload, now, event):
@@ -194,6 +236,14 @@ def ask(payload, now, event):
     return build_ask(due, event) if due else None
 
 
+def open_services(state, now):
+    """Services in today's ask that have no answer stored yet."""
+    last = state.get("last_outcome") or {}
+    if last.get("outcome") != "asked" or day_of(last.get("ts", 0)) != day_of(now):
+        return []
+    return [s for s in last.get("services") or [] if s not in (last.get("answered") or [])]
+
+
 def read_tail(path):
     with open(path, "rb") as f:
         f.seek(0, os.SEEK_END)
@@ -201,13 +251,26 @@ def read_tail(path):
         return f.read().decode("utf-8", "replace")
 
 
-def assistant_texts(raw):
+def entry_day(ts):
+    """Local day of a transcript timestamp, or None if it cannot be read."""
+    try:
+        return day_of(datetime.datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp())
+    except (AttributeError, ValueError):
+        return None
+
+
+def assistant_texts(raw, today):
+    """Text of today's assistant messages. Older blocks in the tail were stored
+    on the day they were written, or are too old to store now."""
     for line in raw.splitlines():
         try:
             o = json.loads(line)
         except ValueError:
             continue
         if o.get("type") != "assistant":
+            continue
+        day = entry_day(o.get("timestamp"))
+        if day is not None and day != today:
             continue
         for b in (o.get("message") or {}).get("content") or []:
             if isinstance(b, dict) and b.get("type") == "text":
@@ -220,8 +283,11 @@ def collect(payload, now):
     tp = payload.get("transcript_path")
     if not tp or not os.path.exists(tp):
         return None
+    today = day_of(now)
+    if not open_services(load_json(state_path()), now):
+        return None  # no ask waiting for an answer: skip reading the transcript
     rows = []
-    for text in assistant_texts(read_tail(tp)):
+    for text in assistant_texts(read_tail(tp), today):
         for block in BLOCK_RE.findall(text):
             for line in block.splitlines():
                 parts = [p.strip() for p in line.split(" | ")]
@@ -229,13 +295,17 @@ def collect(payload, now):
                     rows.append((parts[0], parts[1], parts[2], " | ".join(parts[3:])))
     if not rows:
         return None
-    today = day_of(now)
 
     def upd(state):
         done = state.setdefault("recorded", {})
         fresh = [r for r in rows if done.get(r[0]) != today]
         for r in fresh:
             done[r[0]] = today
+        last = state.get("last_outcome") or {}
+        if last.get("outcome") == "asked":
+            got = set(last.get("answered") or []) | {r[0] for r in rows}
+            last["answered"] = sorted(got & set(last.get("services") or []))
+        state["last_run"] = now
         return fresh
 
     for svc, well, issue, improve in locked_update(state_path(), upd):
@@ -266,37 +336,54 @@ def hook_main(mode, event):
         if out:
             print(json.dumps(out))
     except Exception as e:  # never wedge the session; make the failure visible
-        log_error(mode, "%s: %s" % (type(e).__name__, e) or traceback.format_exc())
+        tb = traceback.extract_tb(e.__traceback__)
+        where = " at line %d" % tb[-1].lineno if tb else ""
+        log_error(mode, "%s: %s%s" % (type(e).__name__, e, where))
     return 0
 
 
 def cmd_status(a):
+    """Exit 0: ran (asked, or nothing due). Exit 1: could not run. Exit 2: no
+    hook run recorded for this agent, so nothing can be said."""
     now = float(os.environ.get("INTERFACE_FEEDBACK_NOW") or time.time())
     agent = a.agent or agent_name()
+    if not agent:
+        print("could not run: no agent name (CW_AGENT_NAME and FEEDBACK_AGENT_NAME unset); "
+              "the hooks skip unnamed sessions")
+        return 1
     os.environ["CW_AGENT_NAME"] = agent
     last_err = None
     try:
         with open(os.path.join(base_dir(), "errors.log")) as f:
-            mine = [l for l in f if (" %s " % agent) in l]
+            mine = [l for l in f if l.split(" ", 2)[1:2] == [safe(agent)]]
         last_err = mine[-1].strip() if mine else None
     except OSError:
         pass
     state = load_json(state_path())
-    last = state.get("last_outcome") or {}
-    err_ts = None
+    last_run = state.get("last_run", 0)
     if last_err:
         try:
             err_ts = datetime.datetime.fromisoformat(last_err.split(" ", 1)[0]).timestamp()
         except ValueError:
             err_ts = now
-    if err_ts and err_ts >= last.get("ts", 0) and now - err_ts < 86400:
-        print("could not run: " + last_err)
-        return 1
+        if err_ts >= last_run and now - err_ts < 86400:
+            print("could not run: " + last_err)
+            return 1
+    if not last_run:
+        print("never run: no hook run recorded for %s (plugin not loaded, or no MCP or "
+              "Skill call yet) at %s" % (agent, state_path()))
+        return 2
+    last = state.get("last_outcome") or {}
     if last.get("outcome") == "asked" and day_of(last["ts"]) == day_of(now):
-        print("asked at %s about %s" % (stamp(last["ts"]), ", ".join(last["services"])))
+        answered = last.get("answered") or []
+        waiting = open_services(state, now)
+        print("asked at %s about %s; answered: %s%s"
+              % (stamp(last["ts"]), ", ".join(last["services"]),
+                 ", ".join(answered) or "none",
+                 "; unanswered: " + ", ".join(waiting) if waiting else ""))
         return 0
-    print("nothing due (%d services tracked for %s)"
-          % (len(state.get("services", {})), agent or "-"))
+    print("nothing due (last run %s; %d services tracked for %s)"
+          % (stamp(last_run), len(state.get("services", {})), agent))
     return 0
 
 

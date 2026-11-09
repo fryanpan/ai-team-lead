@@ -53,7 +53,7 @@ def test_under_an_hour_does_not_fire(tmp_path):
 def test_second_ask_same_day_does_not_fire(tmp_path):
     use(tmp_path, "mcp__notion__search", NOON)
     assert prompt(tmp_path, NOON + 2 * HOUR) is not None
-    assert prompt(tmp_path, NOON + 2 * HOUR + 600) is None  # notion already asked; hive used 10m ago
+    assert prompt(tmp_path, NOON + 2 * HOUR + 600) is None  # notion already asked today
 
 
 def test_service_asked_yesterday_and_not_used_since_does_not_fire(tmp_path):
@@ -112,7 +112,7 @@ def test_record_hook_asks_for_session_woken_without_typed_prompt(tmp_path):
               NOON + 2 * HOUR)
     assert out["hookSpecificOutput"]["hookEventName"] == "PostToolUse"
     assert "notion" in out["hookSpecificOutput"]["additionalContext"]
-    assert prompt(tmp_path, NOON + 2 * HOUR + 600) is None  # notion already asked; hive used 10m ago
+    assert prompt(tmp_path, NOON + 2 * HOUR + 600) is None  # notion already asked today
 
 
 # --- fix round: behaviours the first review found missing ---------------------
@@ -167,7 +167,14 @@ BLOCK = ("Done with the task.\n\n```interface-feedback\n"
          "claude-hive | fine | none | none\n```\n")
 
 
+def _open_ask(tmp, now=NOON):
+    use(tmp, "mcp__notion__search", now - 2 * HOUR)
+    use(tmp, "mcp__claude-hive__send_message", now - 2 * HOUR)
+    assert prompt(tmp, now) is not None
+
+
 def test_collect_records_block_from_transcript_once(tmp_path):
+    _open_ask(tmp_path)
     tp = _transcript(tmp_path, BLOCK)
     for _ in range(2):  # the Stop hook can fire again on the same transcript
         run(tmp_path, "collect", {"session_id": "s1", "transcript_path": tp}, NOON)
@@ -198,3 +205,96 @@ def test_status_reports_three_states(tmp_path):
     assert run(tmp_path, "record", {"session_id": "s1", "tool_name": "mcp__notion__x"},
                NOON + 3 * HOUR) is None
     assert "could not run" in _status(tmp_path, NOON + 3 * HOUR)
+
+
+def test_collect_ignores_blocks_from_earlier_days(tmp_path):
+    _open_ask(tmp_path)
+    p = tmp_path / "t.jsonl"
+    p.write_text(json.dumps({"type": "assistant", "timestamp": "2026-10-29T18:00:00Z",
+                             "message": {"content": [{"type": "text", "text": BLOCK}]}}) + "\n")
+    run(tmp_path, "collect", {"session_id": "s1", "transcript_path": str(p)}, NOON)
+    assert not (tmp_path / "notion.jsonl").exists()
+
+
+def _status_rc(tmp, now, agent="Tester"):
+    env = dict(os.environ, INTERFACE_FEEDBACK_DIR=str(tmp), INTERFACE_FEEDBACK_NOW=str(now))
+    env.pop("CW_AGENT_NAME", None)
+    env.pop("FEEDBACK_AGENT_NAME", None)
+    if agent:
+        env["CW_AGENT_NAME"] = agent
+    r = subprocess.run([sys.executable, SCRIPT, "status"], capture_output=True, text=True, env=env)
+    return r.returncode, r.stdout
+
+
+def test_use_after_todays_ask_is_asked_about_next_day(tmp_path):
+    use(tmp_path, "mcp__notion__search", NOON - 3 * HOUR)
+    assert prompt(tmp_path, NOON) is not None          # asked today
+    use(tmp_path, "mcp__notion__search", NOON + 2 * HOUR)  # more use the same day
+    assert prompt(tmp_path, NOON + 3 * HOUR) is None   # not twice in one day
+    out = prompt(tmp_path, NOON + 86400)               # not used next day, still asked
+    assert out and "notion" in out["hookSpecificOutput"]["additionalContext"]
+
+
+def test_status_recovers_after_a_transient_error(tmp_path):
+    use(tmp_path, "mcp__notion__search", NOON)
+    os.makedirs(tmp_path, exist_ok=True)
+    with open(tmp_path / "errors.log", "a") as f:
+        stamp = datetime.datetime.fromtimestamp(NOON + 60).astimezone().isoformat(timespec="seconds")
+        f.write("%s Tester record: OSError: disk hiccup\n" % stamp)
+    assert _status_rc(tmp_path, NOON + 120)[0] == 1
+    use(tmp_path, "mcp__notion__search", NOON + 2 * 60)   # a later run succeeds
+    rc, out = _status_rc(tmp_path, NOON + 3 * 60)
+    assert rc == 0 and "could not run" not in out
+
+
+def test_status_never_run_is_not_nothing_due(tmp_path):
+    rc, out = _status_rc(tmp_path, NOON)
+    assert rc != 0 and "nothing due" not in out
+    rc, out = _status_rc(tmp_path, NOON, agent="")
+    assert rc != 0 and "nothing due" not in out
+
+
+def test_status_tells_answered_from_unanswered(tmp_path):
+    _open_ask(tmp_path)
+    out = _status_rc(tmp_path, NOON + 60)[1]
+    assert "unanswered" in out and "notion" in out
+    run(tmp_path, "collect", {"session_id": "s1", "transcript_path": _transcript(tmp_path, BLOCK)},
+        NOON + 120)
+    out = _status_rc(tmp_path, NOON + 180)[1]
+    assert "unanswered" not in out and "answered" in out
+
+
+def test_status_ignores_errors_of_agents_with_overlapping_names(tmp_path):
+    use(tmp_path, "mcp__notion__search", NOON, )
+    with open(tmp_path / "errors.log", "a") as f:
+        stamp = datetime.datetime.fromtimestamp(NOON + 60).astimezone().isoformat(timespec="seconds")
+        f.write("%s Team_Tester record: OSError: other agent\n" % stamp)
+        f.write("%s Team Tester record: OSError: other agent\n" % stamp)
+    rc, out = _status_rc(tmp_path, NOON + 120)
+    assert rc == 0 and "could not run" not in out
+
+
+def test_collect_skips_transcript_when_no_ask_is_open(tmp_path):
+    tp = _transcript(tmp_path, BLOCK)
+    run(tmp_path, "collect", {"session_id": "s1", "transcript_path": tp}, NOON)
+    assert not (tmp_path / "notion.jsonl").exists()
+
+
+def _service(tool, cfg):
+    code = ("import importlib.util,sys;s=importlib.util.spec_from_file_location('f',%r);"
+            "m=importlib.util.module_from_spec(s);s.loader.exec_module(m);"
+            "print(m.service_from_tool(%r))" % (SCRIPT, tool))
+    env = dict(os.environ, CLAUDE_CONFIG_DIR=str(cfg))
+    return subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
+                          env=env).stdout.strip()
+
+
+def test_plugin_name_with_underscore_uses_installed_name(tmp_path):
+    (tmp_path / "plugins").mkdir()
+    (tmp_path / "plugins" / "installed_plugins.json").write_text(json.dumps(
+        {"version": 2, "plugins": {"my_tools@mkt": []}}))
+    assert _service("mcp__plugin_my_tools_srv__x", tmp_path) == "my_tools/srv"
+    assert _service("mcp__plugin_my_tools_my_tools__x", tmp_path) == "my_tools"
+    empty = tmp_path / "none"
+    empty.mkdir()
+    assert _service("mcp__plugin_a_b__x", empty) == "a/b"

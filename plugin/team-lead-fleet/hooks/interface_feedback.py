@@ -45,12 +45,14 @@ import re
 import sys
 import time
 import traceback
+import urllib.parse
 
 GAP_SECONDS = 3600
 MIN_ASK_INTERVAL = 12 * 3600
 ANSWER_WINDOW = 24 * 3600
 REFRESH_SECONDS = 600
 LOG_MAX_BYTES = 256_000
+COLLECT_RETRY_SECONDS = float(os.environ.get("INTERFACE_FEEDBACK_RETRY", "1"))
 FORGET_SECONDS = 7 * 86400
 TRANSCRIPT_TAIL_BYTES = 200_000
 BLOCK_RE = re.compile(r"```interface-feedback[^\n]*\n(.*?)```", re.S)
@@ -62,7 +64,8 @@ def base_dir():
 
 
 def safe(name):
-    return re.sub(r"[^A-Za-z0-9._-]", "_", name)
+    """Reversible file-name form: distinct names never share a file."""
+    return urllib.parse.quote(name, safe="-.")
 
 
 def day_of(epoch):
@@ -184,7 +187,9 @@ def build_ask(services, event):
         "Interface feedback (about once a day, so the tools you use can improve). "
         "You used these plugins/services and have not given feedback on them today: "
         + names + ". At the END of your next reply, add one fenced block tagged "
-        "interface-feedback, one line per service, fields separated by ' | ':\n"
+        "interface-feedback, one line per service, fields separated by ' | '. Write "
+        "it as reply text even if you would otherwise end the turn on a tool call "
+        "with no text:\n"
         "```interface-feedback\n"
         "<service> | what went well | what was confusing or broke | one concrete improvement\n"
         "```\n"
@@ -199,7 +204,8 @@ def errors_path(agent=None):
 
 def log_error(event, exc):
     now = time.time()
-    line = "%r %s %s: %s\n" % (now, stamp(now), event, exc)
+    msg = " ".join(str(exc).split())  # one line, so the epoch always leads it
+    line = "%r %s %s: %s\n" % (now, stamp(now), event, msg)
     path = errors_path()
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -224,7 +230,7 @@ def last_error(agent=None):
     try:
         return float(ts), rest
     except ValueError:
-        return float("inf"), lines[-1]
+        return None, None  # not a line this script wrote
 
 
 def eligible(payload):
@@ -260,18 +266,20 @@ def record(payload, now):
 
 
 def needs_write(state, svc, now, sub=False):
-    """False when this call would change nothing worth a locked write: the
-    service already has pending use, nothing is due, last_used and last_run
-    are under REFRESH_SECONDS old, and no error was logged since last_run."""
+    """False when this call would change nothing worth a locked write: nothing
+    is due, last_run is under REFRESH_SECONDS old, no error was logged since
+    last_run, and (for a tool call) the service already has pending use
+    stamped under REFRESH_SECONDS ago."""
     services = state.get("services")
     if not isinstance(services, dict):
         return True
-    e = services.get(svc)
-    if not e or "pending_since" not in e:
-        return True
     last_run = state.get("last_run", 0)
-    if now - e.get("last_used", 0) > REFRESH_SECONDS or now - last_run > REFRESH_SECONDS:
+    if now - last_run > REFRESH_SECONDS:
         return True
+    if svc is not None:  # svc None: a prompt, which stamps no use
+        e = services.get(svc)
+        if not e or "pending_since" not in e or now - e.get("last_used", 0) > REFRESH_SECONDS:
+            return True
     try:  # an error since the last run: write, so status can see the recovery
         if os.stat(errors_path()).st_mtime >= last_run:
             return True
@@ -282,6 +290,8 @@ def needs_write(state, svc, now, sub=False):
 
 def ask(payload, now, event):
     if not eligible(payload) or not os.path.exists(state_path()):
+        return None
+    if not needs_write(load_json(state_path()), None, now):
         return None
     due = locked_update(state_path(), lambda s: take_due(s, now))
     return build_ask(due, event) if due else None
@@ -319,9 +329,8 @@ def assistant_texts(raw, since):
         if o.get("type") != "assistant":
             continue
         ts = entry_epoch(o.get("timestamp"))
-        if ts is not None and ts < since:
-            continue
-        ts = since if ts is None else ts  # no timestamp: cannot rule it out
+        if ts is None or ts < since:
+            continue  # no timestamp: cannot tell it came after the ask
         for b in (o.get("message") or {}).get("content") or []:
             if isinstance(b, dict) and b.get("type") == "text":
                 yield ts, b.get("text") or ""
@@ -337,6 +346,16 @@ def collect(payload, now):
     waiting = {svc: asks[svc] for svc in open_services({"open_asks": asks}, now)}
     if not waiting:
         return None  # no ask waiting for an answer: skip reading the transcript
+    rows = find_rows(tp, waiting)
+    if not rows:  # the Stop hook can fire before the last message is flushed
+        time.sleep(COLLECT_RETRY_SECONDS)
+        rows = find_rows(tp, waiting)
+    if not rows:
+        return None
+    return store_rows(rows, waiting, now)
+
+
+def find_rows(tp, waiting):
     rows = {}  # service -> fields; the newest block wins
     for ts, text in assistant_texts(read_tail(tp), min(waiting.values())):
         for block in BLOCK_RE.findall(text):
@@ -345,9 +364,10 @@ def collect(payload, now):
                 svc = parts[0] if parts else ""
                 if len(parts) >= 4 and svc in waiting and ts >= waiting[svc]:
                     rows[svc] = (parts[1], parts[2], " | ".join(parts[3:]))
-    if not rows:
-        return None
+    return rows
 
+
+def store_rows(rows, waiting, now):
     def upd(state):
         # Store under the lock, and close an ask only once its row is written:
         # a failed write leaves the ask open for the next Stop.

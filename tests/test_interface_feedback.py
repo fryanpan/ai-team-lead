@@ -17,7 +17,7 @@ HOUR = 3600
 
 def run(tmp, mode, payload, now, agent="Tester", *extra):
     env = dict(os.environ, INTERFACE_FEEDBACK_DIR=str(tmp),
-               INTERFACE_FEEDBACK_NOW=str(now))
+               INTERFACE_FEEDBACK_NOW=str(now), INTERFACE_FEEDBACK_RETRY="0")
     env.pop("CW_AGENT_NAME", None)
     env.pop("FEEDBACK_AGENT_NAME", None)
     if agent:
@@ -72,14 +72,22 @@ def test_multiple_due_services_batch_into_one_ask(tmp_path):
     assert prompt(tmp_path, NOON + 4 * HOUR) is None
 
 
+def _call(expr, env=None):
+    code = ("import importlib.util,sys;s=importlib.util.spec_from_file_location('f',%r);"
+            "f=importlib.util.module_from_spec(s);s.loader.exec_module(f);print(repr(%s))"
+            % (SCRIPT, expr))
+    out = subprocess.run([sys.executable, "-B", "-c", code], capture_output=True, text=True,
+                         env=dict(os.environ, **(env or {})))
+    assert out.returncode == 0, out.stderr
+    return eval(out.stdout)
+
+
 def test_service_name_normalisation():
-    sys.path.insert(0, os.path.dirname(SCRIPT))
-    import interface_feedback as f
-    assert f.service_from_tool("mcp__plugin_claude-workspaces_claude-workspaces__x") == "claude-workspaces"
-    assert f.service_from_tool("mcp__plugin_a_b__x") == "a/b"
-    assert f.service_from_tool("mcp__claude-hive__send_message") == "claude-hive"
-    assert f.service_from_tool("Skill", {"skill": "plain"}) is None
-    assert f.service_from_tool("Bash") is None
+    assert _call('f.service_from_tool("mcp__plugin_claude-workspaces_claude-workspaces__x")') == "claude-workspaces"
+    assert _call('f.service_from_tool("mcp__plugin_a_b__x")') == "a/b"
+    assert _call('f.service_from_tool("mcp__claude-hive__send_message")') == "claude-hive"
+    assert _call('f.service_from_tool("Skill", {"skill": "plain"})') is None
+    assert _call('f.service_from_tool("Bash")') is None
 
 
 def test_subagent_use_counts_for_parent_and_non_fleet_sessions_skipped(tmp_path):
@@ -160,9 +168,10 @@ def test_ask_needs_no_shell_command(tmp_path):
     assert "interface-feedback" in ctx
 
 
-def _transcript(tmp, text):
+def _transcript(tmp, text, at=NOON + 30):
     p = tmp / "t.jsonl"
-    p.write_text(json.dumps({"type": "assistant", "message": {"content": [
+    p.write_text(json.dumps({"type": "assistant", "timestamp": datetime.datetime.fromtimestamp(
+        at).astimezone().isoformat(), "message": {"content": [
         {"type": "text", "text": text}]}}) + "\n")
     return str(p)
 
@@ -363,3 +372,60 @@ def test_duplicate_and_unasked_blocks_store_one_row_per_asked_service(tmp_path):
         NOON + 3 * MIN)
     assert len((tmp_path / "notion.jsonl").read_text().splitlines()) == 1
     assert not (tmp_path / "nobody-asked.jsonl").exists()
+
+
+def test_file_names_do_not_collide():
+    assert _call('f.safe("p/s")') != _call('f.safe("p_s")')
+    assert _call('f.safe("Team Lead")') != _call('f.safe("Team_Lead")')
+
+
+def test_unparseable_error_line_does_not_stick_as_could_not_run(tmp_path):
+    use(tmp_path, "mcp__notion__search", NOON)
+    (tmp_path / "errors").mkdir()
+    (tmp_path / "errors" / "Tester.log").write_text("continuation of a multi-line message\n")
+    use(tmp_path, "mcp__notion__search", NOON + 20 * MIN)
+    rc, out = _status_rc(tmp_path, NOON + 21 * MIN)
+    assert rc == 0 and "could not run" not in out
+
+
+def test_logged_error_with_newline_stays_one_line(tmp_path):
+    _call('f.log_error("record", "first\\nsecond")', {"INTERFACE_FEEDBACK_DIR": str(tmp_path),
+                                                       "CW_AGENT_NAME": "Tester"})
+    assert len((tmp_path / "errors" / "Tester.log").read_text().splitlines()) == 1
+
+
+def test_block_without_timestamp_is_not_stored(tmp_path):
+    _open_ask(tmp_path)
+    p = tmp_path / "nt.jsonl"
+    p.write_text(json.dumps({"type": "assistant", "message": {"content": [
+        {"type": "text", "text": BLOCK}]}}) + "\n")
+    run(tmp_path, "collect", {"session_id": "s1", "transcript_path": str(p)}, NOON + MIN)
+    assert not (tmp_path / "notion.jsonl").exists()
+
+
+def test_prompt_with_nothing_due_does_not_rewrite_state(tmp_path):
+    use(tmp_path, "mcp__notion__search", NOON)
+    st = tmp_path / "state" / "Tester.json"
+    before = st.stat().st_mtime_ns
+    assert prompt(tmp_path, NOON + MIN) is None
+    assert st.stat().st_mtime_ns == before
+
+
+def test_ask_text_says_to_write_the_block_even_when_ending_without_text(tmp_path):
+    use(tmp_path, "mcp__notion__search", NOON)
+    ctx = prompt(tmp_path, NOON + 2 * HOUR)["hookSpecificOutput"]["additionalContext"]
+    assert "even if" in ctx
+
+
+def test_hooks_json_skips_unnamed_sessions_before_python(tmp_path):
+    hooks = json.load(open(os.path.join(os.path.dirname(SCRIPT), "hooks.json")))["hooks"]
+    cmd = hooks["PostToolUse"][-1]["hooks"][0]["command"]
+    root = os.path.dirname(os.path.dirname(SCRIPT))
+    base = dict(os.environ, CLAUDE_PLUGIN_ROOT=root, INTERFACE_FEEDBACK_DIR=str(tmp_path))
+    base.pop("CW_AGENT_NAME", None)
+    base.pop("FEEDBACK_AGENT_NAME", None)
+    payload = json.dumps({"tool_name": "mcp__notion__x"})
+    r = subprocess.run(["sh", "-c", cmd], input=payload, text=True, env=base)
+    assert r.returncode == 0 and not (tmp_path / "state").exists()
+    r = subprocess.run(["sh", "-c", cmd], input=payload, text=True, env=dict(base, CW_AGENT_NAME="X"))
+    assert r.returncode == 0 and (tmp_path / "state" / "X.json").exists()

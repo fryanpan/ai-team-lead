@@ -36,7 +36,6 @@ Design notes
     the ask and the answer happen in the parent's context.
   * Sessions with neither CW_AGENT_NAME nor FEEDBACK_AGENT_NAME are skipped.
 """
-import argparse
 import datetime
 import fcntl
 import json
@@ -44,7 +43,6 @@ import os
 import re
 import sys
 import time
-import traceback
 import urllib.parse
 
 GAP_SECONDS = 3600
@@ -179,11 +177,11 @@ def take_due(state, now):
         e["asked_ts"] = now
         e.pop("pending_since", None)
     for svc in [s for s, e in services.items()
-                if now - e.get("last_used", now) > FORGET_SECONDS]:
+                if s not in due and now - e.get("last_used", now) > FORGET_SECONDS]:
         del services[svc]
     asks = state.setdefault("open_asks", {})
     for svc in [s for s, t in asks.items() if now - t > ANSWER_WINDOW]:
-        del asks[svc]  # unanswered for a day: dropped, still shown by status
+        del asks[svc]  # unanswered for a day: dropped; the service is asked again after new use
     for svc in due:
         asks[svc] = now
     if due:
@@ -227,27 +225,31 @@ def log_error(event, exc):
         sys.stderr.write("interface_feedback: COULD NOT RUN and could not log: " + line)
 
 
-def last_error(agent=None):
-    """(epoch, line) of this agent's newest logged error, or (None, None)."""
+def last_errors(agent=None):
+    """{mode: (epoch, line)} of this agent's newest logged error per hook mode.
+    Lines this script did not write are skipped."""
+    out = {}
     try:
         with open(errors_path(agent)) as f:
             lines = f.read().splitlines()
     except OSError:
-        return None, None
-    if not lines:
-        return None, None
-    ts, _, rest = lines[-1].partition(" ")
-    try:
-        return float(ts), rest
-    except ValueError:
-        return None, None  # not a line this script wrote
+        return out
+    for line in lines:
+        fields = line.split(" ", 3)
+        if len(fields) < 4:
+            continue
+        try:
+            out[fields[2].rstrip(":")] = (float(fields[0]), fields[1] + " " + fields[2] + " " + fields[3])
+        except ValueError:
+            continue
+    return out
 
 
 def eligible(payload):
     return not payload.get("agent_id") and bool(agent_name())
 
 
-def record(payload, now):
+def record(payload, now, event="PostToolUse"):
     if not agent_name():
         return None
     svc = service_from_tool(payload.get("tool_name") or "", payload.get("tool_input"))
@@ -271,7 +273,7 @@ def record(payload, now):
         return due
 
     due = locked_update(state_path(), upd)
-    return build_ask(due, "PostToolUse") if due else None
+    return build_ask(due, event) if due else None
 
 
 def mark_ok(state, mode, now):
@@ -364,7 +366,7 @@ def collect(payload, now):
     if not tp or not os.path.exists(tp):
         return None
     asks = load_json(state_path()).get("open_asks") or {}
-    waiting = {svc: asks[svc] for svc in open_services({"open_asks": asks}, now)}
+    waiting = {svc: t for svc, t in asks.items() if now - t <= ANSWER_WINDOW}
     if not waiting:
         return None  # no ask waiting for an answer: skip reading the transcript
     rows = find_rows(tp, waiting)
@@ -373,7 +375,7 @@ def collect(payload, now):
         rows = find_rows(tp, waiting)
     if rows:
         return store_rows(rows, waiting, now)
-    err_ts, _ = last_error()
+    err_ts = last_errors().get("collect", (None,))[0]
     state = load_json(state_path())
     if err_ts is not None and err_ts >= (state.get("last_ok") or {}).get("collect", 0):
         locked_update(state_path(), lambda st: mark_ok(st, "collect", now))
@@ -429,7 +431,7 @@ def hook_main(mode, event):
         payload = json.load(sys.stdin)
         now = float(os.environ.get("INTERFACE_FEEDBACK_NOW") or time.time())
         if mode == "record":
-            out = record(payload, now)
+            out = record(payload, now, event)
         elif mode == "collect":
             out = collect(payload, now)
         else:
@@ -437,6 +439,7 @@ def hook_main(mode, event):
         if out:
             print(json.dumps(out))
     except Exception as e:  # never wedge the session; make the failure visible
+        import traceback
         tb = traceback.extract_tb(e.__traceback__)
         where = " at line %d" % tb[-1].lineno if tb else ""
         log_error(mode, "%s: %s%s" % (type(e).__name__, e, where))
@@ -455,11 +458,11 @@ def cmd_status(a):
     os.environ["CW_AGENT_NAME"] = agent
     state = load_json(state_path())
     last_run = state.get("last_run", 0)
-    err_ts, err = last_error(agent)
-    err_mode = (err or "").split(" ")[1].rstrip(":") if err and " " in err else ""
-    mode_ok = (state.get("last_ok") or {}).get(err_mode, 0)
-    if err_ts is not None and err_ts >= mode_ok and now - err_ts < 86400:
-        print("could not run: " + err)
+    last_ok = state.get("last_ok") or {}
+    broken = sorted((ts, line) for mode, (ts, line) in last_errors(agent).items()
+                    if ts >= last_ok.get(mode, 0) and now - ts < 86400)
+    if broken:  # any mode whose newest error has no later success
+        print("could not run: " + "; ".join(line for _, line in broken))
         return 1
     if not last_run:
         print("never run: no hook run recorded for %s (plugin not loaded, or no MCP or "
@@ -516,7 +519,9 @@ def cmd_read(a):
 
 def main(argv):
     if len(argv) > 1 and argv[1] in ("record", "ask", "collect"):
-        return hook_main(argv[1], argv[2] if len(argv) > 2 else "UserPromptSubmit")
+        default = "PostToolUse" if argv[1] == "record" else "UserPromptSubmit"
+        return hook_main(argv[1], argv[2] if len(argv) > 2 else default)
+    import argparse  # CLI only; the hooks skip it
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = p.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("add")

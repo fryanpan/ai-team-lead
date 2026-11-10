@@ -21,7 +21,7 @@ Bryan, on a model sent out for public comment: *"The model we submitted at time 
 
 ## The three stages, each a fresh agent
 
-Run them in order. A builder's own passing check is not evidence for any stage.
+Review and skeptic run side by side, since the skeptic must not see the review; verify follows. A builder's own passing check is not evidence for any stage.
 
 1. **Review.** Re-derive every figure, and record each check run with its result:
    - **Publisher's definitions.** Each figure about an organization is measured the way that organization measures it (`dataset-intake`).
@@ -47,7 +47,7 @@ Run them in order. A builder's own passing check is not evidence for any stage.
 **A finding blocks when a reader would be misled about the headline or a figure.** The gate passes when no blocking finding, `wrong` result or unsettled item is left.
 
 - **A blocking finding**, a `wrong` verify result, or a headline that fails the skeptic's rerun: fix it, or rewrite the headline to what survives or to its range. Then run the gate again. Do not argue a blocking item away in the review item.
-- **When a figure changes, grep the whole artifact for it before revising.** The same number often stands in a later paragraph that the piece builds to. Where an instance sits in text Bryan approved, put every instance on the decision item instead of fixing it yourself.
+- **When a figure changes, grep the whole artifact for it before revising**, as `workflow-conventions.md` requires for a disputed figure.
 - **Write the comparison into the deliverable's notes:** each figure beside its reference figure, with both sources.
 
 ## Hand off

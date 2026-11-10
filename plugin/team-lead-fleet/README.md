@@ -12,6 +12,7 @@ The plugin the user's peer Claude Code sessions share. Replaces per-project prop
 - `/persist-plan` — save an internal plan to `docs/product/plans/`
 - `/ux-review` — walk a UI feature as a user before shipping
 - `/humanizer` — rewrite prose to remove AI writing patterns. Vendored from [blader/humanizer](https://github.com/blader/humanizer) (MIT), with one fleet override on bold labels in structured docs.
+- `/prior-work`, `/dataset-intake`, `/grade-evidence`, `/eda`, `/pre-send` — data-analysis method: survey prior work, take in a dataset the way its publisher counts, grade a study before a model uses it, answer a quick exploratory question, and gate figures before they leave the session. `prior-work` and `pre-send` each ship a Workflow script for projects that opted in to one.
 - `/doc-for-bryan`, `/data-page`, `/pr-review-round` — prescribed workflows. Each step is a done-when line with a named proof. A project replaces or adds named steps in `.claude/workflow-overrides/<skill>.md`; it does not fork the skill. (Not `.claude/workflows/`: that folder holds Workflow tool scripts.)
 
 Each project picks ONE ship skill via a line in its `CLAUDE.md`:
@@ -41,6 +42,7 @@ Each project picks ONE ship skill via a line in its `CLAUDE.md`:
 - `feedback-loop.md` — capture learnings, periodic retros
 - `live-feedback-default.md` — bind reviews to the workspace, live-reload dev servers; board rules live in the claude-workspaces plugin
 - `notion.md` — MCP conventions, agent identification in comments, and handling notion-channel events as peer asks
+- `data-analysis.md` — which data-analysis skill fires when; the method itself lives in the skills
 - `public-content-scrubbing.md` — review pass before publishing public content
 
 Rules that describe one machine's own defenses are not published here. The SessionStart hook also injects every rule in a private overlay directory, named by the `rules_dir=` line of `~/.config/team-lead/private-overlay.conf` (or `TEAM_LEAD_FLEET_PRIVATE_RULES`). On a machine with that conf file, the injected block names the overlay rules it loaded and flags an overlay that is empty or missing. A plain install has no conf file and sees nothing. A rule in both sets is injected once, from the overlay. `scripts/plugin_drift_check.py` also fails when an expected overlay is missing, empty, or behind its repo.

@@ -19,6 +19,7 @@ export const meta = {
 //   context   optional: what we already know or have, so lanes don't re-find it
 //   owner     optional: the organization that owns the subject (an agency, a company, a team)
 //   methods   optional: named standard methods or manuals for this domain, to seed the methods lane
+//   maxConcurrent  cap on search agents at once (default 3, the fleet fan-out cap)
 //
 // Returns {out, adopt, compare, build, sources, missingLanes}.
 
@@ -26,6 +27,10 @@ const A = args || {}
 for (const k of ['question', 'date', 'out']) if (!A[k]) throw new Error(`prior-work needs args.${k}`)
 if (!A.out.startsWith('/')) throw new Error('prior-work needs args.out as an absolute path')
 const OWNER = A.owner || 'the organization that owns this subject'
+const CAP = A.maxConcurrent || 3
+
+// The skill's "What it is for", read first by every agent (skill-authoring.md).
+const PURPOSE = `Why this search exists: a model built from scratch turned out to match a published appraisal method and to miss benefits the agency's own study had counted. The owner: "it would have gone faster if we built on the foundations that already exist."\n\n`
 
 const FOUND = {
   type: 'object',
@@ -51,7 +56,7 @@ const FOUND = {
   required: ['items', 'searched'],
 }
 
-const base = `We are about to do this analysis:
+const base = `${PURPOSE}We are about to do this analysis:
 
 ${A.question}
 
@@ -68,10 +73,18 @@ const LANES = [
 ]
 
 phase('Search')
-const lanes = await parallel(LANES.map(l => () =>
-  agent(base + l.prompt, { label: `Search: ${l.key}`, phase: 'Search', schema: FOUND })
-    .then(r => r && { lane: l.key, ...r })))
-const got = lanes.filter(Boolean)
+// A pool of CAP workers, so a run never exceeds the fleet fan-out cap.
+const lanes = []
+let next = 0
+const worker = async () => {
+  while (next < LANES.length) {
+    const l = LANES[next++]
+    const r = await agent(base + l.prompt, { label: `Search: ${l.key}`, phase: 'Search', schema: FOUND })
+    if (r) lanes.push({ lane: l.key, ...r })
+  }
+}
+await parallel(Array.from({ length: Math.min(CAP, LANES.length) }, () => worker))
+const got = lanes
 const missing = LANES.filter(l => !got.find(g => g.lane === l.key)).map(l => l.key)
 if (missing.length) log(`Lanes that returned nothing: ${missing.join(', ')}`)
 
@@ -97,6 +110,7 @@ One paragraph: whether anyone has done this already, and the one method or tool 
 ## What's left to build — the gap, in a few bullets.
 ## Everything found — one bullet per source, grouped by lane, with link, marked "read ${A.date}" if opened=true, otherwise "search result, not opened".
 ## Searched with nothing found — the empty searches, so the next person doesn't repeat them.
+## Lanes that could not run — ${missing.length ? missing.join(', ') + '. These sources were NOT searched; say so in the opening paragraph too.' : 'none'}
 
 Use only what is in the findings below; don't add sources. Plain sentences. Then return the adopt/compare/build lists.
 

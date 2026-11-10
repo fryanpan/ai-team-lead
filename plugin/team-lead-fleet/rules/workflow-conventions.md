@@ -464,15 +464,7 @@ because it was plausible, and the attribution was never tested because nothing p
   Bryan a board doc could not embed a map, from a check made before the board gained that feature on 10-31.
   His reply: *"Wait I thought it allowed arbitrary mdx elements and we've had maps embedded before."*
 
-- **Check the figure's DEPENDENTS, not just its source.** A per-figure source check finds "a real number
-  with the wrong population" and completely misses "a real number three other sentences quietly rest on."
-  When a figure comes under dispute, grep the whole artifact for it before revising anything — one command.
-  Measured 2026-09-16: a draft's opening figure was under review while the same number stood unexamined in
-  two later paragraphs, one of them the passage the piece builds to. Correcting the opener alone would have
-  left it contradicting itself.
-- **Where a dependent sits in text the user approved, do not fix it on your own judgement.** Put the
-  dependency on the decision card so they rule on every instance at once, rather than discovering the
-  others after they have answered about the first.
+- **When a figure is disputed, grep the whole artifact for it before revising.** The method is in `pre-send`.
 
 ### A build goes out on one reconciled spec (2026-11-05)
 

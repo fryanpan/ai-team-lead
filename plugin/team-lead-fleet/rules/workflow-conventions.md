@@ -464,7 +464,9 @@ because it was plausible, and the attribution was never tested because nothing p
   Bryan a board doc could not embed a map, from a check made before the board gained that feature on 10-31.
   His reply: *"Wait I thought it allowed arbitrary mdx elements and we've had maps embedded before."*
 
-- **When a figure is disputed, grep the whole artifact for it before revising.** The method is in `pre-send`.
+- **When a figure is disputed, grep the whole artifact for it before revising.** The same number often stands
+  unexamined in a later paragraph. Where an instance sits in text the user approved, put every instance on the
+  decision card instead of fixing it on your own judgement.
 
 ### A build goes out on one reconciled spec (2026-11-05)
 

@@ -3,7 +3,7 @@ export const meta = {
   description: 'Gate before figures leave the session: evidence and pipeline review, a blind skeptic, then close every unverified item',
   whenToUse: 'Before a doc, page, comment or post with figures goes to Bryan for sign-off or to anyone outside the session, where the user has opted in to a workflow for it. Started by the team-lead-fleet:pre-send skill, which files the sign-off item afterwards.',
   phases: [
-    { title: 'Review', detail: 'evidence fit, numbers agreeing and the data pipeline, re-derived from source' },
+    { title: 'Review', detail: 'evidence fit, numbers agreeing and the data pipeline, re-derived from source; runs beside the skeptic' },
     { title: 'Skeptic', detail: 'a fresh agent with only what the reader gets, plus the model and its data' },
     { title: 'Verify', detail: 'one agent per unverified item, looping until verified or shown impossible' },
   ],
@@ -29,11 +29,18 @@ export const meta = {
 
 const A = typeof args === 'string' ? { target: args } : (args || {})
 if (!A.target) throw new Error('pre-send needs args.target: the doc or page the reader gets')
-const readers = (A.readers && A.readers.length) ? A.readers : ['Bryan', 'a non-technical reader']
-const modelPaths = A.model || []
-const dataPaths = A.data || []
-const checks = A.checks || []
-const blind = A.blind || []
+// A list arg may arrive as one string; never let that throw after an agent has spent its tokens.
+const arr = x => x == null || x === '' ? [] : Array.isArray(x) ? x : [x]
+const readers = arr(A.readers).length ? arr(A.readers) : ['Bryan', 'a non-technical reader']
+const modelPaths = arr(A.model)
+const dataPaths = arr(A.data)
+const checks = arr(A.checks)
+const blind = arr(A.blind)
+
+// The skill's "What it is for", read first by every agent (skill-authoring.md).
+const PURPOSE = `Why this gate exists: a model sent out for public comment was very wrong, and the owner found it only after another day of poking at it. The checks that would have caught it ran after the send. On a demo whose numbers disagreed with the post it supported: "When we write a blog post, the parts must line up with each other or else we have a reason they don't." The reviewer should never be first to spot that the parts disagree.
+
+`
 const list = xs => xs.length ? xs.map(x => `- ${x}`).join('\n') : '- (none given; find them from the target if it has figures, and say which you used)'
 
 const MAX_VERIFY_ROUNDS = 3
@@ -137,9 +144,10 @@ async function reviewer(prompt, opts) {
 }
 
 // ---------------------------------------------------------------------------
+// Review and skeptic are independent (the skeptic must not see the review), so they run side by side.
 phase('Review')
 
-const review = await reviewer(`You are the pre-send reviewer for ${A.target}. Nothing in it has left the session yet. It goes next to: ${A.send || 'Bryan for sign-off, then outside'}.
+const [review, skeptic] = await parallel([() => reviewer(`${PURPOSE}You are the pre-send reviewer for ${A.target}. Nothing in it has left the session yet. It goes next to: ${A.send || 'Bryan for sign-off, then outside'}.
 Its readers: ${readers.join('; ')}.
 
 Model code:
@@ -158,15 +166,10 @@ Do these in order and record each in checks_run with its result. Re-derive figur
 7. Citations. Every cite is an inline link, and every quotation and every attribution ("he said", "per the spec") came from a document you opened.
 ${A.decisions ? `8. Settled decisions. Check the doc does not reopen a ruling in ${A.decisions}.\n` : ''}${checks.length ? `Also run each of these project checks and report its result:\n${list(checks)}\n` : ''}
 Report each defect as a finding. blocks-send means a reader would be misled about the headline or a figure. Report every check you could not run as unverified, with what would settle it. Do not edit files.`,
-  { label: 'Review', phase: 'Review', schema: REVIEW_SCHEMA, effort: 'high' })
+  { label: 'Review', phase: 'Review', schema: REVIEW_SCHEMA, effort: 'high' }),
 
-log(`Review: ${review ? review.findings.length : 0} findings, ${review ? review.unverified.length : 0} unverified`)
-
-// ---------------------------------------------------------------------------
-phase('Skeptic')
-
-// Deliberately gets none of the review above, and none of the build history.
-const skeptic = await reviewer(`You are an informed critic reading ${A.target} the day after it was sent. You have never seen how it was built.
+// Deliberately gets none of the review, and none of the build history.
+() => reviewer(`${PURPOSE}You are an informed critic reading ${A.target} the day after it was sent. You have never seen how it was built.
 Its readers: ${readers.join('; ')}. It goes to: ${A.send || 'readers outside this project'}.
 
 You get only what the reader gets, plus the model and its data:
@@ -184,7 +187,9 @@ Do not read ${blind.length ? blind.join(', ') + ', ' : ''}git history, PR thread
 4. List anything you could not check as unverified, with what would settle it.
 
 blocks-send means the headline as written would not survive a reader who did what you did.`,
-  { label: 'Skeptic', phase: 'Skeptic', schema: SKEPTIC_SCHEMA, effort: 'high' })
+  { label: 'Skeptic', phase: 'Skeptic', schema: SKEPTIC_SCHEMA, effort: 'high' })])
+
+log(`Review: ${review ? review.findings.length : 0} findings, ${review ? review.unverified.length : 0} unverified`)
 
 if (skeptic && skeptic.sensitivity && skeptic.sensitivity.input !== 'none') {
   log(`Skeptic: ${skeptic.sensitivity.input} at ${skeptic.sensitivity.evidence_edge} gives ${skeptic.sensitivity.headline_at_edge}${skeptic.sensitivity.survives ? '' : ' (headline does not survive)'}`)
@@ -200,11 +205,11 @@ const open = [
 log(`Verify: ${open.length} unverified items`)
 
 // Each item loops on its own; no barrier between items.
-const verifyOne = async (u, _orig, i) => {
+const verifyOne = async (u, i) => {
   let tried = ''
   let last = null
   for (let round = 1; round <= MAX_VERIFY_ROUNDS; round++) {
-    last = await agent(`An unverified item from the pre-send gate on ${A.target}. Settle it. Do not hand it back as a list for Bryan.
+    last = await agent(`${PURPOSE}An unverified item from the pre-send gate on ${A.target}. Settle it. Do not hand it back as a list for Bryan.
 
 Item: ${u.item}
 Why it was not run: ${u.why}
@@ -216,17 +221,23 @@ Data: ${dataPaths.join(', ') || '(none given)'}
 Run the query, open the document, or rerun the model. Fetch public data if it's needed. Do not change tracked files. Return verified or wrong only with the source opened or command run. Return impossible only when no public source or run could settle it, and name what is missing (for example, the data was never published, which is a records request). Return still-open when more work would settle it and say what is left.`,
       { label: `Verify ${i + 1}${round > 1 ? ` round ${round}` : ''}`, phase: 'Verify', schema: VERIFY_SCHEMA, effort: 'high' })
     if (!last) break
-    if (last.status !== 'still-open') break
     tried += `- round ${round}: ${last.tried} -> ${last.result}\n`
+    if (last.status !== 'still-open') break
   }
-  return { ...u, ...(last || { status: 'still-open', result: 'verify agent did not return', evidence: '', tried, fix: '' }), tried: tried + (last ? last.tried : '') }
+  return { ...u, ...(last || { status: 'still-open', result: 'verify agent did not return', evidence: '', fix: '' }), tried }
 }
 // Fleet cap on parallel fan-out is three (workflow-conventions.md); a caller may raise it.
 const CAP = A.maxConcurrent || 3
+// A pool of CAP workers: a free slot takes the next item at once, with no barrier between batches.
 const verified = []
-for (let s = 0; s < open.length; s += CAP) {
-  verified.push(...await parallel(open.slice(s, s + CAP).map((u, k) => () => verifyOne(u, null, s + k))))
+let next = 0
+const worker = async () => {
+  while (next < open.length) {
+    const i = next++
+    verified[i] = await verifyOne(open[i], i)
+  }
 }
+await parallel(Array.from({ length: Math.min(CAP, open.length) }, () => worker))
 
 const results = verified.filter(Boolean)
 const stillOpen = results.filter(v => v.status === 'still-open')

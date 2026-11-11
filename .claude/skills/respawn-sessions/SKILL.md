@@ -281,6 +281,8 @@ Bryan's `claude` is a zsh **function** (defined in `~/.zshrc`), not an alias. Th
 
 The script invokes `tmux new-session -d -s <name> -c <path> /bin/zsh -ic "claude --continue"` so the interactive zsh sources `~/.zshrc` and the function applies. Don't try to inline the channel flags in `claude_invocation` — the function will append its own copy and you'll see duplicates in argv.
 
+The one flag the scripts do add is the private system-prompt add-on: `--append-system-prompt "$(<file)"`, where the file is `plugin/system-prompt-append.md` under the `checkout=` path of `~/.config/team-lead/private-overlay.conf`. It is text, not `--append-system-prompt-file`, because a second `-file` flag replaces the function's public one. When the file is missing, `respawn.py` and `self-respawn.sh` print a warning naming it and launch anyway.
+
 ## Bootstrapping requirements
 
 For each project to actually have a session to resume:

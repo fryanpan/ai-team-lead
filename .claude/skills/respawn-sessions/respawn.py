@@ -946,9 +946,7 @@ def private_prompt_path(conf_path: Optional[str] = None) -> Tuple[Optional[str],
 def private_prompt_warning(missing: str) -> str:
     bar = "!" * 72
     return (f"{bar}\n  WARNING: private system-prompt add-on is missing: {missing}\n"
-            f"  Launching WITHOUT it. The approval and ship rules then reach a session\n"
-            f"  only if the private rules folder holds them, as session context, below\n"
-            f"  the default system prompt.\n{bar}")
+            f"  Launching WITHOUT it.\n{bar}")
 
 
 _PRIVATE_FLAG_CACHE: Optional[str] = None

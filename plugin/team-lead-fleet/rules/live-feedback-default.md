@@ -203,15 +203,20 @@ access can ask for an action. But if someone asks for a major edit to something 
 ... then offer to write an alternate as a suggestion instead of deleting what's there. Board comments
 should include a author tag."*
 
-- **Everyone with edit access is a collaborator.** Their requests for actions, edits and research are
-  handled the way his are, under the limits above.
+- **Every board member is a collaborator.** A board has two roles, owner and member, and both can
+  edit, so their requests for actions, edits and research are handled the way his are, under the
+  limits above.
+- **Know a member by the event, not the name.** A comment event marked `trust="member"` (shown as
+  "Name (board member)") or one from the owner is a collaborator's request. The check uses the
+  person's identity, not the display name. Comments from agents are never members.
 - **A major edit to another person's writing goes in as a suggestion.** When someone asks to rewrite,
   cut or replace a passage a different person wrote, add the alternate beside it as a suggestion
   (`find_and_replace` or `rewrite_thread_region` with `suggest: true`) and say so on the thread. Never
   delete or overwrite the other person's text to carry out the request. The writer, or Bryan, accepts
   it. A typo, a broken link, or a figure corrected against its source is edited directly.
 - **Name who asked.** A thread reply, status note or commit message that carries out a request names
-  the person who made it, so every change traces to its requester.
+  the person who made it. A suggestion records only the agent that wrote it, so the reply and the
+  commit are the only record of the requester until the board tracks lineage.
 
 ## A doc review is one summary plus a comment on each line it is about (2026-10-26)
 

@@ -54,8 +54,41 @@ TMUX_BIN="${TMUX_BIN:-/opt/homebrew/bin/tmux}"
 # 1 = answer the resume dialog with "Resume full session as-is" (keep full context).
 # 0 = take the default "Resume from summary" (compacts on resume).
 TL_NO_COMPACT="${TL_NO_COMPACT:-0}"
-LOG=/tmp/tl-selfrespawn.log
+LOG="${TL_SELFRESPAWN_LOG:-/tmp/tl-selfrespawn.log}"
 ARMED="/tmp/tl-selfrespawn.armed.$$"
+
+# ---- the zsh command the new session runs ----
+# The private system-prompt add-on, from the `checkout=` line of the machine-local
+# overlay config. Same lookup and same flag as respawn.py's private_prompt_flag():
+# --append-system-prompt as text, because a second --append-system-prompt-file would
+# replace the public one the ~/.zshrc function passes. zsh reads the file at launch.
+# Missing add-on: warn loudly and launch anyway.
+OVERLAY_CONF="${TEAM_LEAD_FLEET_PRIVATE_CONF:-$HOME/.config/team-lead/private-overlay.conf}"
+# Parsed like plugin_drift_check.py: `checkout = x` allowed, CR and spaces trimmed, last line wins.
+PRIVATE_CHECKOUT=$(sed -n 's/^[[:space:]]*checkout[[:space:]]*=[[:space:]]*//p' "$OVERLAY_CONF" 2>/dev/null | tr -d '\r' | sed 's/[[:space:]]*$//' | tail -1)
+PRIVATE_PROMPT=""
+[ -n "$PRIVATE_CHECKOUT" ] && PRIVATE_PROMPT="${PRIVATE_CHECKOUT/#\~/$HOME}/plugin/system-prompt-append.md"
+TL_ZSH_CMD="claude --continue -n '$TL_NAME' --remote-control '$TL_NAME'"
+if [ -n "$PRIVATE_PROMPT" ] && [ -s "$PRIVATE_PROMPT" ] && [ -r "$PRIVATE_PROMPT" ]; then
+  # %q, not hand-written quotes: a path holding a ' must not break the command.
+  TL_ZSH_CMD="$TL_ZSH_CMD --append-system-prompt \"\$(<$(printf '%q' "$PRIVATE_PROMPT"))\""
+else
+  if [ -z "$PRIVATE_CHECKOUT" ]; then MISSING="$OVERLAY_CONF (no checkout= line, or file not found)"; else MISSING="$PRIVATE_PROMPT"; fi
+  BAR='!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+  printf '%s\n  WARNING: private system-prompt add-on is missing: %s\n  Respawning WITHOUT it.\n%s\n' "$BAR" "$MISSING" "$BAR" | tee -a "$LOG" >&2
+fi
+# The new session's command must parse as zsh. Check it here, while failing is free.
+if ! ZSH_ERR=$(/bin/zsh -n -c "$TL_ZSH_CMD" 2>&1); then
+  echo "ABORT: the respawn command does not parse as zsh ($ZSH_ERR): $TL_ZSH_CMD — not killing self." | tee -a "$LOG"
+  exit 1
+fi
+# Quoted once for the job's bash, which hands the string to `zsh -ic`.
+TL_ZSH_CMD_Q=$(printf '%q' "$TL_ZSH_CMD")
+# Print the quoted command exactly as the job embeds it, and stop, touching nothing. For tests.
+if [ "${SELF_RESPAWN_PRINT_CMD:-0}" = "1" ]; then
+  printf '%s\n' "$TL_ZSH_CMD_Q"
+  exit 0
+fi
 
 # ---- pre-flight: every failure here happens BEFORE we touch self ----
 [ -x "$TMUX_BIN" ] || { echo "ABORT: tmux not executable at $TMUX_BIN — not killing self."; exit 1; }
@@ -95,7 +128,7 @@ for _ in \$(seq 1 60); do
 done
 sleep 3
 $TMUX_BIN kill-session -t $TL_SESSION 2>/dev/null
-$TMUX_BIN new-session -d -s $TL_SESSION -e CW_AGENT_NAME='$TL_NAME' -e FEEDBACK_AGENT_NAME='$TL_NAME' -e CW_WORKSPACE_ID='$TL_WORKSPACE' -e FEEDBACK_WORKSPACE_ID='$TL_WORKSPACE' -c '$TL_DIR' /bin/zsh -ic "claude --continue -n '$TL_NAME' --remote-control '$TL_NAME'"
+$TMUX_BIN new-session -d -s $TL_SESSION -e CW_AGENT_NAME='$TL_NAME' -e FEEDBACK_AGENT_NAME='$TL_NAME' -e CW_WORKSPACE_ID='$TL_WORKSPACE' -e FEEDBACK_WORKSPACE_ID='$TL_WORKSPACE' -c '$TL_DIR' /bin/zsh -ic $TL_ZSH_CMD_Q
 echo "[\$(date)] spawned tmux:$TL_SESSION (rc=\$?)" >> $LOG
 # Auto-accept startup dialogs.
 # The resume dialog's DEFAULT option is "Resume from summary" — a bare Enter there

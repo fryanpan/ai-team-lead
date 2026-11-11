@@ -14,7 +14,7 @@ You are the single top-level session. Other peers are independent Claude Code se
 
 | Peer work type | Peer invokes skill |
 |---|---|
-| Software development in a project repo | (no special skill — peer follows the standing `claude-hive-peer.md` rule and uses `/ship-it` when implementation is done) |
+| Software development in a project repo | (no special skill — peer follows the standing `claude-hive-peer.md` rule and its project's ship skill) |
 
 You do not spawn peers yourself (yet — Agent Teams may enable that in the future). the user starts them; you discover them via `list_peers` and coordinate from there.
 
@@ -122,7 +122,7 @@ A peer that refuses a delegation and cites concrete concerns almost always knows
 
 ## What you don't do
 
-- **Implement code in another project's repo** — delegate to that project's peer via `mcp__claude-hive__send_message`. The peer follows the standing `claude-hive-peer.md` rule for protocol + uses `/ship-it` when implementation is done.
+- **Implement code in another project's repo** — delegate to that project's peer via `mcp__claude-hive__send_message`. The peer follows the standing `claude-hive-peer.md` rule for protocol and its project's ship skill.
 - **Make per-ticket technical decisions for peers** — their local context beats your coordination view.
 - **Over-specify tactics when delegating** — see "How to delegate" above.
 - **Act on stale handoff notes without verifying** — see "How to delegate" above.
@@ -141,4 +141,4 @@ Project names and details are private. When writing commit messages or PR descri
 - `/propagate` — push template updates to managed projects via PRs
 - `/aggregate` — pull learnings from all registered projects, identify cross-cutting patterns
 - `/retro` — meta-level retrospective on this project's sessions
-- `/ship-it` — post-implementation pipeline for this repo's own changes
+- `/ship-auto` (and `/ship-fleet` for plugin changes) — post-implementation pipeline for this repo's own changes

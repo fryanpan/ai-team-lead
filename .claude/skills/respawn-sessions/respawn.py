@@ -899,6 +899,62 @@ def claude_launcher() -> str:
     )
 
 
+# The private system-prompt add-on. Its path comes from the `checkout=` line of
+# a machine-local config file, the same file the plugin's SessionStart hook
+# reads. The ~/.zshrc `claude` function already passes the public prompt file
+# with --append-system-prompt-file, and a second copy of that flag replaces the
+# first (measured 2026-11-11), so the add-on rides --append-system-prompt as
+# text instead. The two flags stack. zsh reads the file at launch, so an edit
+# reaches the next spawn with no change here.
+PRIVATE_OVERLAY_CONF_DEFAULT = "~/.config/team-lead/private-overlay.conf"
+PRIVATE_PROMPT_RELPATH = os.path.join("plugin", "system-prompt-append.md")
+
+
+def private_overlay_conf() -> str:
+    return os.path.expanduser(os.environ.get("TEAM_LEAD_FLEET_PRIVATE_CONF")
+                              or PRIVATE_OVERLAY_CONF_DEFAULT)
+
+
+def private_prompt_path(conf_path: Optional[str] = None) -> Tuple[Optional[str], str]:
+    """(path, None) when the add-on is readable, else (None, what is missing).
+
+    The second element names the missing file, for the warning."""
+    conf_path = conf_path or private_overlay_conf()
+    checkout = ""
+    try:
+        with open(conf_path) as f:
+            for line in f:
+                if line.startswith("checkout="):
+                    checkout = line[len("checkout="):].strip()
+    except OSError:
+        return None, f"{conf_path} (config file not found)"
+    if not checkout:
+        return None, f"{conf_path} (no checkout= line)"
+    path = os.path.join(os.path.expanduser(checkout), PRIVATE_PROMPT_RELPATH)
+    try:
+        if os.path.getsize(path) > 0 and os.access(path, os.R_OK):
+            return path, ""
+    except OSError:
+        pass
+    return None, path
+
+
+def private_prompt_flag(conf_path: Optional[str] = None) -> str:
+    """The zsh words that add the private prompt add-on, or "" with a loud warning.
+
+    A missing add-on never stops a launch: a VM or a walled lead has no private
+    checkout and must still come up."""
+    path, missing = private_prompt_path(conf_path)
+    if path:
+        return f' --append-system-prompt "$(<{shlex.quote(path)})"'
+    bar = "!" * 72
+    print(f"\n{bar}\n  WARNING: private system-prompt add-on is missing: {missing}\n"
+          f"  Launching WITHOUT it. This session gets the private rules only as\n"
+          f"  session context, at lower precedence than the default system prompt.\n"
+          f"{bar}", file=sys.stderr)
+    return ""
+
+
 def spawn_session_tmux(session_name: str, path: str) -> bool:
     """Spawn claude in a detached tmux session via interactive zsh so the
     `claude` shell function in ~/.zshrc applies (channel + dev-channel flags).
@@ -962,6 +1018,7 @@ def spawn_session_tmux(session_name: str, path: str) -> bool:
     # prompt to answer -- it polls for whatever appears and is unbothered.
     claude_invocation = (
         claude_launcher()
+        + private_prompt_flag()
         + resume_flag(path)
         + name_flag
         + rc_flag

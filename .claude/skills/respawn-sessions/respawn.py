@@ -916,16 +916,20 @@ def private_overlay_conf() -> str:
 
 
 def private_prompt_path(conf_path: Optional[str] = None) -> Tuple[Optional[str], str]:
-    """(path, None) when the add-on is readable, else (None, what is missing).
+    """(path, "") when the add-on is readable, else (None, what is missing).
 
-    The second element names the missing file, for the warning."""
+    Reads the config the way scripts/plugin_drift_check.py does: `key = value`
+    with optional spaces, `#` comments, and the last line for a key wins."""
     conf_path = conf_path or private_overlay_conf()
     checkout = ""
     try:
         with open(conf_path) as f:
             for line in f:
-                if line.startswith("checkout="):
-                    checkout = line[len("checkout="):].strip()
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    if k.strip() == "checkout":
+                        checkout = v.strip()
     except OSError:
         return None, f"{conf_path} (config file not found)"
     if not checkout:
@@ -939,20 +943,37 @@ def private_prompt_path(conf_path: Optional[str] = None) -> Tuple[Optional[str],
     return None, path
 
 
+def private_prompt_warning(missing: str) -> str:
+    bar = "!" * 72
+    return (f"{bar}\n  WARNING: private system-prompt add-on is missing: {missing}\n"
+            f"  Launching WITHOUT it. The approval and ship rules then reach a session\n"
+            f"  only if the private rules folder holds them, as session context, below\n"
+            f"  the default system prompt.\n{bar}")
+
+
+_PRIVATE_FLAG_CACHE: Optional[str] = None
+
+
 def private_prompt_flag(conf_path: Optional[str] = None) -> str:
     """The zsh words that add the private prompt add-on, or "" with a loud warning.
 
-    A missing add-on never stops a launch: a VM or a walled lead has no private
-    checkout and must still come up."""
+    A missing add-on never stops a launch: a VM or any machine without the
+    private checkout must still come up. Under --sandbox, zsh reads the file
+    outside the sandbox and passes the text in, so a sandboxed lead gets it too.
+    Resolved once per run (when conf_path is not given), so a fleet respawn
+    warns once rather than once per session."""
+    global _PRIVATE_FLAG_CACHE
+    if conf_path is None and _PRIVATE_FLAG_CACHE is not None:
+        return _PRIVATE_FLAG_CACHE
     path, missing = private_prompt_path(conf_path)
     if path:
-        return f' --append-system-prompt "$(<{shlex.quote(path)})"'
-    bar = "!" * 72
-    print(f"\n{bar}\n  WARNING: private system-prompt add-on is missing: {missing}\n"
-          f"  Launching WITHOUT it. This session gets the private rules only as\n"
-          f"  session context, at lower precedence than the default system prompt.\n"
-          f"{bar}", file=sys.stderr)
-    return ""
+        flag = f' --append-system-prompt "$(<{shlex.quote(path)})"'
+    else:
+        print("\n" + private_prompt_warning(missing), file=sys.stderr)
+        flag = ""
+    if conf_path is None:
+        _PRIVATE_FLAG_CACHE = flag
+    return flag
 
 
 def spawn_session_tmux(session_name: str, path: str) -> bool:
@@ -1018,12 +1039,14 @@ def spawn_session_tmux(session_name: str, path: str) -> bool:
     # prompt to answer -- it polls for whatever appears and is unbothered.
     claude_invocation = (
         claude_launcher()
-        + private_prompt_flag()
         + resume_flag(path)
         + name_flag
         + rc_flag
         + (f" --model {shlex.quote(MODEL)}" if MODEL else "")
         + direct_channel_flags(path)
+        # Last, so `-n <name>` comes before the add-on text in argv. The
+        # --mode running name parser reads ps output and takes the first ` -n `.
+        + private_prompt_flag()
     )
 
     # Scope DISCORD_STATE_DIR per-peer to prevent discord-channel fan-out.
@@ -1654,6 +1677,9 @@ def main() -> int:
         for name, path in to_spawn:
             print(f"  + {name:25s}  {path}")
         print(f"  on {'account folder ' + ACCOUNT_DIR if ACCOUNT_DIR else 'the default ~/.claude login'}")
+        # Resolve the add-on now, so a dry run shows a missing one.
+        if private_prompt_flag():
+            print(f"  with the private system-prompt add-on")
     else:
         print("\nNothing to spawn.")
 

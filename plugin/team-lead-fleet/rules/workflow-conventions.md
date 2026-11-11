@@ -545,7 +545,7 @@ Execution follows the default system prompt. There is no menu to present.
 
 ## Post-implementation
 
-The project's `CLAUDE.md` names its ship skill; default to `ship-auto`. Each skill lists its own pause conditions.
+When implementation is done and tests pass, the project's ship skill is the next step. The project's `CLAUDE.md` names it; default to `ship-auto`. Each skill lists its own pause conditions.
 
 ## Work in another agent's area goes to that agent (2026-10-27)
 

@@ -22,10 +22,17 @@ _spec.loader.exec_module(respawn)
 ADDON_TEXT = "# Add-on\n\nIt's a rule with \"quotes\", a $dollar and `ticks`.\n"
 
 
+@pytest.fixture(autouse=True)
+def _reset_cache():
+    respawn._PRIVATE_FLAG_CACHE = None
+    yield
+    respawn._PRIVATE_FLAG_CACHE = None
+
+
 @pytest.fixture
 def overlay(tmp_path):
-    """A config naming a checkout (with a space in its path) that holds the add-on."""
-    checkout = tmp_path / "private checkout"
+    """A config naming a checkout (with a space and a quote in its path) that holds the add-on."""
+    checkout = tmp_path / "Bryan's private checkout"
     (checkout / "plugin").mkdir(parents=True)
     addon = checkout / "plugin" / "system-prompt-append.md"
     addon.write_text(ADDON_TEXT)
@@ -84,6 +91,20 @@ def test_config_without_checkout_line_warns(tmp_path, capsys):
     assert "no checkout= line" in capsys.readouterr().err
 
 
+def test_spaced_key_and_crlf_config_is_read(overlay, tmp_path):
+    _, addon = overlay
+    conf = tmp_path / "spaced.conf"
+    conf.write_text(f"checkout = {addon.parent.parent}  \r\n")
+    assert respawn.private_prompt_flag(str(conf)).startswith(" --append-system-prompt ")
+
+
+def test_missing_addon_warns_once_per_run(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("TEAM_LEAD_FLEET_PRIVATE_CONF", str(tmp_path / "absent.conf"))
+    assert respawn.private_prompt_flag() == ""
+    assert respawn.private_prompt_flag() == ""
+    assert capsys.readouterr().err.count("WARNING") == 1
+
+
 def test_env_var_names_the_config(overlay, monkeypatch):
     conf, _ = overlay
     monkeypatch.setenv("TEAM_LEAD_FLEET_PRIVATE_CONF", str(conf))
@@ -125,6 +146,15 @@ def test_self_respawn_addon_present(overlay, tmp_path):
     assert zsh_argv(cmd) == ["--continue", "-n", "Team Lead", "--remote-control",
                              "Team Lead", "--append-system-prompt",
                              ADDON_TEXT.rstrip("\n")]
+
+
+def test_self_respawn_reads_spaced_crlf_config(overlay, tmp_path):
+    _, addon = overlay
+    conf = tmp_path / "spaced.conf"
+    conf.write_text(f"checkout = {addon.parent.parent}  \r\n")
+    cmd, err = run_self_respawn(conf, tmp_path)
+    assert "WARNING" not in err
+    assert zsh_argv(cmd)[-1] == ADDON_TEXT.rstrip("\n")
 
 
 def test_self_respawn_addon_absent(overlay, tmp_path):

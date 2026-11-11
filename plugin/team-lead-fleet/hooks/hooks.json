@@ -35,6 +35,56 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "mcp__.*|Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -z \"$CW_AGENT_NAME$FEEDBACK_AGENT_NAME\" ] || /usr/bin/python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/interface_feedback.py\" record",
+            "timeout": 5,
+            "async": false
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "mcp__.*|Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -z \"$CW_AGENT_NAME$FEEDBACK_AGENT_NAME\" ] || /usr/bin/python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/interface_feedback.py\" record PostToolUseFailure",
+            "timeout": 5,
+            "async": false
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -z \"$CW_AGENT_NAME$FEEDBACK_AGENT_NAME\" ] || /usr/bin/python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/interface_feedback.py\" ask UserPromptSubmit",
+            "timeout": 5,
+            "async": false
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -z \"$CW_AGENT_NAME$FEEDBACK_AGENT_NAME\" ] || /usr/bin/python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/interface_feedback.py\" collect",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
     ]
   }
 }

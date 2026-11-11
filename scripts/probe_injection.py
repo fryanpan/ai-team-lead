@@ -17,7 +17,7 @@ import re
 import sys
 
 BLOCK = "<team-lead-fleet-rules>"
-SAVED = re.compile(r"Full output saved to: (\S+)")
+SAVED = re.compile(r"Full output saved to: ([^\n]+?)\s*$", re.M)
 DUP_HDR = re.compile(r"^Already in your context verbatim.*?not repeated here:(.*)$", re.M)
 SCOPED_HDR = re.compile(r"^Scoped to top-level sessions and omitted for this agent:(.*)$", re.M)
 PREVIEW = re.compile(r"Preview[^\n]*:\n(.*)", re.S)
@@ -151,6 +151,8 @@ def main(argv=None):
     args = ap.parse_args(argv)
     if args.rule is None and args.text is None:
         ap.error("give --rule, --text or both")
+    if args.rule == "" or args.text == "":
+        ap.error("--rule and --text must not be empty")
     try:
         text, source, cwd = load_injection(args.transcript)
         verdict, detail = check(text, args.rule, args.text, cwd)

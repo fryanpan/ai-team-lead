@@ -27,7 +27,7 @@ The probe below (`scripts/probe_injection.py`) is kept because it is the way to 
 
 Run `scripts/probe_injection.py` on a peer's transcript (`~/.claude/projects/<cwd with / _ . replaced by ->/<session id>.jsonl`).
 
-**Find the transcript by the peer's current session id, never by modification time.** A restart or `/clear` starts a new session, and the project folder keeps the old transcripts, so the newest file can belong to another session or a subagent. Take the id from the hive (`whoami` in the peer, or its `list_peers` entry), from the board, or from the `claude --resume` listing for that project, and open `<session id>.jsonl`. If none of these gives you the id for a peer, say that you could not identify its transcript. Do not pick one.
+**Find the transcript by the peer's current session id, never by modification time.** A restart or `/clear` starts a new session, and the project folder keeps the old transcripts, so the newest file can belong to another session or a subagent. The hive's session id is not this id: `whoami` returns a short hive id, not the transcript's UUID (checked 2026-11-10). Take the UUID from the `claude --resume` listing for that project, or ask the peer for the path its SessionStart output was saved under, which contains it, and open `<session id>.jsonl`. If none of these gives you the id for a peer, say that you could not identify its transcript. Do not pick one.
 
  It reads the peer's latest injection only and prints one line: `PRESENT`, `ABSENT`, `SKIPPED`, `UNREADABLE` or `COULD NOT RUN`, plus the source. Exit 0 is present, 1 is absent, skipped or unreadable, 2 is could not run.
 

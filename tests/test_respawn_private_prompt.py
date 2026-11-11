@@ -165,3 +165,30 @@ def test_self_respawn_addon_absent(overlay, tmp_path):
     assert "--append-system-prompt" not in cmd
     assert zsh_argv(cmd) == ["--continue", "-n", "Team Lead", "--remote-control",
                              "Team Lead"]
+
+
+# ---- order in the spawn command ----
+
+def test_spawn_puts_the_addon_after_the_session_name(overlay, monkeypatch):
+    """The --mode running parser takes the first ` -n ` in ps output, so the
+    add-on text, which may contain ` -n `, must come after the real name."""
+    conf, _ = overlay
+    monkeypatch.setenv("TEAM_LEAD_FLEET_PRIVATE_CONF", str(conf))
+    calls = []
+
+    class R:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(argv, **kw):
+        calls.append(argv)
+        return R()
+
+    monkeypatch.setattr(respawn.subprocess, "run", fake_run)
+    monkeypatch.setattr(respawn, "ensure_no_discord_state", lambda: None)
+    monkeypatch.setattr(respawn, "registry_workspace_id_for", lambda p: None)
+    assert respawn.spawn_session_tmux("Some Name", "/nonexistent/project")
+    cmd = calls[-1][-1]
+    assert cmd.index(" -n ") < cmd.index(" --append-system-prompt ")
+    assert cmd.endswith(respawn.private_prompt_flag())

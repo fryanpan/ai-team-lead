@@ -141,4 +141,4 @@ Project names and details are private. When writing commit messages or PR descri
 - `/propagate` — push template updates to managed projects via PRs
 - `/aggregate` — pull learnings from all registered projects, identify cross-cutting patterns
 - `/retro` — meta-level retrospective on this project's sessions
-- `/ship-it` — post-implementation pipeline for this repo's own changes
+- `/ship-auto` (and `/ship-fleet` for plugin changes) — post-implementation pipeline for this repo's own changes

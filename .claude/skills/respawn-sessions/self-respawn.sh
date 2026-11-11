@@ -64,17 +64,21 @@ ARMED="/tmp/tl-selfrespawn.armed.$$"
 # replace the public one the ~/.zshrc function passes. zsh reads the file at launch.
 # Missing add-on: warn loudly and launch anyway.
 OVERLAY_CONF="${TEAM_LEAD_FLEET_PRIVATE_CONF:-$HOME/.config/team-lead/private-overlay.conf}"
-PRIVATE_CHECKOUT=$(sed -n 's/^checkout=//p' "$OVERLAY_CONF" 2>/dev/null | tail -1)
+# Parsed like plugin_drift_check.py: `checkout = x` allowed, CR and spaces trimmed, last line wins.
+PRIVATE_CHECKOUT=$(sed -n 's/^[[:space:]]*checkout[[:space:]]*=[[:space:]]*//p' "$OVERLAY_CONF" 2>/dev/null | tr -d '\r' | sed 's/[[:space:]]*$//' | tail -1)
 PRIVATE_PROMPT=""
 [ -n "$PRIVATE_CHECKOUT" ] && PRIVATE_PROMPT="${PRIVATE_CHECKOUT/#\~/$HOME}/plugin/system-prompt-append.md"
 TL_ZSH_CMD="claude --continue -n '$TL_NAME' --remote-control '$TL_NAME'"
 if [ -n "$PRIVATE_PROMPT" ] && [ -s "$PRIVATE_PROMPT" ] && [ -r "$PRIVATE_PROMPT" ]; then
-  TL_ZSH_CMD="$TL_ZSH_CMD --append-system-prompt \"\$(<'$PRIVATE_PROMPT')\""
+  # %q, not hand-written quotes: a path holding a ' must not break the command.
+  TL_ZSH_CMD="$TL_ZSH_CMD --append-system-prompt \"\$(<$(printf '%q' "$PRIVATE_PROMPT"))\""
 else
   if [ -z "$PRIVATE_CHECKOUT" ]; then MISSING="$OVERLAY_CONF (no checkout= line, or file not found)"; else MISSING="$PRIVATE_PROMPT"; fi
   BAR='!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
-  printf '%s\n  WARNING: private system-prompt add-on is missing: %s\n  Respawning WITHOUT it. The session gets the private rules only as session context.\n%s\n' "$BAR" "$MISSING" "$BAR" | tee -a "$LOG" >&2
+  printf '%s\n  WARNING: private system-prompt add-on is missing: %s\n  Respawning WITHOUT it. The approval and ship rules then reach the session only if\n  the private rules folder holds them, as session context.\n%s\n' "$BAR" "$MISSING" "$BAR" | tee -a "$LOG" >&2
 fi
+# The new session's command must parse as zsh. Check it here, while failing is free.
+/bin/zsh -n -c "$TL_ZSH_CMD" 2>/dev/null || { echo "ABORT: the respawn command does not parse as zsh: $TL_ZSH_CMD — not killing self."; exit 1; }
 # Quoted once for the job's bash, which hands the string to `zsh -ic`.
 TL_ZSH_CMD_Q=$(printf '%q' "$TL_ZSH_CMD")
 # Print the quoted command exactly as the job embeds it, and stop, touching nothing. For tests.

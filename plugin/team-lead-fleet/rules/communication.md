@@ -223,3 +223,11 @@ leaked into prose.
 - **If you cannot build a link, still lead with the name** and say where the thing lives.
   A name with no link is a minor failure; a bare id is the one he objected to.
 - **Applies to every surface he reads** — docs, threads, digests, chat, review items.
+
+## A link on a board or in a doc is an inline link that opens on his phone (2026-11-11)
+
+Bryan, on a board reply that ended "The planning doc is up: https://...", as relayed by one lead: *"Give me links that work inline"*. The rest of this section is our reading of that, plus an earlier ruling (2026-11-09) that relative paths fail on his iPhone.
+
+- **In board thread replies, review items and docs, put each link on the noun as an inline markdown link**: `[planning doc](https://...)`. Never a bare URL after a colon, and never a relative path.
+- **The URL must open on his phone over cellular**: the board, GitHub or a Tailscale host. Never `localhost`, `127.0.0.1` or `*.local`.
+- **Plain-text surfaces keep the plain URL**: an email body, a commit message and a spoken answer, where markdown would show as literal brackets.

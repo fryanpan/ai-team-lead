@@ -41,7 +41,7 @@ list of things you're planning to do with the button."*
 
 - **When shipping needs his approval, file one decision item** on the section of the doc that
   describes the shipping. This covers a push, opening or editing a PR, and sending a message.
-  Work that ships without asking under `workflow-conventions.md` still does.
+  Work that your rules let you ship directly still ships directly.
 - **The item lists, numbered, every action its approve button triggers**, and says what it will not do.
 - **One item for the whole set.** Not one item per action, and not a question in the doc body.
 - **Never ask him to run a command** to do any of it.

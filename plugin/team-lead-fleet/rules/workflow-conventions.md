@@ -545,7 +545,7 @@ Execution follows the default system prompt. There is no menu to present.
 
 ## Post-implementation
 
-When implementation is done and tests pass, invoke the project's ship skill **before** handing control back. **Do not narrate "Want me to commit / PR / merge / deploy?"** — consent is encoded in tests passing plus an approved plan. The project's `CLAUDE.md` names the skill; default to `ship-auto`. Each skill lists its own pause conditions — don't invent more.
+The project's `CLAUDE.md` names its ship skill; default to `ship-auto`. Each skill lists its own pause conditions.
 
 ## Work in another agent's area goes to that agent (2026-10-27)
 

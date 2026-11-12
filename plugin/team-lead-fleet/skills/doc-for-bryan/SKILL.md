@@ -30,6 +30,10 @@ Put these on the task row as done-when lines when you start (`rewrite_task` keep
 
 **The proof for step 3 comes from a separate agent.** A builder cannot sign off its own doc, however confident it is. Bryan waiting tonight does not remove step 3: the reviewer takes minutes, and a doc sent back costs him the review.
 
+**When he sent the doc back, put his words in the reviewer's brief.** The reviewer checks for what he rejected first. A reviewer that does not know it passes the same doc again.
+
+**An overview of built work** (what was built and how it was tested) **runs step 4 with `--max-words 600`.** The writing rule has the rest.
+
 ## No workspace board?
 
 Put the same lines and proofs in the hand-off message or the PR body, one line each.

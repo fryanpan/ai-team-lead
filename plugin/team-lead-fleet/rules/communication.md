@@ -118,6 +118,21 @@ with random numbers mixed in. This is unreadable for humans."*
 - **Put per-item why, result and status in a table**, not in paragraphs with numbers mixed in.
 - **A summary doc goes through `doc-for-bryan`.**
 
+### An overview of built work shows proof, not metrics (2026-11-12)
+
+Bryan, on a doc he had asked for that told him what one team built and how it was tested: *"This is
+awful. Boasting about metrics that some matter and some don't. Too many words. Please revise"*. The
+bullets and the word target are that team's lead's reading, not his words. They apply to that kind
+of doc, not to a README, a plan or a retro.
+
+- **Say what each part does for its users in one line, then how we know it works**: one line for
+  each check that would catch a real failure.
+- **Keep a figure only when it is the result against the goal or the proof of a check**, such as
+  "0 of 5,000 lookups differ". Cut test-count growth, coverage percentages, review pass counts and
+  per-run timings. They stay in the CI run and the test report.
+- **List what is not yet proven, and the choices still open.**
+- **Keep it under 600 words**, counted by the `doc-for-bryan` scan with `--max-words 600`.
+
 ## Report the number the idea is trying to move (2026-11-06)
 
 After Bryan corrected three policy summaries on one board. Each figure was accurate, and each measured

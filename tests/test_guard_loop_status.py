@@ -19,6 +19,20 @@ guard = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(guard)
 
 
+@pytest.fixture(autouse=True)
+def broker_not_probed(monkeypatch):
+    """The broker's entry comes from a health probe, not from `tmux ls`.
+
+    `scripts/test_fleet_guard.py` covers it. Stub the probe so these tests never
+    reach the real broker, and compare the tmux loops only.
+    """
+    monkeypatch.setattr(guard, "hive_broker_up", lambda: True)
+
+
+def tmux_loops(status):
+    return {v for name, v in status.items() if name != guard.HIVE_BROKER}
+
+
 @pytest.fixture
 def tmux_present(monkeypatch):
     monkeypatch.setattr(guard.os.path, "exists", lambda p: True)
@@ -28,19 +42,19 @@ def test_no_server_reads_as_down(monkeypatch, tmux_present):
     """`tmux ls` failing means no server -- every loop is down and revivable."""
     monkeypatch.setattr(guard, "sh",
                         lambda cmd, timeout=10: ("no server running", 1))
-    assert set(guard.loop_status().values()) == {"down"}
+    assert tmux_loops(guard.loop_status()) == {"down"}
 
 
 def test_missing_binary_is_not_down(monkeypatch):
     """No tmux at all is a different problem; reviving cannot fix it."""
     monkeypatch.setattr(guard.os.path, "exists", lambda p: False)
-    assert set(guard.loop_status().values()) == {"no-tmux"}
+    assert tmux_loops(guard.loop_status()) == {"no-tmux"}
 
 
 def test_running_sessions_are_up(monkeypatch, tmux_present):
     listing = "fleet-budget: 1 windows\nfleet-monitor: 1 windows\n"
     monkeypatch.setattr(guard, "sh", lambda cmd, timeout=10: (listing, 0))
-    assert set(guard.loop_status().values()) == {"up"}
+    assert tmux_loops(guard.loop_status()) == {"up"}
 
 
 def test_one_missing_session_is_down(monkeypatch, tmux_present):

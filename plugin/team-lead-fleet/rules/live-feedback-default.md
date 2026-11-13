@@ -183,6 +183,16 @@ Bryan, handed a 16-minute end-to-end video: *"Video is too long. I'm going to go
 - **Keep the full recording as evidence** on the PR or the task, linked from the highlights cut.
 - **Never hand him the full recording alone.**
 
+### A device recording shows every tap (2026-11-13)
+
+Bryan, on a phone demo recorded with no touch markers, as relayed by one lead: *"Please show taps and
+always remember to show taps. It's disorienting without that"*.
+
+- **Turn the device's touch markers on before you record, and read the setting back.** On Android:
+  `settings put system show_touches 1`, then `settings get system show_touches` returns `1`.
+- **Before you send the recording, pull a frame at one tap and check the marker is in it.**
+- **A timing run may turn the markers off.** Turn them back on when it ends, including when it fails.
+
 ## A doc review is one summary plus a comment on each line it is about (2026-10-26)
 
 Bryan, after a review of his /about page arrived as one long reply on the thread that asked for it:

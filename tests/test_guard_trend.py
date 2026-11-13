@@ -53,12 +53,29 @@ def test_short_history_is_unknown_not_flat():
     assert guard.swap_trend(history([14] * 12), None, NOW)["band"] == "unknown"
 
 
-def test_paging_rate_high_even_when_load_is_low():
-    prev = {"pageins": 1000, "pageouts": 0, "epoch": NOW - 120, "pagesize": 16384}
-    cur = {"pageins": 1000 + 1_500_000, "pageouts": 0, "epoch": NOW,
-           "pagesize": 16384}                 # 1.5M pages * 16K / 120s = ~195MB/s
+def test_paging_rate_high_with_page_outs_behind_it_is_critical():
+    prev = {"pageins": 1000, "pageouts": 500, "epoch": NOW - 120, "pagesize": 16384}
+    cur = {"pageins": 1000 + 1_500_000, "pageouts": 500 + 100_000, "epoch": NOW,
+           "pagesize": 16384}     # ~195MB/s in with ~13MB/s out: real traffic
     p = guard.paging_rate(prev, cur)
     assert p["band"] == "critical" and p["in_mb_s"] > 150
+
+
+def test_paging_rate_high_even_when_load_is_low():
+    """~195MB/s in, 0 out: the stall shape. Warn once it has held three runs
+    with swap past half of RAM; one run, or low swap, rates nothing."""
+    def run(n, swap, runs_before):
+        prev = {"pageins": 1000, "pageouts": 0, "epoch": NOW - 120,
+                "pagesize": 16384}
+        cur = {"pageins": 1000 + 1_500_000, "pageouts": 0, "epoch": NOW,
+               "pagesize": 16384, "swap_gb": swap}
+        return guard.paging_rate(prev, cur, runs_before)
+    third = run(3, 9.0, 2)
+    assert third["band"] == "warn" and third["in_mb_s"] > 150
+    assert third["pagein_high_runs"] == 3
+    assert run(1, 9.0, 0)["band"] == "ok"
+    assert run(3, 4.0, 2)["band"] == "ok"
+    assert "195MB/s in, 0MB/s out" in third["text"]
 
 
 def test_paging_rate_unknown_states_are_loud():
@@ -112,43 +129,7 @@ def test_runaway_renderer_flagged_with_user_and_pid():
     assert "pid 31" in guard.describe_cause(None, r)[0]
 
 
-def test_unchanged_alert_is_suppressed_then_resent_after_interval():
-    bands = {"swap trend": "warn", "load": "ok"}
-    trend = {"band": "warn", "rise_gb": 2.1}
-    sig = guard.alert_signature("warn", bands, trend, None, [])
-    prev = {"band": "warn", "notified_sig": sig, "notified_at": NOW - 1800}
-    assert guard.should_notify(prev, "warn", sig, NOW) is None
-    prev["notified_at"] = NOW - guard.RENOTIFY_UNCHANGED_SEC - 1
-    assert guard.should_notify(prev, "warn", sig, NOW) == "unchanged-resend"
-
-
-def test_changed_trend_cause_or_band_resends():
-    bands = {"swap trend": "warn"}
-    sig = guard.alert_signature("warn", bands, {"band": "warn", "rise_gb": 2.1},
-                                None, [])
-    prev = {"band": "warn", "notified_sig": sig, "notified_at": NOW - 60}
-    worse = guard.alert_signature("warn", bands, {"band": "warn", "rise_gb": 3.2},
-                                  None, [])
-    assert guard.should_notify(prev, "warn", worse, NOW) == "changed"
-    cause = guard.alert_signature("warn", bands, {"band": "warn", "rise_gb": 2.4},
-                                  {"gb": 9, "renderers": 2}, [])
-    assert guard.should_notify(prev, "warn", cause, NOW) == "changed"
-    assert guard.should_notify(prev, "critical", sig, NOW) == "escalated"
-    assert guard.should_notify(prev, "ok", sig, NOW) == "recovered"
-    assert guard.should_notify({"band": "ok"}, "ok", sig, NOW) is None
-
-
-def test_a_fact_dropping_out_does_not_resend():
-    chrome = {"gb": 4.7, "renderers": 16}
-    full = guard.alert_signature("warn", {"swap": "warn", "paging": "warn"},
-                                 {"band": "warn", "rise_gb": 2.3}, chrome, [])
-    prev = {"band": "warn", "notified_sig": full, "notified_at": NOW - 120}
-    # Chrome loses first place and the paging band clears: quieter, not news.
-    less = guard.alert_signature("warn", {"swap": "warn", "paging": "ok"},
-                                 {"band": "warn", "rise_gb": 2.3}, None, [])
-    assert guard.should_notify(prev, "warn", less, NOW) is None
-    # Chrome back on top matches what was last sent: still quiet.
-    assert guard.should_notify(prev, "warn", full, NOW) is None
+# When an alert is sent or held back is covered in test_guard_resend.py.
 
 
 def test_page_ins_alone_are_not_thrash():

@@ -42,6 +42,11 @@ things keep a wobble from resending (see settle_bands and decide_alert):
   - recovery is announced only after the calm has held and ALERT_CAP_SEC has
     passed since the last alert, so a dip between two peaks is not a recovery.
 The alert text names the bands as they read on this run, not the held ones.
+
+A reading that cannot be read is a cause of its own: after DEESCALATE_RUNS
+runs unread it is sent as "<reading> unreadable", resent every 2 hours while
+it stands, and is never a recovery. A rate or trend that is only waiting for
+its first samples (after a sleep, a reboot, a rotated history) is not that.
 """
 
 import getpass
@@ -107,6 +112,10 @@ SWAP_TREND_MIN_SPAN_SEC = 40 * 60     # less history than this: say so, not "fla
 PAGING_MB_S = (50.0, 150.0)           # pageouts + the two-way part of pageins
 PAGEIN_ONLY_MB_S = (100.0, 150.0)     # pageins, counted only as far as pageouts back them
 PAGEIN_PER_PAGEOUT = 20.0             # pageins count up to this many times the pageout rate
+PAGEIN_SUSTAINED_MB_S = 100.0         # pageins alone: warn at or above this rate...
+PAGEIN_SUSTAINED_RUNS = 3             # ...on this many runs in a row...
+PAGEIN_SWAP_GB = 8.0                  # ...while swap is at or above this (half of RAM)
+PAGEIN_RUN_GAP_SEC = 5 * 60           # runs further apart than this are not "in a row"
 PAGING_MAX_GAP_SEC = 15 * 60          # older previous sample: no rate, say so
 RENOTIFY_UNCHANGED_SEC = 2 * 60 * 60  # an unchanged alert is resent this rarely
 ALERT_CAP_SEC = 30 * 60               # a cause already reported is not news for this long
@@ -117,6 +126,7 @@ STATE_FRESH_SEC = 15 * 60             # an older previous run holds no band (sle
 
 RANK = {"ok": 0, "unknown": 0, "warn": 1, "critical": 2}
 BAD = ("warn", "critical")
+UNREADABLE = "unreadable: "           # prefix of the cause for a reading that reads unknown
 
 # A renderer that has burned this much CPU at this average load is a runaway
 # tab, not a busy one. Any user: a renderer in another account still costs the
@@ -524,6 +534,7 @@ def swap_trend(rows, swap_gb, now):
     if not pts or now - pts[0][0] < SWAP_TREND_MIN_SPAN_SEC:
         have = _span_text(now - pts[0][0]) if pts else "0m"
         return {"band": "unknown",
+                "warming": True,     # waiting for samples, not unreadable
                 "text": f"swap trend unknown (only {have} of history)"}
     span = now - pts[0][0]
     rise = swap_gb - pts[0][1]
@@ -537,38 +548,54 @@ def swap_trend(rows, swap_gb, now):
             "text": f"swap {rise:+.1f}GB in {_span_text(span)}, {word}"}
 
 
-def paging_band(ins, outs):
+def paging_band(ins, outs, pagein_high_runs=0, swap_gb=None):
     """The paging band for a page-in and a page-out rate in MB/s.
 
-    Pressure is page-OUTS: memory being pushed to disk. Page-ins with no
-    page-outs are memory being read back after pressure ended; on 2026-11-13
-    130-200MB/s in with 0 out, while swap fell and a third of memory was free,
-    flipped this band between warn and critical five times in 20 minutes. So
-    page-ins count only as far as page-outs back them: up to
-    PAGEIN_PER_PAGEOUT times the page-out rate (5MB/s out to warn on
-    page-ins, 7.5 to go critical). Both figures are still printed.
+    Page-outs rate on PAGING_MB_S: the page-out rate plus the two-way part of
+    the page-ins (warn at 50MB/s, critical at 150). Page-ins backed by
+    page-outs also rate on PAGEIN_ONLY_MB_S, counted up to PAGEIN_PER_PAGEOUT
+    times the page-out rate (5MB/s out is enough for page-ins to warn, 7.5
+    for critical).
 
-    This gives up the one-way page-in storm with no page-outs at all (a mass
-    reload); load per core and the swap bands are what is left to see that.
+    Page-ins alone rate WARN, never critical, and only when sustained: at or
+    above PAGEIN_SUSTAINED_MB_S on PAGEIN_SUSTAINED_RUNS runs in a row
+    (`pagein_high_runs`, this run included) while swap is at or above
+    PAGEIN_SWAP_GB. One high run rates nothing: page-ins with no page-outs
+    are usually memory being read back after pressure ended, and on
+    2026-11-13 130-200MB/s in with 0 out flipped this band between warn and
+    critical five times in 20 minutes. Sustained with swap past half of RAM
+    they are a stall in progress (one hung at 140MB/s in, 0 out). An
+    unreadable swap figure cannot confirm that, so it rates nothing here; it
+    is reported as unreadable instead.
     """
     two_way = band(outs + min(ins, outs), *PAGING_MB_S)
     backed = band(min(ins, outs * PAGEIN_PER_PAGEOUT), *PAGEIN_ONLY_MB_S)
-    return max(two_way, backed, key=RANK.get)
+    sustained = (pagein_high_runs >= PAGEIN_SUSTAINED_RUNS
+                 and swap_gb is not None and swap_gb >= PAGEIN_SWAP_GB)
+    return max(two_way, backed, "warn" if sustained else "ok", key=RANK.get)
 
 
-def paging_rate(prev, cur):
-    """Page-in + page-out throughput in MB/s between two metric snapshots.
+def paging_rate(prev, cur, prev_high_runs=0):
+    """Page-in and page-out throughput in MB/s between two metric snapshots,
+    and the band paging_band gives them.
 
-    Returns {"band", "text"}; band "unknown" says why (no previous sample,
-    stale sample, counters reset, vm_stat unreadable). A paging storm is the
-    one thing load per core does not show: the machine is waiting on the disk,
-    not computing.
+    Returns {"band", "text", "pagein_high_runs"}; the text always prints both
+    rates. `prev_high_runs` is the last run's `pagein_high_runs`: how many
+    runs in a row page-ins have been at or above PAGEIN_SUSTAINED_MB_S. The
+    caller saves the new count for the next run; a run more than
+    PAGEIN_RUN_GAP_SEC after the last one starts the count again. Band
+    "unknown" says why and restarts the count. With no vm_stat reading the
+    rate is unreadable; with no previous sample, a stale one or reset
+    counters it is only waiting for its next sample ("warming"). Page-outs,
+    and sustained page-ins with swap high, are what load per core does not
+    show: the machine is waiting on the disk, not computing.
     """
-    def unk(why):
-        return {"band": "unknown", "text": f"paging rate unknown ({why})"}
+    def unk(why, warming=True):
+        return {"band": "unknown", "text": f"paging rate unknown ({why})",
+                "pagein_high_runs": 0, "warming": warming}
     keys = ("pageins", "pageouts", "epoch")
     if any(cur.get(k) is None for k in keys):
-        return unk("no vm_stat reading")
+        return unk("no vm_stat reading", warming=False)
     if not prev or any(prev.get(k) is None for k in keys):
         return unk("no previous sample")
     dt = cur["epoch"] - prev["epoch"]
@@ -579,8 +606,11 @@ def paging_rate(prev, cur):
         return unk("counters reset")
     size = cur.get("pagesize") or 16384
     ins, outs = dins * size / dt / 1024 ** 2, douts * size / dt / 1024 ** 2
-    return {"band": paging_band(ins, outs),
+    before = prev_high_runs if dt <= PAGEIN_RUN_GAP_SEC else 0
+    runs = before + 1 if ins >= PAGEIN_SUSTAINED_MB_S else 0
+    return {"band": paging_band(ins, outs, runs, cur.get("swap_gb")),
             "in_mb_s": round(ins, 1), "out_mb_s": round(outs, 1),
+            "pagein_high_runs": runs,
             "text": f"paging {ins:.0f}MB/s in, {outs:.0f}MB/s out"}
 
 
@@ -647,28 +677,104 @@ def worst_band(bands):
     return max(bands.values(), key=lambda b: RANK[b])
 
 
-def _alert_memory(prev):
-    """(reported, alert_open, alerted_at) from the prior state."""
+def _is_num(x):
+    return (isinstance(x, (int, float)) and not isinstance(x, bool)
+            and x == x and abs(x) != float("inf"))
+
+
+def _is_count(x):
+    return isinstance(x, int) and not isinstance(x, bool) and x >= 0
+
+
+def _is_band(x):
+    return isinstance(x, str) and x in RANK
+
+
+def sanitize_state(state):
+    """(state, problem): the saved state if every part the guard reads has the
+    shape it expects, else ({}, why). A damaged state file must cost one alert
+    memory, not every run: the state is read before loop revival, the orphan
+    reap and save_state, so a raise there would stop all three for good.
+    main() also catches anything this misses and starts from empty state.
+    """
+    def bad(why):
+        return {}, f"state unreadable ({why}) -- starting from empty state"
+
+    if not isinstance(state, dict):
+        return bad("not a JSON object")
+    for key in ("bands", "band_pending", "metrics", "unknown_runs", "unreadable"):
+        if key in state and not isinstance(state[key], dict):
+            return bad(f"{key} is not an object")
+    if not all(_is_band(v) for v in (state.get("bands") or {}).values()):
+        return bad("bands holds a value that is not a band")
+    for key in ("band_pending", "unknown_runs", "unreadable"):
+        if not all(_is_count(v) for v in (state.get(key) or {}).values()):
+            return bad(f"{key} holds a value that is not a count")
+    for key in ("alerted_at", "notified_at"):
+        if key in state and not _is_num(state[key]):
+            return bad(f"{key} is not a number")
+    for key in ("epoch", "pageins", "pageouts", "pagesize"):
+        v = (state.get("metrics") or {}).get(key)
+        if v is not None and not _is_num(v):
+            return bad(f"metrics.{key} is not a number")
+    if "pagein_high_runs" in state and not _is_count(state["pagein_high_runs"]):
+        return bad("pagein_high_runs is not a count")
+    down = state.get("loops_down", [])
+    if not isinstance(down, list) or not all(isinstance(x, str) for x in down):
+        return bad("loops_down is not a list of names")
+    if "reported" in state:
+        rep = state["reported"]
+        if not isinstance(rep, dict):
+            return bad("reported is not an object")
+        for name, e in rep.items():
+            if not (isinstance(e, dict) and _is_band(e.get("band"))
+                    and _is_num(e.get("at"))
+                    and _is_count(e.get("gone", 0))
+                    and (e.get("bucket") is None or _is_num(e["bucket"]))):
+                return bad(f"reported entry {name!r} is malformed")
+    elif state.get("notified_sig"):
+        # The version before the alert memory wrote null here until its first
+        # alert, so null or "" is "no alert yet", not damage.
+        sig = state["notified_sig"]
+        try:
+            parsed = json.loads(sig) if isinstance(sig, str) else None
+        except ValueError:
+            parsed = None
+        if not isinstance(parsed, dict):
+            return bad("notified_sig is not a JSON object in a string")
+    return state, None
+
+
+def _alert_memory(prev, now):
+    """(reported, alert_open, alerted_at) from the prior state.
+
+    A stored time later than `now` means the clock stepped back. It is set to
+    0, which reads as expired: left as it is, every window measured from it
+    would stay shut until the clock caught up, a day or more of silence.
+    """
+    def past(t):
+        return t if t <= now else 0
+
     if "reported" in prev:
-        return ({k: dict(v) for k, v in prev["reported"].items()},
-                bool(prev.get("alert_open")), prev.get("alerted_at", 0))
+        reported = {k: dict(v, at=past(v["at"])) for k, v in prev["reported"].items()}
+        return (reported, bool(prev.get("alert_open")),
+                past(prev.get("alerted_at", 0)))
     # State written before this memory existed: take what its last alert named
     # as already reported, so the first run after an upgrade does not resend.
-    at = prev.get("notified_at", 0)
+    at = past(prev.get("notified_at", 0))
     reported = {k: {"band": v, "at": at}
                 for k, v in (prev.get("bands") or {}).items() if v in BAD}
-    try:
-        sig = json.loads(prev.get("notified_sig") or "{}")
-    except ValueError:
-        sig = {}
+    sig = json.loads(prev.get("notified_sig") or "{}")
     if reported and sig.get("chrome"):
         reported["cause: chrome"] = {"band": "warn", "at": at}
-    for pid in (sig.get("runaways") or []) if reported else []:
+    pids = sig.get("runaways") if isinstance(sig.get("runaways"), list) else []
+    for pid in pids if reported else []:
         reported[f"runaway pid {pid}"] = {"band": "warn", "at": at}
     return reported, bool(reported), at
 
 
-def decide_alert(prev, bands, trend, chrome, runaways, now, causes_known=True):
+def decide_alert(prev, bands, trend, chrome, runaways, now, causes_known=True,
+                 warming=()):
     """Why to send this run's alert, or None to stay quiet, plus the alert
     memory to save. Returns (reason, memory).
 
@@ -676,7 +782,8 @@ def decide_alert(prev, bands, trend, chrome, runaways, now, causes_known=True):
     is `reported` ({cause: {"band", "at"}}: what the last alerts named),
     `alert_open` (an alert went out and no recovery has) and `alerted_at`.
     `causes_known` is False when the process table could not be read, so a
-    missing Chrome or runaway cause is not taken as gone.
+    missing Chrome or runaway cause is not taken as gone. `warming` names the
+    readings whose "unknown" only means "waiting for samples".
 
     - A cause not in `reported`, or at a worse band than it was reported at,
       sends at once: "escalated" when the worst band is new, else "changed".
@@ -692,16 +799,41 @@ def decide_alert(prev, bands, trend, chrome, runaways, now, causes_known=True):
       DEESCALATE_RUNS runs without them, and only past ALERT_CAP_SEC.
     - Otherwise an alert that still stands is resent every
       RENOTIFY_UNCHANGED_SEC.
-    - "recovered" is sent once: when no band is warn or critical, the last
-      alert is at least ALERT_CAP_SEC old, and no reported cause now reads
-      "unknown" (unknown is not recovery).
+    - A reading that has read "unknown" for DEESCALATE_RUNS runs in a row is
+      a cause of its own ("unreadable: <reading>"): new, it sends at once, and
+      it is resent every RENOTIFY_UNCHANGED_SEC while it stands, whether or
+      not any band is warn or critical. It stops standing after
+      DEESCALATE_RUNS readable runs in a row, so a reading that fails most of
+      the time is one standing cause. A reading in `warming` neither counts
+      toward it nor clears it. Its end is not announced.
+    - "recovered" is sent once, for warn and critical causes only: when no
+      band is warn or critical, the last alert is at least ALERT_CAP_SEC old,
+      and no reported band now reads "unknown" (unknown is not recovery). A
+      different reading that stands unreadable does not hold it back.
 
     Before 2026-11-13 this compared against the previous RUN's band and the
     previous ALERT's cause set, so two causes taking turns, or one cause
     dipping for a single run, each read as new: nine alerts in 33 minutes.
     """
-    reported, is_open, alerted_at = _alert_memory(prev)
-    items = alert_items(bands, chrome, runaways)
+    reported, is_open, alerted_at = _alert_memory(prev, now)
+    counts = prev.get("unknown_runs") or {}
+    stood = prev.get("unreadable") or {}     # {reading: readable runs in a row}
+    unknown_runs, standing = {}, {}
+    for name, b in bands.items():
+        if name in warming:
+            if name in stood:
+                standing[name] = stood[name]
+        elif b == "unknown":
+            unknown_runs[name] = counts.get(name, 0) + 1
+            if name in stood or unknown_runs[name] >= DEESCALATE_RUNS:
+                standing[name] = 0
+        elif name in stood and stood[name] + 1 < DEESCALATE_RUNS:
+            standing[name] = stood[name] + 1
+    unreadable = sorted(standing)
+    any_bad = any(v in BAD for v in bands.values())
+    items = alert_items(bands, chrome if any_bad else None, runaways)
+    for name in unreadable:
+        items[UNREADABLE + name] = "unknown"
     for name in list(reported):
         entry, cur = reported[name], items.get(name)
         if name in bands:
@@ -711,7 +843,7 @@ def decide_alert(prev, bands, trend, chrome, runaways, now, causes_known=True):
             if below:
                 entry["lapsed"] = True
         else:
-            if not causes_known:
+            if not causes_known and not name.startswith(UNREADABLE):
                 continue
             entry["gone"] = entry.get("gone", 0) + 1 if cur is None else 0
             below = entry["gone"] >= DEESCALATE_RUNS
@@ -729,11 +861,7 @@ def decide_alert(prev, bands, trend, chrome, runaways, now, causes_known=True):
               else None)
 
     reason = None
-    if not any(v in BAD for v in bands.values()):
-        blocked = any(bands.get(k) == "unknown" for k in reported)
-        if is_open and not blocked and now - alerted_at >= ALERT_CAP_SEC:
-            reason, reported, is_open = "recovered", {}, False
-    else:
+    if any_bad or unreadable:
         news = [k for k, b in items.items()
                 if k not in reported or RANK[b] > RANK[reported[k]["band"]]]
         trend_entry = reported.get("swap trend") or {}
@@ -756,34 +884,63 @@ def decide_alert(prev, bands, trend, chrome, runaways, now, causes_known=True):
                 reported["swap trend"]["bucket"] = max(bucket, old_bucket or 0)
             elif old_bucket is not None and "swap trend" in reported:
                 reported["swap trend"]["bucket"] = old_bucket
-            is_open, alerted_at = True, now
+            is_open, alerted_at = is_open or any_bad, now
         elif bucket is not None and trend_entry and old_bucket is None:
             trend_entry["bucket"] = bucket    # entry from before buckets were kept
+    if reason is None and not any_bad and is_open:
+        blocked = any(bands.get(k) == "unknown" for k in reported)
+        if not blocked and now - alerted_at >= ALERT_CAP_SEC:
+            reason, is_open = "recovered", False
+            reported = {k: v for k, v in reported.items()
+                        if k.startswith(UNREADABLE) and k in items}
     return reason, {"reported": reported, "alert_open": is_open,
-                    "alerted_at": alerted_at}
+                    "alerted_at": alerted_at, "unknown_runs": unknown_runs,
+                    "unreadable": standing}
 
 
 def assess(prev, m, trend, paging, chrome, runaways, now, causes_known=True):
     """One run's verdict from its readings and the prior state: grade, settle
     the bands, decide whether to send. main() and the tests both go through
-    here. Returns {"worst", "bands", "live", "reason", "memory"}: `bands` are
-    the settled bands the decision used, `live` the bands as they read on this
-    run (what an alert names), `memory` what main() must save for the next run.
+    here. Returns {"worst", "bands", "live", "unreadable", "reason", "memory",
+    "state_problem"}: `bands` are the settled bands the decision used, `live`
+    the bands as they read on this run (what an alert names), `unreadable`
+    the readings standing as unreadable, `memory` what main() must save for
+    the next run, `state_problem` why `prev` was thrown away (or None).
 
     A previous run older than STATE_FRESH_SEC holds nothing: after a sleep or
     a reboot the last bands say nothing about this run. The alert memory is
     kept; it carries its own clock.
     """
+    prev, problem = sanitize_state(prev)
     last = (prev.get("metrics") or {}).get("epoch")
     fresh = prev if last is not None and 0 <= now - last <= STATE_FRESH_SEC else {}
     _, live = grade(m, trend, paging, runaways)
     _, held = grade(m, trend, paging, runaways, fresh.get("bands"))
     bands, pending = settle_bands(live, held, fresh)
+    warming = [name for name, r in (("swap trend", trend), ("paging", paging))
+               if (r or {}).get("warming")]
     reason, memory = decide_alert(prev, bands, trend, chrome, runaways, now,
-                                  causes_known)
+                                  causes_known, warming)
     memory["band_pending"] = pending
+    memory["pagein_high_runs"] = (paging or {}).get("pagein_high_runs", 0)
     return {"worst": worst_band(bands), "bands": bands, "live": live,
-            "reason": reason, "memory": memory}
+            "unreadable": sorted(memory["unreadable"]), "reason": reason,
+            "memory": memory,
+            "state_problem": problem}
+
+
+def alert_title(verdict):
+    """(worst, text) for an alert: the bands as they read on THIS run, then
+    each unreadable reading. A held band is for deciding whether to send;
+    printed, it would call a reading critical that the figures beside it show
+    is not. With no warn or critical band the worst is "unknown"."""
+    named = verdict["live"]
+    if not any(v in BAD for v in named.values()):
+        named = verdict["bands"]
+    parts = [f"{k} {v}" for k, v in named.items() if v in BAD]
+    worst = worst_band(named) if parts else "unknown"
+    parts += [f"{k} unreadable" for k in verdict["unreadable"]]
+    return worst, ", ".join(parts)
 
 
 # --------------------------------------------------------------------------
@@ -1131,11 +1288,15 @@ def notify(title, message):
 
 
 def load_state():
+    """The saved state; {} when there is none yet; None when the file is there
+    but cannot be read or parsed (sanitize_state then says so, once)."""
     try:
         with open(STATE) as f:
             return json.load(f)
-    except Exception:
+    except FileNotFoundError:
         return {}
+    except Exception:
+        return None
 
 
 def save_state(state):
@@ -1218,19 +1379,32 @@ def main():
 
     m = read_metrics()
     now = time.time()
-    state = load_state()
-    prev = state
+    state, problem = sanitize_state(load_state())
+    if problem:
+        print(f"  !! {problem}")
 
     # Trend and cause, from history and one process-table read. "unknown" is a
     # state of its own and is printed, never folded into ok.
     trend = swap_trend(read_history(), m["swap_gb"], now)
-    paging = paging_rate(state.get("metrics"), m)
     rows = read_process_table()
     me = getpass.getuser()
     runaways = find_runaway_renderers(rows)
     chrome = chrome_cause(rows, me)
-    verdict = assess(prev, m, trend, paging, chrome, runaways, now,
-                     causes_known=rows is not None)
+
+    def judge(st):
+        pg = paging_rate(st.get("metrics"), m, st.get("pagein_high_runs", 0))
+        return pg, assess(st, m, trend, pg, chrome, runaways, now,
+                          causes_known=rows is not None)
+    try:
+        paging, verdict = judge(state)
+    except Exception as e:
+        # Whatever sanitize_state did not foresee. Everything below (loop
+        # revival, the orphan reap, save_state) must still run, and the state
+        # saved at the end replaces the one that raised.
+        print(f"  !! state unusable ({type(e).__name__}: {e}) -- starting "
+              f"from empty state")
+        state = {}
+        paging, verdict = judge(state)
     worst, bands, reason = verdict["worst"], verdict["bands"], verdict["reason"]
     loops = loop_status()
     revived = {}
@@ -1278,14 +1452,7 @@ def main():
 
     fired = False
     if reason in ("escalated", "changed", "unchanged-resend"):
-        # Name the bands as they read on THIS run. A held band is for deciding
-        # whether to send; printed, it would call a reading critical that the
-        # figures beside it show is not.
-        named = verdict["live"]
-        if not any(v in BAD for v in named.values()):
-            named = bands
-        worst = worst_band(named)
-        bad = ", ".join(f"{k} {v}" for k, v in named.items() if v in BAD)
+        worst, bad = alert_title(verdict)
         trendline = [t["text"] for t in (trend, paging) if t["band"] != "ok"]
         notify(f"Fleet guard: {worst}",
                " · ".join([bad] + trendline + causes) + f" — {detail}")

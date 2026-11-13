@@ -53,12 +53,29 @@ def test_short_history_is_unknown_not_flat():
     assert guard.swap_trend(history([14] * 12), None, NOW)["band"] == "unknown"
 
 
-def test_paging_rate_high_even_when_load_is_low():
+def test_paging_rate_high_with_page_outs_behind_it_is_critical():
     prev = {"pageins": 1000, "pageouts": 500, "epoch": NOW - 120, "pagesize": 16384}
     cur = {"pageins": 1000 + 1_500_000, "pageouts": 500 + 100_000, "epoch": NOW,
            "pagesize": 16384}     # ~195MB/s in with ~13MB/s out: real traffic
     p = guard.paging_rate(prev, cur)
     assert p["band"] == "critical" and p["in_mb_s"] > 150
+
+
+def test_paging_rate_high_even_when_load_is_low():
+    """~195MB/s in, 0 out: the stall shape. Warn once it has held three runs
+    with swap past half of RAM; one run, or low swap, rates nothing."""
+    def run(n, swap, runs_before):
+        prev = {"pageins": 1000, "pageouts": 0, "epoch": NOW - 120,
+                "pagesize": 16384}
+        cur = {"pageins": 1000 + 1_500_000, "pageouts": 0, "epoch": NOW,
+               "pagesize": 16384, "swap_gb": swap}
+        return guard.paging_rate(prev, cur, runs_before)
+    third = run(3, 9.0, 2)
+    assert third["band"] == "warn" and third["in_mb_s"] > 150
+    assert third["pagein_high_runs"] == 3
+    assert run(1, 9.0, 0)["band"] == "ok"
+    assert run(3, 4.0, 2)["band"] == "ok"
+    assert "195MB/s in, 0MB/s out" in third["text"]
 
 
 def test_paging_rate_unknown_states_are_loud():

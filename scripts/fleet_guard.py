@@ -26,9 +26,22 @@ lying about it.
 Notify on the CROSSING, not on the state
 ----------------------------------------
 Firing every two minutes while a condition persists trains you to ignore it,
-which is how the email watcher became furniture. This notifies when the band
-gets worse, when what the alert says changes (trend bucket, bands, cause), once
-when it recovers, and otherwise at most every 2 hours (RENOTIFY_UNCHANGED_SEC).
+which is how the email watcher became furniture. This notifies when a cause
+appears or reaches a band it was not reported at in the last 30 minutes
+(ALERT_CAP_SEC), once when the machine recovers, and otherwise at most every
+2 hours (RENOTIFY_UNCHANGED_SEC).
+
+A reading that wobbles around a threshold is not a crossing
+----------------------------------------------------------
+Each alert wakes an agent session that pays its whole context to read it. Three
+things keep a wobble from resending (see settle_bands and decide_alert):
+  - a band is left only after DEESCALATE_RUNS runs clear of its threshold by
+    HYSTERESIS, or LONG_BELOW_RUNS runs under the threshold itself;
+  - every cause an alert named is remembered for ALERT_CAP_SEC, so the same
+    cause at the same band is not news again inside that window;
+  - recovery is announced only after the calm has held and ALERT_CAP_SEC has
+    passed since the last alert, so a dip between two peaks is not a recovery.
+The alert text names the bands as they read on this run, not the held ones.
 """
 
 import getpass
@@ -92,9 +105,18 @@ SWAP_TREND_GB = (1.5, 4.0)            # rise over the window; (warn, critical)
 SWAP_TREND_WINDOW_SEC = 2 * 60 * 60
 SWAP_TREND_MIN_SPAN_SEC = 40 * 60     # less history than this: say so, not "flat"
 PAGING_MB_S = (50.0, 150.0)           # pageouts + the two-way part of pageins
-PAGEIN_ONLY_MB_S = (100.0, 150.0)     # one-way pageins; the 21:43 stall was ~195
+PAGEIN_ONLY_MB_S = (100.0, 150.0)     # pageins, counted only as far as pageouts back them
+PAGEIN_PER_PAGEOUT = 20.0             # pageins count up to this many times the pageout rate
 PAGING_MAX_GAP_SEC = 15 * 60          # older previous sample: no rate, say so
 RENOTIFY_UNCHANGED_SEC = 2 * 60 * 60  # an unchanged alert is resent this rarely
+ALERT_CAP_SEC = 30 * 60               # a cause already reported is not news for this long
+HYSTERESIS = 0.15                     # a band is left once clear of its threshold by this share
+DEESCALATE_RUNS = 3                   # ...for this many runs in a row,
+LONG_BELOW_RUNS = 15                  # or under the threshold itself for this many (~30 min)
+STATE_FRESH_SEC = 15 * 60             # an older previous run holds no band (sleep, reboot)
+
+RANK = {"ok": 0, "unknown": 0, "warn": 1, "critical": 2}
+BAD = ("warn", "critical")
 
 # A renderer that has burned this much CPU at this average load is a runaway
 # tab, not a busy one. Any user: a renderer in another account still costs the
@@ -158,9 +180,7 @@ def sysctl(name):
     return out if rc == 0 else None
 
 
-def band(value, warn, crit, higher_is_worse=True):
-    if value is None:
-        return "unknown"
+def _raw_band(value, warn, crit, higher_is_worse):
     if higher_is_worse:
         if value >= crit:
             return "critical"
@@ -172,6 +192,21 @@ def band(value, warn, crit, higher_is_worse=True):
         if value <= warn:
             return "warn"
     return "ok"
+
+
+def band(value, warn, crit, higher_is_worse=True, prev=None):
+    """The band for `value`. `prev` is the band this reading had on the last
+    run: entering a band uses the threshold as written, leaving one needs the
+    value to clear the threshold by HYSTERESIS. Without `prev` there is no
+    margin. An unreadable value is "unknown" whatever `prev` was."""
+    if value is None:
+        return "unknown"
+    raw = _raw_band(value, warn, crit, higher_is_worse)
+    if prev not in BAD or RANK[raw] >= RANK[prev]:
+        return raw
+    k = (1 - HYSTERESIS) if higher_is_worse else (1 + HYSTERESIS)
+    held = _raw_band(value, warn * k, crit * k, higher_is_worse)
+    return held if RANK[held] <= RANK[prev] else prev
 
 
 def read_metrics():
@@ -502,6 +537,25 @@ def swap_trend(rows, swap_gb, now):
             "text": f"swap {rise:+.1f}GB in {_span_text(span)}, {word}"}
 
 
+def paging_band(ins, outs):
+    """The paging band for a page-in and a page-out rate in MB/s.
+
+    Pressure is page-OUTS: memory being pushed to disk. Page-ins with no
+    page-outs are memory being read back after pressure ended; on 2026-11-13
+    130-200MB/s in with 0 out, while swap fell and a third of memory was free,
+    flipped this band between warn and critical five times in 20 minutes. So
+    page-ins count only as far as page-outs back them: up to
+    PAGEIN_PER_PAGEOUT times the page-out rate (5MB/s out to warn on
+    page-ins, 7.5 to go critical). Both figures are still printed.
+
+    This gives up the one-way page-in storm with no page-outs at all (a mass
+    reload); load per core and the swap bands are what is left to see that.
+    """
+    two_way = band(outs + min(ins, outs), *PAGING_MB_S)
+    backed = band(min(ins, outs * PAGEIN_PER_PAGEOUT), *PAGEIN_ONLY_MB_S)
+    return max(two_way, backed, key=RANK.get)
+
+
 def paging_rate(prev, cur):
     """Page-in + page-out throughput in MB/s between two metric snapshots.
 
@@ -525,13 +579,7 @@ def paging_rate(prev, cur):
         return unk("counters reset")
     size = cur.get("pagesize") or 16384
     ins, outs = dins * size / dt / 1024 ** 2, douts * size / dt / 1024 ** 2
-    # Thrash is two-way traffic. Page-ins alone are usually memory coming back
-    # after pressure ended (60MB/s in, 0 out, load under 0.5/core warned twice
-    # on 2026-10-23), so they get a higher bar; a mass reload still crosses it.
-    two_way = band(outs + min(ins, outs), *PAGING_MB_S)
-    one_way = band(ins, *PAGEIN_ONLY_MB_S)
-    rank = {"ok": 0, "warn": 1, "critical": 2}
-    return {"band": max(two_way, one_way, key=rank.get),
+    return {"band": paging_band(ins, outs),
             "in_mb_s": round(ins, 1), "out_mb_s": round(outs, 1),
             "text": f"paging {ins:.0f}MB/s in, {outs:.0f}MB/s out"}
 
@@ -548,53 +596,194 @@ def describe_cause(chrome, runaways):
     return parts
 
 
-def alert_signature(worst, bands, trend, chrome, runaways):
-    """What an alert SAYS, coarsely: change this and a resend is warranted.
-    Swap rise is bucketed to whole GB so jitter does not read as change."""
-    rise = trend.get("rise_gb")
-    return json.dumps({
-        "worst": worst,
-        "bands": sorted(k for k, v in bands.items() if v in ("warn", "critical")),
-        "trend": None if rise is None or trend["band"] == "ok" else int(rise),
-        "chrome": bool(chrome),
-        "runaways": sorted(r["pid"] for r in runaways),
-    }, sort_keys=True)
+def alert_items(bands, chrome, runaways):
+    """What an alert would name, as {cause: band}: every warn or critical band,
+    Chrome as the top holder, and each runaway pid."""
+    items = {k: v for k, v in bands.items() if v in BAD}
+    if chrome:
+        items["cause: chrome"] = "warn"
+    for r in runaways or ():
+        items[f"runaway pid {r['pid']}"] = "warn"
+    return items
 
 
-def sig_got_worse(old, new):
-    """True when `new` says something `old` did not: a band, a higher trend
-    bucket, Chrome as cause, or a runaway pid. A fact dropping out is not news.
-    Comparing for any difference resent on every flip of Chrome and the claude
-    sessions trading first place — four alerts in six minutes on 2026-10-23."""
-    if not old:
-        return True
-    o, n = json.loads(old), json.loads(new)
-    return (bool(set(n["bands"]) - set(o["bands"]))
-            or (n["trend"] is not None and (o["trend"] is None or n["trend"] > o["trend"]))
-            or (n["chrome"] and not o["chrome"])
-            or bool(set(n["runaways"]) - set(o["runaways"])))
+def settle_bands(exact, held, prev):
+    """Hold each band at its previous level until the reading has really left
+    it. Returns (settled bands, pending counts).
 
-
-def should_notify(prev, worst, sig, now):
-    """Why to send this run's alert, or None to stay quiet.
-
-    `prev` is the prior state. Sends when the band got worse, the alert content
-    changed (trend bucket, which bands, cause, runaways), or
-    RENOTIFY_UNCHANGED_SEC has passed. The old rule resent every critical alert
-    unchanged each 30 minutes, which on 2026-10-22 buried the one fact that
-    was changing.
+    `exact` are this run's bands with every threshold as written; `held` are
+    the same readings graded with the leaving margin (grade with prev_bands).
+    A band drops to `held` after DEESCALATE_RUNS runs in a row below the
+    previous band, and to `exact` after LONG_BELOW_RUNS such runs: a value
+    that sits just under a line for half an hour has left it, margin or not.
+    Getting worse takes effect at once. "unknown" also takes effect at once:
+    it is printed as unknown, never shown as the band it replaced. `prev` is
+    the prior state (its `bands` and `band_pending`).
     """
-    rank = {"ok": 0, "unknown": 0, "warn": 1, "critical": 2}
-    prev_band = prev.get("band", "ok")
-    if worst == "ok":
-        return "recovered" if rank.get(prev_band, 0) > 0 else None
-    if rank[worst] > rank.get(prev_band, 0):
-        return "escalated"
-    if sig_got_worse(prev.get("notified_sig"), sig):
-        return "changed"
-    if now - prev.get("notified_at", 0) > RENOTIFY_UNCHANGED_SEC:
-        return "unchanged-resend"
-    return None
+    prev_bands = prev.get("bands") or {}
+    counts = prev.get("band_pending") or {}
+    settled, pending = {}, {}
+    for name, raw in exact.items():
+        was = prev_bands.get(name)
+        if raw == "unknown" or was not in BAD or RANK[raw] >= RANK[was]:
+            settled[name] = raw
+            continue
+        n = counts.get(name, 0) + 1
+        soft = held.get(name, raw)
+        if soft == "unknown" or RANK[soft] > RANK[was]:
+            soft = was
+        if n >= LONG_BELOW_RUNS:
+            settled[name] = raw
+        elif n >= DEESCALATE_RUNS and RANK[soft] < RANK[was]:
+            settled[name] = soft
+            if RANK[soft] > RANK[raw]:
+                pending[name] = n
+        else:
+            settled[name], pending[name] = was, n
+    return settled, pending
+
+
+def worst_band(bands):
+    return max(bands.values(), key=lambda b: RANK[b])
+
+
+def _alert_memory(prev):
+    """(reported, alert_open, alerted_at) from the prior state."""
+    if "reported" in prev:
+        return ({k: dict(v) for k, v in prev["reported"].items()},
+                bool(prev.get("alert_open")), prev.get("alerted_at", 0))
+    # State written before this memory existed: take what its last alert named
+    # as already reported, so the first run after an upgrade does not resend.
+    at = prev.get("notified_at", 0)
+    reported = {k: {"band": v, "at": at}
+                for k, v in (prev.get("bands") or {}).items() if v in BAD}
+    try:
+        sig = json.loads(prev.get("notified_sig") or "{}")
+    except ValueError:
+        sig = {}
+    if reported and sig.get("chrome"):
+        reported["cause: chrome"] = {"band": "warn", "at": at}
+    for pid in (sig.get("runaways") or []) if reported else []:
+        reported[f"runaway pid {pid}"] = {"band": "warn", "at": at}
+    return reported, bool(reported), at
+
+
+def decide_alert(prev, bands, trend, chrome, runaways, now, causes_known=True):
+    """Why to send this run's alert, or None to stay quiet, plus the alert
+    memory to save. Returns (reason, memory).
+
+    `prev` is the prior state; `bands` are this run's settled bands. The memory
+    is `reported` ({cause: {"band", "at"}}: what the last alerts named),
+    `alert_open` (an alert went out and no recovery has) and `alerted_at`.
+    `causes_known` is False when the process table could not be read, so a
+    missing Chrome or runaway cause is not taken as gone.
+
+    - A cause not in `reported`, or at a worse band than it was reported at,
+      sends at once: "escalated" when the worst band is new, else "changed".
+    - A cause already reported at this band or worse does not send for
+      ALERT_CAP_SEC. Once its entry is that old: if the cause is now lower,
+      the entry is dropped or lowered, so the next rise sends at once; if the
+      cause fell and came back inside the window, it is sent again now (the
+      30-minute cap, not a 2-hour silence on a second episode).
+    - A larger whole-GB swap rise than the one reported sends, but not within
+      ALERT_CAP_SEC of the last alert. The trend flipping between rising and
+      falling changes no bucket upward and sends nothing by itself.
+    - Chrome as top holder and a runaway pid are forgotten only after
+      DEESCALATE_RUNS runs without them, and only past ALERT_CAP_SEC.
+    - Otherwise an alert that still stands is resent every
+      RENOTIFY_UNCHANGED_SEC.
+    - "recovered" is sent once: when no band is warn or critical, the last
+      alert is at least ALERT_CAP_SEC old, and no reported cause now reads
+      "unknown" (unknown is not recovery).
+
+    Before 2026-11-13 this compared against the previous RUN's band and the
+    previous ALERT's cause set, so two causes taking turns, or one cause
+    dipping for a single run, each read as new: nine alerts in 33 minutes.
+    """
+    reported, is_open, alerted_at = _alert_memory(prev)
+    items = alert_items(bands, chrome, runaways)
+    for name in list(reported):
+        entry, cur = reported[name], items.get(name)
+        if name in bands:
+            if bands[name] == "unknown":
+                continue
+            below = cur is None or RANK[cur] < RANK[entry["band"]]
+            if below:
+                entry["lapsed"] = True
+        else:
+            if not causes_known:
+                continue
+            entry["gone"] = entry.get("gone", 0) + 1 if cur is None else 0
+            below = entry["gone"] >= DEESCALATE_RUNS
+        if now - entry["at"] < ALERT_CAP_SEC:
+            continue
+        if below and cur is None:
+            del reported[name]
+        elif below:
+            reported[name] = {"band": cur, "at": entry["at"]}
+        elif entry.get("lapsed"):
+            del reported[name]
+
+    rise = trend.get("rise_gb")
+    bucket = (int(rise) if rise is not None and bands.get("swap trend") in BAD
+              else None)
+
+    reason = None
+    if not any(v in BAD for v in bands.values()):
+        blocked = any(bands.get(k) == "unknown" for k in reported)
+        if is_open and not blocked and now - alerted_at >= ALERT_CAP_SEC:
+            reason, reported, is_open = "recovered", {}, False
+    else:
+        news = [k for k, b in items.items()
+                if k not in reported or RANK[b] > RANK[reported[k]["band"]]]
+        trend_entry = reported.get("swap trend") or {}
+        old_bucket = trend_entry.get("bucket")
+        if news:
+            top = max((RANK[e["band"]] for e in reported.values()), default=0)
+            reason = "escalated" if RANK[worst_band(bands)] > top else "changed"
+        elif (bucket is not None and old_bucket is not None
+              and bucket > old_bucket and now - alerted_at >= ALERT_CAP_SEC):
+            reason = "changed"
+        elif now - alerted_at > RENOTIFY_UNCHANGED_SEC:
+            reason = "unchanged-resend"
+        if reason:
+            for name, b in items.items():
+                old = reported.get(name)
+                if old and RANK[b] < RANK[old["band"]]:
+                    continue        # reported worse, still inside its window
+                reported[name] = {"band": b, "at": now}
+            if bucket is not None and "swap trend" in reported:
+                reported["swap trend"]["bucket"] = max(bucket, old_bucket or 0)
+            elif old_bucket is not None and "swap trend" in reported:
+                reported["swap trend"]["bucket"] = old_bucket
+            is_open, alerted_at = True, now
+        elif bucket is not None and trend_entry and old_bucket is None:
+            trend_entry["bucket"] = bucket    # entry from before buckets were kept
+    return reason, {"reported": reported, "alert_open": is_open,
+                    "alerted_at": alerted_at}
+
+
+def assess(prev, m, trend, paging, chrome, runaways, now, causes_known=True):
+    """One run's verdict from its readings and the prior state: grade, settle
+    the bands, decide whether to send. main() and the tests both go through
+    here. Returns {"worst", "bands", "live", "reason", "memory"}: `bands` are
+    the settled bands the decision used, `live` the bands as they read on this
+    run (what an alert names), `memory` what main() must save for the next run.
+
+    A previous run older than STATE_FRESH_SEC holds nothing: after a sleep or
+    a reboot the last bands say nothing about this run. The alert memory is
+    kept; it carries its own clock.
+    """
+    last = (prev.get("metrics") or {}).get("epoch")
+    fresh = prev if last is not None and 0 <= now - last <= STATE_FRESH_SEC else {}
+    _, live = grade(m, trend, paging, runaways)
+    _, held = grade(m, trend, paging, runaways, fresh.get("bands"))
+    bands, pending = settle_bands(live, held, fresh)
+    reason, memory = decide_alert(prev, bands, trend, chrome, runaways, now,
+                                  causes_known)
+    memory["band_pending"] = pending
+    return {"worst": worst_band(bands), "bands": bands, "live": live,
+            "reason": reason, "memory": memory}
 
 
 # --------------------------------------------------------------------------
@@ -760,17 +949,25 @@ def reap_orphaned_chromes(list_processes=None, min_age_sec=CHROME_ORPHAN_MIN_AGE
     return orphans, killed
 
 
-def grade(m, trend=None, paging=None, runaways=()):
+def grade(m, trend=None, paging=None, runaways=(), prev_bands=None):
+    """Band per reading. `prev_bands` (the last run's bands) turns on the
+    leaving margin in band(); without it every threshold is exact."""
+    was = (prev_bands or {}).get
     bands = {
-        "swap": band(m["swap_gb"], *SWAP_GB),
-        "memory": band(m["free_pct"], *FREE_PCT, higher_is_worse=False),
-        "load": band(m["load_per_core"], *LOAD_PER_CORE),
-        "orphan test workers": band(m["orphan_workers"], *ORPHAN_WORKERS),
-        "anon+compressed": band(m["anon_gb"], *ANON_GB),
+        "swap": band(m["swap_gb"], *SWAP_GB, prev=was("swap")),
+        "memory": band(m["free_pct"], *FREE_PCT, higher_is_worse=False,
+                       prev=was("memory")),
+        "load": band(m["load_per_core"], *LOAD_PER_CORE, prev=was("load")),
+        "orphan test workers": band(m["orphan_workers"], *ORPHAN_WORKERS,
+                                    prev=was("orphan test workers")),
+        "anon+compressed": band(m["anon_gb"], *ANON_GB,
+                                prev=was("anon+compressed")),
         "boot disk free": band(m["boot_free_gb"], *BOOT_FREE_GB,
-                               higher_is_worse=False),
+                               higher_is_worse=False,
+                               prev=was("boot disk free")),
         "healthcheck freshness": band(m["healthcheck_age_min"],
-                                      *HEALTHCHECK_STALE_MIN),
+                                      *HEALTHCHECK_STALE_MIN,
+                                      prev=was("healthcheck freshness")),
         "swap trend": (trend or {}).get("band", "unknown"),
         "paging": (paging or {}).get("band", "unknown"),
         "runaway tab": "warn" if runaways else "ok",
@@ -780,9 +977,7 @@ def grade(m, trend=None, paging=None, runaways=()):
     # was draining. Critical stays absolute, and an unknown trend keeps the warn.
     if bands["swap"] == "warn" and (trend or {}).get("band") == "ok":
         bands["swap"] = "ok"
-    rank = {"ok": 0, "unknown": 0, "warn": 1, "critical": 2}
-    worst = max(bands.values(), key=lambda b: rank[b])
-    return worst, bands
+    return worst_band(bands), bands
 
 
 def hive_broker_up():
@@ -1034,7 +1229,9 @@ def main():
     me = getpass.getuser()
     runaways = find_runaway_renderers(rows)
     chrome = chrome_cause(rows, me)
-    worst, bands = grade(m, trend, paging, runaways)
+    verdict = assess(prev, m, trend, paging, chrome, runaways, now,
+                     causes_known=rows is not None)
+    worst, bands, reason = verdict["worst"], verdict["bands"], verdict["reason"]
     loops = loop_status()
     revived = {}
     for name, status in list(loops.items()):
@@ -1077,14 +1274,18 @@ def main():
     prev_down = state.get("loops_down", [])
     last_notified = state.get("notified_at", 0)
 
-    sig = alert_signature(worst, bands, trend, chrome, runaways)
-    reason = should_notify(prev, worst, sig, now)
     loops_newly_down = sorted(set(down) - set(prev_down))
 
     fired = False
     if reason in ("escalated", "changed", "unchanged-resend"):
-        bad = ", ".join(f"{k} {v}" for k, v in bands.items()
-                        if v in ("warn", "critical"))
+        # Name the bands as they read on THIS run. A held band is for deciding
+        # whether to send; printed, it would call a reading critical that the
+        # figures beside it show is not.
+        named = verdict["live"]
+        if not any(v in BAD for v in named.values()):
+            named = bands
+        worst = worst_band(named)
+        bad = ", ".join(f"{k} {v}" for k, v in named.items() if v in BAD)
         trendline = [t["text"] for t in (trend, paging) if t["band"] != "ok"]
         notify(f"Fleet guard: {worst}",
                " · ".join([bad] + trendline + causes) + f" — {detail}")
@@ -1112,7 +1313,7 @@ def main():
         fired = True
 
     snapshot = {
-        "band": worst,
+        "band": verdict["worst"],
         "bands": bands,
         "metrics": m,
         "holders": holders,
@@ -1121,9 +1322,8 @@ def main():
         "revived": revived,
         "checked_at": stamp,
         "notified_at": now if fired else last_notified,
-        "notified_sig": sig if reason in ("escalated", "changed", "unchanged-resend")
-                        else state.get("notified_sig"),
     }
+    snapshot.update(verdict["memory"])
     save_state(snapshot)
     record_history(snapshot)
     return 0

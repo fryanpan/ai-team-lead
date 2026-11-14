@@ -489,6 +489,12 @@ Bryan, after a PR failed in CI on an end-to-end test that had not been run local
 - **Before you file a diff review or hand a change over to push, run every check the repo's CI runs.** Read `.github/workflows/*.yml` for the list. That includes the full end-to-end suite, not one spec.
 - **A failure that only happens locally counts unless it also fails on the base branch without the change.** Say which in the review.
 - **Checks that need cloud credentials, or that the repo forbids running locally, stay CI-only.** Name them as CI-only in the review.
+- **One repo has his exception (2026-11-13).** Six builders were queueing for one full local run at a
+  time. Asked whether CI could be the gate there, he answered *"CI is the gate"*. In that repo a builder
+  runs the fast checks and its own tests locally, CI runs the rest, and the CI jobs are required on the
+  main branch.
+- **Another repo needs his word for the same exception.** File it as his decision, with what the local
+  run costs and whether GitHub requires CI before a merge.
 
 ### A change updates every doc it makes wrong, in the same diff (2026-10-28)
 

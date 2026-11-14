@@ -44,7 +44,63 @@ This section is temporary. Remove it when leads file review items and keep them 
 
 - **Before each hit list, check every top-10 item is still open.** He often does the thing
   outside the queue (an email sent, a call made). Close it or have the owner close it.
-- **Ping the owner of any ask older than a day:** drop it, update it, or keep it waiting.
+- **An ask older than a day goes to its owner through the daily cleanup in section 5**, not as a
+  second message from here.
+
+## 5. Clean every board once a day
+
+Set by Bryan, 2026-11-14: *"clean up and prioritize review items daily to make sure they still
+match open weekly goals"*, with no stale ones and no duplicates. It runs from the daily cleanup row
+on the Team Lead board. The run time on that row is the team-lead's choice, not his.
+
+**Read**
+
+- **Read every board's task items**: `list_tasks` with `includeArchived: true` and
+  `fields: ["id","title","status","goal","archivedAt","reviews"]`. An item is open when it has no
+  `answer` and no `review.withdrawnAt`.
+- **That read misses items filed on a doc, task or goal thread.** Take those from the queue keys in
+  `workspace.new_asks` lines and Home links. Say in the run's note which kinds the run covered.
+
+**Judge**
+
+- **An item is stale when** the weekly goal it serves is paused or dropped in the plan, its task or
+  goal is archived, a later answer or event settled it, or it sits on a done task. An item on a done
+  or archived task is hidden from his queue: withdraw it, or reopen the task if it still needs him.
+- **Age alone is not stale.** An item older than a day that he has not answered stays. Ask its owner
+  once to withdraw, revise or keep it. Record each "keep" in the run's note and do not ask again
+  until the item's facts change.
+- **An item is a duplicate when** two open items ask the same question, on one task, two tasks or
+  two boards. Name the copy that stays: the one on the board that owns the work. Only the other
+  owner is asked to withdraw.
+
+**Act**
+
+- **Withdraw your own stale items and your own duplicates.**
+- **Send each running lead one message that names its stale and duplicate items by id.** One message
+  per lead per day, including what the hit-list check in section 4 found.
+- **When the lead is not running, withdraw its stale items yourself**, with the reason on each. Do
+  this only for an item that meets a stale test above. `undo: true` puts one back.
+- **Next run, check yesterday's messages were acted on.** An item a lead left untouched for a day
+  without an answer gets a task on that lead's board.
+- **A board with 10 or more open items sends its order.** Apply it when the reply arrives, in that
+  turn, with `rank_review_item` and the queue key `<board>:task-review:<task>:<item>`. Goal order
+  decides between goals (section 2); the lead's order decides inside its goal.
+- **Re-rank the whole queue at the end of the run** with what you have, by the rules in section 2.
+
+## 6. Match the project order to the open goals every six hours
+
+Same day: *"make sure you update the project priority regularly to match currently open weekly
+goals. Like every six hours."* It runs from the project-order row on the Team Lead board.
+
+- **Set the board's goal order to this week's open goals in plan order.** Follow the reorder step
+  of the `weekly-plan` skill for the mechanics, including the check on Home.
+- **Write his spoken or chat change into the plan doc in the same turn you hear it.** The next run
+  reads the plan, not your memory of the conversation.
+- **A goal he paused goes below every open goal. A goal he moved goes where he said.** If he gave no
+  place, choose one and record it in the plan as your choice.
+- **If he reordered the goals on the board himself, keep his order** and update the plan to match.
+- **When a goal moves, re-rank its items in the same run**, so no item of a lower goal stays above
+  an item of a higher one.
 
 ## Before you tell him the queue is right
 

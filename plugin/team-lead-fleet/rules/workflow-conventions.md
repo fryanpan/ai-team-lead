@@ -557,12 +557,16 @@ of doing everything yourself."*
 - **If the owner is not running, ask the team-lead to start it.** Then hand it the request and the approved
   inputs. Do not do the work in its place.
 
-### An owner on higher-priority work gets no lower-priority work (2026-11-13)
+### Weekly priorities decide every choice, including who gets work (2026-11-13)
 
 Bryan, after a plan for his third priority gave parts of three milestones to a lead that was on his
 first priority: *"Don't give other work to [that lead]. Assign it someone else"*, then *"why did you
-give [it] an assignment when it's busy on higher priority stuff?"*
+give [it] an assignment when it's busy on higher priority stuff?"* Asked whether that should be a fleet
+rule, he made it wider: *"Respect weekly priorities in every decision you make. Including which agent
+it adding work to"*.
 
+- **Check each decision against this week's priority order:** what to start, what to pause, what to ask
+  him, and which agent gets the work.
 - **Before you assign work to a lead, or name it as an owner in a plan, check what it is already on.**
 - **If that is a higher-priority goal, give the work to a lead with room.** That lead sends it as PRs to
   the owner's repo. The owner merges them and answers only what it alone knows.

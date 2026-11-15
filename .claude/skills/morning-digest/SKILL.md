@@ -79,19 +79,19 @@ board row, a settings pane — carries the link on the noun at first mention.
   one, because he only finds out after the context switch.
 
 **A setup step that only he can perform ships with its actual steps, not its name.**
-*"Include specific step-by-step instructions for Full Disk Access (Messages) and Signal
-device linking in daily updates."* Naming the task is what the digest had been doing, and
+*"Include specific step-by-step instructions for each permission grant and device link in
+daily updates."* Naming the task is what the digest had been doing, and
 it leaves him to reconstruct the procedure every morning it reappears.
 
-- **Write the pane path and the clicks**, e.g. System Settings → Privacy & Security →
-  Full Disk Access → `+` → add the terminal app that runs this session.
+- **Write the pane path and the clicks**, e.g. the System Settings pane, the setting and the
+  app to add.
 - **Say where it can be done from.** *"instructions can be executed from Mac mini, SSH
   from phone/iPad, or remote desktop."* That is per-step and it matters: anything in
   System Settings needs the GUI, so it is the Mac mini directly or remote desktop — **not
   SSH**. A CLI step is fine over SSH from the phone or iPad.
-- **Confirm the client before writing Signal's steps.** Linking differs between Signal
-  Desktop (scan the QR it displays) and `signal-cli` (`link` prints a `sgnl://` URI you
-  have to render as a QR yourself). Do not write one procedure as if it covered both.
+- **Confirm the client before writing the steps.** The procedure can differ between a
+  desktop app and a command-line client for the same service. Do not write one procedure as
+  if it covered both.
 
 ## 1. Needs you
 
@@ -169,35 +169,17 @@ broken one.
 
 ### Which channels this sweeps
 
-**Answered 2026-09-18:** *"Slack, Messages and Signal. Research if there's a clean way to
-handle WhatsApp."* All four are wanted. Three have a path; one does not yet.
+The list of channels, and each one's state (on, approved, blocked or not approved) and how it
+is read, lives in `.claude/skills/morning-digest/channels.local.md` (gitignored). Read it at
+the start of the run.
 
-**Which channels are in was his call, not a technical one.** Do not widen the sweep on
-your own judgement, and do not narrow it either.
+**Which channels are in was his call, not a technical one.** Never widen or narrow the sweep
+on your own judgement.
 
-- **Gmail** — on now.
-- **Slack** — on now. The connector was already authorised, so this needed nothing from
-  him. Same unreplied test as email: the last message in the thread or DM is not from
-  him. Sweep DMs and channels where he is @-mentioned — **not** every channel he belongs
-  to, which is a newsletter, not an inbox.
-- **Messages (iMessage)** — approved, blocked on a Full Disk Access grant only he can
-  make. No connector exists; the history is a local SQLite store under his Library. That
-  grant is machine-wide rather than scoped to Messages, so **never perform it, script it,
-  or prompt for it mid-digest** — the steps live on the channel-scope row and he does it
-  in System Settings.
-- **Signal** — approved, blocked on him linking this machine as a second device. There is
-  no API, by design; `signal-cli` works by linking, which means a QR scan from his phone
-  and real message history stored on this machine.
-- **WhatsApp** — **not approved. Open research question.** He asked whether a clean path
-  exists, which is not the same as approving one. Until one is found and he says yes, do
-  not read WhatsApp by any route. The Business API covers business numbers only; the
-  desktop client's local store and unofficial bridges both breach the terms, with a
-  documented consequence of the number being banned.
-
-**Name the channels this run actually read, every time.** "Nothing needs you" means
-nothing in the channels that were swept, and a reader cannot tell which those were unless
-the line says so. An approved-but-not-yet-wired channel reads as swept otherwise, which
-is the failure this line exists to prevent.
+**Name the channels this run actually read, every time.** "Nothing needs you" means nothing in
+the channels that were swept, and a reader cannot tell which those were unless the line says
+so. An approved-but-not-yet-wired channel reads as swept otherwise, which is the failure this
+line exists to prevent.
 
 ## 2. Meetings today
 
@@ -206,11 +188,11 @@ which is gitignored because this repo is public and a calendar id is a real addr
 Run `list_calendars` first and look for a new personal or household one; the other ~16
 entries are subscriptions and are not his commitments.
 
-- **Exclude recurring blocks with his partner.** His words. A one-off with her is a real
-  meeting and stays.
+- **Exclude the recurring personal blocks listed under `calendar_exclusions` in
+  `registry.yaml`** (gitignored). A one-off with the same person is a real meeting and stays.
 - **Only meetings he has ACCEPTED** — read his own `responseStatus`. `accepted` counts,
   `needsAction` and `declined` do not. Organizer counts as accepted.
-- **A medication or self-care reminder is not a meeting.**
+- **A personal reminder is not a meeting.**
 
 **Prep comes from the peer that holds the context, not from you.**
 

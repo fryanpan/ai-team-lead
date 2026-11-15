@@ -161,7 +161,7 @@ Measured drift between cache and source right now:
 | `hooks/block-hive-in-subagents.sh` | missing from cache — and uncommitted in source, so it exists in no commit either |
 | `hooks/hooks.json` | differs (cache has no `PreToolUse`) |
 | `rules/claude-hive-peer.md` | differs |
-| `rules/email-channel-capability-firewall.md` | differs — a security rule |
+| a private rule | differs — a security rule |
 | `rules/workflow-conventions.md` | differs |
 
 Three consequences:

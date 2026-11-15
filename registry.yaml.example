@@ -4,6 +4,12 @@
 #
 # Copy this file to registry.yaml and fill in your own projects.
 
+# Optional. Read by the morning-digest and weekly-plan skills.
+# calendars:
+#   primary: you@example.com
+# calendar_exclusions:
+#   - a recurring block that is not a meeting
+
 projects:
   my-app:
     path: ~/dev/my-app

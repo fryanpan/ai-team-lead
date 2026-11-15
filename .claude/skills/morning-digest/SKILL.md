@@ -65,8 +65,8 @@ action needs. Anything more sensitive stays behind the link.
   a wall of text on a phone.
 - **Links are Tailscale or GitHub, never `*.local`**, and go on the noun at first mention.
 
-
-
+**Every item links its own artifact, in every section.** He asked for this on the first run,
+after an item named a company and a branch with no link to either.
 An item that names a thing he would have to go find — an email thread, a branch, a PR, a
 board row, a settings pane — carries the link on the noun at first mention.
 
@@ -79,19 +79,19 @@ board row, a settings pane — carries the link on the noun at first mention.
   one, because he only finds out after the context switch.
 
 **A setup step that only he can perform ships with its actual steps, not its name.**
-
-
+He asked for specific step-by-step instructions for two such steps in the daily update; his
+exact words are in the local channel file named below. Naming the task is what the digest had
+been doing, and
 it leaves him to reconstruct the procedure every morning it reappears.
 
-
-
+- **Write the pane path and the clicks**, e.g. System Settings → `<pane>` → `<setting>` → `+` → `<app>`.
 - **Say where it can be done from.** *"instructions can be executed from Mac mini, SSH
   from phone/iPad, or remote desktop."* That is per-step and it matters: anything in
   System Settings needs the GUI, so it is the Mac mini directly or remote desktop — **not
   SSH**. A CLI step is fine over SSH from the phone or iPad.
-
-
-
+- **Confirm the client before writing the steps.** The procedure can differ between a
+  desktop app and a command-line client for the same service. Do not write one procedure as
+  if it covered both.
 
 ## 1. Needs you
 
@@ -169,35 +169,23 @@ broken one.
 
 ### Which channels this sweeps
 
+The list of channels, and each one's state (on, approved, blocked or not approved) and how it
+is read, lives in `.claude/skills/morning-digest/channels.local.md` (gitignored). Read it at
+the start of the run.
 
+- **If the file is missing, sweep Gmail only and say so in the hit list**: "channel list could
+  not be read; only Gmail was swept". Never read another channel without it.
+- **Never perform, script or prompt for a machine-wide permission grant or a device link
+  mid-digest.** Those steps are his.
+- **Never read a channel the file marks as not approved, by any route.**
 
+**Which channels are in was his call, not a technical one.** Never widen or narrow the sweep
+on your own judgement.
 
-
-
-
-- **Gmail** — on now.
-
-
-
-
-
-
-
-
-  in System Settings.
-
-
-
-
-
-
-
-
-
-**Name the channels this run actually read, every time.** "Nothing needs you" means
-
-
-
+**Name the channels this run actually read, every time.** "Nothing needs you" means nothing in
+the channels that were swept, and a reader cannot tell which those were unless the line says
+so. An approved-but-not-yet-wired channel reads as swept otherwise, which is the failure this
+line exists to prevent.
 
 ## 2. Meetings today
 
@@ -206,11 +194,11 @@ which is gitignored because this repo is public and a calendar id is a real addr
 Run `list_calendars` first and look for a new personal or household one; the other ~16
 entries are subscriptions and are not his commitments.
 
-
-  meeting and stays.
+- **Exclude every entry listed under `calendar_exclusions` in `registry.yaml`** (gitignored):
+  recurring personal blocks and reminders. A one-off meeting with a person named there is a
+  real meeting and stays. If the key is missing, exclude nothing and say so.
 - **Only meetings he has ACCEPTED** — read his own `responseStatus`. `accepted` counts,
   `needsAction` and `declined` do not. Organizer counts as accepted.
-
 
 **Prep comes from the peer that holds the context, not from you.**
 
@@ -310,7 +298,7 @@ command names a private project.
   the session's transcript and find the last turn it actually processed.
 - **Don't spawn the fleet to build this.** Read boards and transcripts. Waking six peers at
   06:47 so they can each report costs more than the digest is worth.
-
+- **Don't let a section fail silently.** If Gmail is unauthorized, the channel file is missing, a calendar did not
   resolve, or `fleet_budget_watch.py` exited non-zero, that section says **could not run**
   and why. It never says "nothing found". Passed, failed, and could-not-run are three
   states, and the third one collapsing into the first is the bug.

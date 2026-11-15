@@ -65,7 +65,7 @@ Check that no peer's `cwd` matches the target. If one exists, stop and delegate 
 **Fix:** always pass `DISCORD_STATE_DIR` explicitly via tmux's `-e` flag (per-session env override). The `-e` is necessary because `new-session` reuses the tmux server's env if a server is already running — a plain `export` or `env -i` ahead of the tmux call won't help.
 
 **Pick the right value:**
-
+- Peer has its own discord setup (e.g., `<peer>/.claude/discord/access.json` exists) → use that peer's local state dir
 - Peer has no discord setup → use the shared `~/.config/team-lead/no-discord/` (empty allowlist, no `.env` → plugin loads but doesn't connect). Create it if missing:
   ```bash
   mkdir -p ~/.config/team-lead/no-discord

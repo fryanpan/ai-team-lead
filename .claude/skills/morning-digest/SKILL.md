@@ -79,19 +79,19 @@ board row, a settings pane — carries the link on the noun at first mention.
   one, because he only finds out after the context switch.
 
 **A setup step that only he can perform ships with its actual steps, not its name.**
-
-
+*"Include specific step-by-step instructions for each permission grant and device link in
+daily updates."* Naming the task is what the digest had been doing, and
 it leaves him to reconstruct the procedure every morning it reappears.
 
-
-
+- **Write the pane path and the clicks**, e.g. the System Settings pane, the setting and the
+  app to add.
 - **Say where it can be done from.** *"instructions can be executed from Mac mini, SSH
   from phone/iPad, or remote desktop."* That is per-step and it matters: anything in
   System Settings needs the GUI, so it is the Mac mini directly or remote desktop — **not
   SSH**. A CLI step is fine over SSH from the phone or iPad.
-
-
-
+- **Confirm the client before writing the steps.** The procedure can differ between a
+  desktop app and a command-line client for the same service. Do not write one procedure as
+  if it covered both.
 
 ## 1. Needs you
 
@@ -169,35 +169,17 @@ broken one.
 
 ### Which channels this sweeps
 
+The list of channels, and each one's state (on, approved, blocked or not approved) and how it
+is read, lives in `.claude/skills/morning-digest/channels.local.md` (gitignored). Read it at
+the start of the run.
 
+**Which channels are in was his call, not a technical one.** Never widen or narrow the sweep
+on your own judgement.
 
-
-
-
-
-- **Gmail** — on now.
-
-
-
-
-
-
-
-
-  in System Settings.
-
-
-
-
-
-
-
-
-
-**Name the channels this run actually read, every time.** "Nothing needs you" means
-
-
-
+**Name the channels this run actually read, every time.** "Nothing needs you" means nothing in
+the channels that were swept, and a reader cannot tell which those were unless the line says
+so. An approved-but-not-yet-wired channel reads as swept otherwise, which is the failure this
+line exists to prevent.
 
 ## 2. Meetings today
 
@@ -206,11 +188,11 @@ which is gitignored because this repo is public and a calendar id is a real addr
 Run `list_calendars` first and look for a new personal or household one; the other ~16
 entries are subscriptions and are not his commitments.
 
-
-  meeting and stays.
+- **Exclude the recurring personal blocks listed under `calendar_exclusions` in
+  `registry.yaml`** (gitignored). A one-off with the same person is a real meeting and stays.
 - **Only meetings he has ACCEPTED** — read his own `responseStatus`. `accepted` counts,
   `needsAction` and `declined` do not. Organizer counts as accepted.
-
+- **A personal reminder is not a meeting.**
 
 **Prep comes from the peer that holds the context, not from you.**
 

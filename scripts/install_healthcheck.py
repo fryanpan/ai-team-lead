@@ -149,10 +149,10 @@ BASE_CHECKS = [
     # End-to-end through the cloudflared tunnel, mirroring the notion one. The
     # launchd check on that tunnel only asserts a live PID, so a wedged or
     # misrouted tunnel -- precisely the bug class this checker exists for -- read
-    # green forever. This hostname has no Access application in front of it, so
-    # the response comes from the origin app rather than from Cloudflare: that
-    # JSON body is only producible by the server at the far end of the tunnel,
-    # and Cloudflare's own failure pages (1033, 502) are HTML that cannot match.
+    # green forever. The expected JSON body is only producible by the server at
+    # the far end of the tunnel, and Cloudflare's own failure pages (1033, 502)
+    # are HTML that cannot match. If this check goes red after a routing or
+    # access change on the hostname, re-derive the marker.
     {"type": "http", "name": "live-feedback tunnel", "expect": '"error":"not_found"',
      "url": "https://recall.fryanpan.com/"},
     # `polling`, not `ok`. The token spec below documents why: /health answers

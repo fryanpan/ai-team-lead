@@ -161,12 +161,12 @@ Measured drift between cache and source right now:
 | `hooks/block-hive-in-subagents.sh` | missing from cache — and uncommitted in source, so it exists in no commit either |
 | `hooks/hooks.json` | differs (cache has no `PreToolUse`) |
 | `rules/claude-hive-peer.md` | differs |
-| `rules/email-channel-capability-firewall.md` | differs — a security rule |
+| a private rule | differs — a security rule |
 | `rules/workflow-conventions.md` | differs |
 
 Three consequences:
 
-1. **Peers have been running 2026-07-11 rules for five days.** Every rule change since — including edits to the email capability firewall — has reached nobody.
+1. **Peers have been running 2026-07-11 rules for five days.** Every rule change since — including edits to a security rule — has reached nobody.
 2. **The hive-block hook has never run for any peer.** It's untracked, so it's also one `git checkout` from deletion.
 3. **This PR ships nothing on merge.** The plugin has to be updated from the directory source before any peer gets `writing-editor`. Merging is necessary and not sufficient — worth knowing before anyone concludes the subagent "doesn't work."
 

@@ -38,7 +38,7 @@ Attach to any session with `tmux a -t <session>` when you want a pane visible.
 
 Each spawned tmux session gets `DISCORD_STATE_DIR` set explicitly via `tmux new-session -e DISCORD_STATE_DIR=…`, so the peer doesn't inherit the team-lead's discord state. Two destinations:
 
-
+***REMOVED***
 ***REMOVED***
 
 ***REMOVED***

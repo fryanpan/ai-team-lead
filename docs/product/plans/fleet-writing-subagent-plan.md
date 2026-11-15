@@ -166,7 +166,7 @@ Measured drift between cache and source right now:
 
 Three consequences:
 
-
+1. **Peers have been running 2026-07-11 rules for five days.** Every rule change since — including edits to a security rule — has reached nobody.
 2. **The hive-block hook has never run for any peer.** It's untracked, so it's also one `git checkout` from deletion.
 3. **This PR ships nothing on merge.** The plugin has to be updated from the directory source before any peer gets `writing-editor`. Merging is necessary and not sufficient — worth knowing before anyone concludes the subagent "doesn't work."
 

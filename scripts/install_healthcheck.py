@@ -151,7 +151,8 @@ BASE_CHECKS = [
     # misrouted tunnel -- precisely the bug class this checker exists for -- read
     # green forever. The expected JSON body is only producible by the server at
     # the far end of the tunnel, and Cloudflare's own failure pages (1033, 502)
-    # are HTML that cannot match.
+    # are HTML that cannot match. If this check goes red after a routing or
+    # access change on the hostname, re-derive the marker.
     {"type": "http", "name": "live-feedback tunnel", "expect": '"error":"not_found"',
      "url": "https://recall.fryanpan.com/"},
     # `polling`, not `ok`. The token spec below documents why: /health answers

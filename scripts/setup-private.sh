@@ -83,6 +83,11 @@ fi
 # Registry (project list, team metadata, IDs)
 link_private "$MAIN_WORKTREE/registry.yaml" ./registry.yaml
 
+# Local channel list for the morning-digest skill
+if [ -f "$MAIN_WORKTREE/.claude/skills/morning-digest/channels.local.md" ]; then
+  link_private "$MAIN_WORKTREE/.claude/skills/morning-digest/channels.local.md" ./.claude/skills/morning-digest/channels.local.md
+fi
+
 # Retrospectives (auto-generated project-specific content)
 link_private "$MAIN_WORKTREE/docs/process/retrospective.md" ./docs/process/retrospective.md
 

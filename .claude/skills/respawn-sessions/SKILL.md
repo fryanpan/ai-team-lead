@@ -38,7 +38,7 @@ Attach to any session with `tmux a -t <session>` when you want a pane visible.
 
 Each spawned tmux session gets `DISCORD_STATE_DIR` set explicitly via `tmux new-session -e DISCORD_STATE_DIR=…`, so the peer doesn't inherit the team-lead's discord state. Two destinations:
 
-
+- **Peer has its own `.claude/discord/access.json`** (e.g., a peer that has its own Discord bot) → that peer's local state dir is used.
 - **Peer doesn't** → a shared `~/.config/team-lead/no-discord/` state is used. The dir contains an empty allowlist and no `.env`, so the discord plugin loads but doesn't connect (no token) and the peer isn't subscribed to any channel.
 
 Why this matters: without the per-session override, every peer inherits the team-lead's `DISCORD_STATE_DIR` from the team-lead's shell env (set by direnv). All peers then share the team-lead's bot + access.json + channel subscriptions. A single Discord post to the team-lead's channel fans out to every peer. The `-e` flag is critical — `new-session` ignores client env if the tmux server is already running, so just `export`ing the var in the parent shell doesn't help.

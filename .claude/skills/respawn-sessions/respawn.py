@@ -120,8 +120,8 @@ def ensure_no_discord_state() -> None:
 def discord_state_dir_for(path: str) -> str:
     """Return the DISCORD_STATE_DIR a peer should use.
 
-
-
+    - If the peer has its own `.claude/discord/access.json` (e.g., a peer
+      that has its own Discord bot), use the peer's local state dir.
     - Otherwise, use the shared no-discord state — the plugin loads but
       doesn't connect because there's no token + empty access.
     """
@@ -295,7 +295,7 @@ DIALOG_POLL_MAX_ITER = 25  # ~75s of polling — zsh -ic boot is slower than dir
 # race to start its plugin MCP servers simultaneously. Some handshakes lost the race,
 # Claude gave up on those servers, and their tools were never registered — leaving an
 # MCP child process alive but orphaned and idle. The peer looked healthy from the
-
+# outside and had silently lost a channel (one peer lost Discord; two peers lost
 # live-feedback). Nobody noticed for days, because "the process is running" was the
 # only thing anyone checked.
 #

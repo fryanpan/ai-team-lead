@@ -76,4 +76,6 @@ def test_channel_flags_read_the_account_folders_config(tmp_path):
                            "projects": {os.path.realpath(proj): {"mcpServers": {
                                "plugin_discord_discord": {}}}}})
     respawn.ACCOUNT_DIR = str(d)
-    assert "server:plugin_discord_discord" in respawn.direct_channel_flags(str(proj))
+    # The flag itself is a local value (conftest.py supplies a made-up one).
+    assert (respawn.direct_channel_flags(str(proj))
+            == " --test-channel-flag server:plugin_discord_discord")

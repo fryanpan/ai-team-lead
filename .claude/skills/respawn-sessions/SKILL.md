@@ -38,10 +38,12 @@ Attach to any session with `tmux a -t <session>` when you want a pane visible.
 
 Each spawned tmux session gets `DISCORD_STATE_DIR` set explicitly via `tmux new-session -e DISCORD_STATE_DIR=…`, so the peer doesn't inherit the team-lead's discord state. Two destinations:
 
-- **Peer has its own `.claude/discord/access.json`** (e.g., a peer that has its own Discord bot) → that peer's local state dir is used.
-- **Peer doesn't** → a shared `~/.config/team-lead/no-discord/` state is used. The dir contains an empty allowlist and no `.env`, so the discord plugin loads but doesn't connect (no token) and the peer isn't subscribed to any channel.
+- **Peer has Discord state of its own** → that peer's local state dir is used.
+- **Peer doesn't** → a shared empty state dir is used. It holds an empty allowlist and no `.env`, so the discord plugin loads but doesn't connect (no token) and the peer isn't subscribed to any channel.
 
-Why this matters: without the per-session override, every peer inherits the team-lead's `DISCORD_STATE_DIR` from the team-lead's shell env (set by direnv). All peers then share the team-lead's bot + access.json + channel subscriptions. A single Discord post to the team-lead's channel fans out to every peer. The `-e` flag is critical — `new-session` ignores client env if the tmux server is already running, so just `export`ing the var in the parent shell doesn't help.
+Why this matters: without the per-session override, every peer inherits the team-lead's `DISCORD_STATE_DIR` from the team-lead's shell env (set by direnv). All peers then share the team-lead's Discord state and channel subscriptions. A single Discord post to the team-lead's channel fans out to every peer. The `-e` flag is critical — `new-session` ignores client env if the tmux server is already running, so just `export`ing the var in the parent shell doesn't help.
+
+**Where those two places are, and the channel flags a session is launched with, are local details.** They are read from the `local:` block of `registry.yaml` and the "Session launch details" section of `docs/process/fleet-ops.md`, both local files that are not in this repo. `registry.yaml.example` lists each key. When the block or a key is missing, `respawn.py` stops before it kills or spawns anything and names what it could not read.
 
 Encoded in `respawn.py`'s `discord_state_dir_for(path)` + `spawn_session_tmux`.
 
@@ -167,7 +169,7 @@ subscription account logged in to that folder. Combine it with any mode, `--only
 
 Beyond spawning the tmux sessions, when something gets spawned the script also:
 
-1. **Polls each new tmux pane for known startup dialogs** and sends Enter to dismiss them — covers the dev-channel approval dialog (`--dangerously-load-development-channels`), the MCP-server approval dialog, and the resume-from-summary auto-compact dialog. Polls every 3s for up to ~75s; multiple Enters per pane are sent if dialogs chain.
+1. **Polls each new tmux pane for known startup dialogs** and sends Enter to dismiss them — covers the dev-channel approval dialog, the MCP-server approval dialog, and the resume-from-summary auto-compact dialog. Polls every 3s for up to ~75s; multiple Enters per pane are sent if dialogs chain.
 2. **Sweeps orphan `claude-hive-mcp/server.ts` processes** (re-parented to PID 1 / launchd) left behind by killed claudes. Without this, new claude sessions can't register with claude-hive cleanly — the hive registry would still show the old PIDs.
 
 Pass `--no-auto-accept` to skip both post-spawn steps and walk through the panes by hand.

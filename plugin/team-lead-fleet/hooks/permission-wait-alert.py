@@ -11,7 +11,13 @@ waiting. This runs on Claude Code's Notification hook for
 2. Shows a macOS notification when the waiting session IS the Team Lead, or
    when the hive message was not delivered, because nobody else will report it.
 3. Appends one line to a log, always, with which delivery happened:
-   sent, deduped, failed, no-peer, self or error.
+   sent, deduped, failed, no-peer, no-config, self or error.
+
+The hive's address is not written in this file. It is read from the hive's
+own port variable (CLAUDE_HIVE_PORT) when the session has one, and otherwise
+from the `hive_url` key of the `local:` block in the Team Lead checkout's
+registry.yaml. When neither can be read the delivery is `no-config`, which
+shows the macOS notification like any other undelivered wait.
 
 The Team Lead is the hive peer whose working folder is exactly the Team Lead
 checkout (TEAM_LEAD_DIR, default ~/dev/ai-team-lead, compared after
@@ -27,13 +33,12 @@ It always exits 0. A failure here must never block the session it reports on.
 """
 import json
 import os
+import re
 import subprocess
 import sys
 import time
 import urllib.request
 
-HIVE = "http://127.0.0.1:" + os.environ.get(
-    "CLAUDE_HIVE_PORT", os.environ.get("CLAUDE_PEERS_PORT", "7900"))
 LOG = os.path.expanduser(
     "~/Library/Application Support/team-lead/permission-waits.log")
 LOG_MAX_BYTES = 1_000_000
@@ -56,9 +61,40 @@ def in_team_lead_tree(cwd):
     return real == root or real.startswith(root + os.sep)
 
 
+class NoHiveAddress(Exception):
+    """The hive's address could not be read from the environment or the
+    local values."""
+
+
+def hive_url():
+    """Base URL of the hive broker. Raises NoHiveAddress when it cannot be read."""
+    port = (os.environ.get("CLAUDE_HIVE_PORT")
+            or os.environ.get("CLAUDE_PEERS_PORT"))
+    if port:
+        return "http://127.0.0.1:" + port
+    registry = os.path.join(team_lead_dir(), "registry.yaml")
+    try:
+        with open(registry) as f:
+            lines = f.read().splitlines()
+    except OSError as e:
+        raise NoHiveAddress(f"could not read {registry}: {e.strerror or e}")
+    inside = False
+    for line in lines:
+        if re.match(r"^local:\s*(#.*)?$", line):
+            inside = True
+        elif inside and line[:1] not in (" ", "", "#"):
+            break
+        elif inside:
+            m = re.match(r"^  hive_url:\s*(\S+)", line)
+            # A value that starts with # is a comment: the key is not set.
+            if m and not m.group(1).startswith("#"):
+                return m.group(1).strip("'\"").rstrip("/")
+    raise NoHiveAddress(f"{registry} sets no hive_url in a `local:` block")
+
+
 def post(path, payload):
     req = urllib.request.Request(
-        HIVE + path, data=json.dumps(payload).encode(),
+        hive_url() + path, data=json.dumps(payload).encode(),
         headers={"content-type": "application/json"}, method="POST")
     with urllib.request.urlopen(req, timeout=4) as resp:
         return json.loads(resp.read() or b"null")
@@ -98,9 +134,11 @@ def recently_sent(session, now):
 
 
 def deliver(session, cwd, message):
-    """Return sent, failed or no-peer."""
+    """Return sent, failed, no-peer or no-config."""
     try:
         sid = team_lead_stable_id(post("/list-peers", {"scope": "machine"}))
+    except NoHiveAddress:
+        return "no-config"
     except Exception:
         return "failed"
     if not sid:

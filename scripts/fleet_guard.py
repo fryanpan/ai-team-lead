@@ -161,7 +161,30 @@ LOOPS = {
 # It died silently on 2026-11-06; every hive alert, this guard's included,
 # then failed with "Unable to connect" until it was restarted by hand.
 HIVE_BROKER = "hive-broker"
-HIVE_HEALTH = "http://127.0.0.1:7900/health"
+
+
+def _hive_url():
+    """(base URL of the hive broker, "") from this machine's local values, or
+    (None, why) when they cannot be read.
+
+    The address is not written in this file. install_healthcheck.py copies it
+    into the deploy root beside this script, and local_config.py reads it from
+    there (or from the registry when this runs from a checkout). There is no
+    built-in address to fall back to: a guessed port that answers is some
+    other service, and that reads as a healthy broker.
+    """
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import local_config
+        return local_config.get("hive_url").rstrip("/"), ""
+    except Exception as e:      # a missing module is a "could not read" too
+        return None, str(e) or type(e).__name__
+
+
+HIVE_URL, HIVE_URL_ERROR = _hive_url()
+HIVE_HEALTH = f"{HIVE_URL}/health" if HIVE_URL else None
 LOOPS[HIVE_BROKER] = ("/Users/bryanchan/.bun/bin/bun "
                       "/Users/bryanchan/claude-hive-mcp/broker.ts")
 TMUX = "/opt/homebrew/bin/tmux"
@@ -1138,6 +1161,10 @@ def grade(m, trend=None, paging=None, runaways=(), prev_bands=None):
 
 
 def hive_broker_up():
+    """True or False from the broker's /health; None when its address could
+    not be read, which is neither."""
+    if not HIVE_HEALTH:
+        return None
     out, rc = sh(f"curl -s -m 3 {HIVE_HEALTH}")
     try:
         return rc == 0 and json.loads(out).get("status") == "ok"
@@ -1154,7 +1181,15 @@ def loop_status():
     own. Reporting it as "no-server" made the one case that matters the one
     case the guard refused to act on.
     """
-    broker = "up" if hive_broker_up() else "down"
+    up = hive_broker_up()
+    if up is None:
+        # Not "down": down is revived, and reviving a broker this run cannot
+        # even probe would restart a healthy one every two minutes. main()
+        # reports it under its own banner, since nothing was found down either.
+        broker = "no-config"
+        print(f"  !! hive broker NOT CHECKED: {HIVE_URL_ERROR}")
+    else:
+        broker = "up" if up else "down"
     if not os.path.exists(TMUX):
         status = {name: "no-tmux" for name in LOOPS}
     else:
@@ -1181,7 +1216,7 @@ def revive(name, command):
     out, rc = sh(f"{tmux()} has-session -t {name}")
     if rc != 0:
         return False, "session did not survive 3s -- loop script exited"
-    if name == HIVE_BROKER and not hive_broker_up():
+    if name == HIVE_BROKER and hive_broker_up() is not True:
         return False, "broker session is up but /health does not answer"
     pane, _ = sh(f"{tmux()} capture-pane -p -t {name}")
     return True, (pane.strip().splitlines() or ["(no output yet)"])[-1][:120]
@@ -1217,8 +1252,8 @@ def selftest(cold=False):
     return 0
 
 
-HIVE_SEND = "http://127.0.0.1:7900/send-message"
-HIVE_PEERS = "http://127.0.0.1:7900/list-peers"
+HIVE_SEND = f"{HIVE_URL}/send-message" if HIVE_URL else None
+HIVE_PEERS = f"{HIVE_URL}/list-peers" if HIVE_URL else None
 
 
 def team_lead_stable_id():
@@ -1227,6 +1262,8 @@ def team_lead_stable_id():
     Matched on the cwd rather than a hardcoded id, because the id changes when
     the session is respawned and the cwd does not.
     """
+    if not HIVE_PEERS:
+        return None
     out, rc = sh(f"curl -s -m 5 -X POST {HIVE_PEERS} "
                  f"-H 'content-type: application/json' "
                  f"-d '{{\"scope\":\"machine\"}}'", timeout=10)
@@ -1258,9 +1295,14 @@ def hive_alert(title, message):
     until the user said it was slow. The sampling was never the gap -- the
     delivery was.
 
-    Returns "sent", "no-peer", or "failed", and the caller records which. A
-    silent failure here reads exactly like a quiet machine.
+    Returns "sent", "no-peer", "failed" or "no-config", and the caller records
+    which. A silent failure here reads exactly like a quiet machine.
+    "no-config" means the hive's address could not be read from this machine's
+    local values, so nothing was sent.
     """
+    if not HIVE_SEND:
+        print(f"  !! HIVE ALERT NOT SENT: {HIVE_URL_ERROR}")
+        return "no-config"
     sid = team_lead_stable_id()
     if not sid:
         return "no-peer"
@@ -1413,7 +1455,8 @@ def main():
             ok, detail = revive(name, LOOPS[name])
             revived[name] = detail
             loops[name] = "revived" if ok else "revive-failed"
-    down = [n for n, s in loops.items() if s not in ("up", "revived")]
+    down = [n for n, s in loops.items() if s not in ("up", "revived", "no-config")]
+    not_checked = [n for n, s in loops.items() if s == "no-config"]
 
     stamp = time.strftime("%Y-%m-%dT%H:%M:%S")
     detail = (f"swap {m['swap_gb']}GB ({trend['text']}) · {paging['text']} · "
@@ -1449,6 +1492,8 @@ def main():
     last_notified = state.get("notified_at", 0)
 
     loops_newly_down = sorted(set(down) - set(prev_down))
+    newly_not_checked = sorted(
+        set(not_checked) - set(state.get("loops_not_checked") or []))
 
     fired = False
     if reason in ("escalated", "changed", "unchanged-resend"):
@@ -1478,6 +1523,12 @@ def main():
                f"{', '.join(loops_newly_down)} not running and could not be "
                f"restarted")
         fired = True
+    if newly_not_checked:
+        notify("Monitor loop not checked",
+               f"{', '.join(newly_not_checked)}: its address could not be read, "
+               f"so it was neither probed nor restarted. Rerun "
+               f"scripts/install_healthcheck.py")
+        fired = True
 
     snapshot = {
         "band": verdict["worst"],
@@ -1486,6 +1537,7 @@ def main():
         "holders": holders,
         "loops": loops,
         "loops_down": down,
+        "loops_not_checked": not_checked,
         "revived": revived,
         "checked_at": stamp,
         "notified_at": now if fired else last_notified,

@@ -53,6 +53,14 @@ Ask: "Want to add your projects now, or skip and add them later via `/add-projec
 
 `registry.yaml` is gitignored — it never leaves their machine.
 
+**Fill in the `local:` block.** It holds this machine's own values: local service addresses, tunnel hostnames, launchd job labels and session launch details. Every value in the example is a placeholder, and each has a comment saying what it is. Scripts read the block through `scripts/local_config.py` and stop with a "could not read" message that names the key when one they need is missing, so a key for a service the user does not run can wait until a script asks for it. Delete that key's line; never leave a key with no value. `scripts/install_healthcheck.py` needs every key that a check it runs uses. Check with:
+
+```sh
+python3 scripts/local_config.py   # lists each key as set or MISSING
+```
+
+**Project settings are local too.** `.claude/settings.json` is gitignored, so a fresh clone has none. `./scripts/setup-private.sh` restores it from a backup when the machine has one and otherwise says it is missing; in that case write one with the user (`templates/settings/settings.json` is a starting point), through the `update-config` skill.
+
 ### 4. Verify OS-level dependencies
 
 Check each in parallel:
@@ -114,18 +122,16 @@ Allow the hive tools at **user scope** so they work in every project without per
 
 Do this via the `update-config` skill (it merges into the existing user allowlist) or `/permissions`, with the user's consent — don't silently rewrite their settings. The common mistake is letting the first hive tool-use prompt write the grant into the *current project's* settings; that's why hive then only works in one repo.
 
-Wire the channel so messages **push instantly** (without it you'd fall back to manual `check_messages`). Add an alias:
+Wire the channel so messages **push instantly** (without it you'd fall back to manual `check_messages`). The hive's README gives the launch flag that loads it as a channel; add an alias that passes it, or put it in your `claude` shell function.
+
+> If you launch peers via this repo's tmux respawn flow (`/respawn-sessions`), the `claude` shell function in `~/.zshrc` passes the channel flags instead — see the `respawn-sessions` skill. Either way, the flag is what enables instant delivery.
+
+**Record the broker's address in the `local:` block of `registry.yaml`** (key `hive_url`; the hive's README names its default port). The fleet scripts read it from there and stop with a "could not read" message when it is missing. `python3 scripts/local_config.py` lists which keys of the block are set.
+
+**Multi-user on a shared machine — important.** The broker binds a fixed localhost port and a per-`$HOME` SQLite DB (`~/.claude-hive.db`). The DB is already per-user (separate homes), but **the port is machine-wide** — so a *second* OS user on the same machine MUST set a unique `CLAUDE_HIVE_PORT` in their environment, or their sessions will silently join the first user's hive (cross-user message bleed). Single-user machines leave the defaults. Override via:
 
 ```sh
-alias claudehive='claude --dangerously-load-development-channels server:claude-hive'
-```
-
-> If you launch peers via this repo's tmux respawn flow (`/respawn-sessions`), the channel flag is injected by the `claude` shell function in `~/.zshrc` instead — see the `respawn-sessions` skill. Either way, the flag is what enables instant delivery.
-
-**Multi-user on a shared machine — important.** The broker binds a fixed localhost port (default **7900**) and a per-`$HOME` SQLite DB (`~/.claude-hive.db`). The DB is already per-user (separate homes), but **the port is machine-wide** — so a *second* OS user on the same machine MUST set a unique `CLAUDE_HIVE_PORT` (e.g. `7901`) in their environment, or their sessions will silently join the first user's hive (cross-user message bleed). Single-user machines leave the defaults. Override via:
-
-```sh
-export CLAUDE_HIVE_PORT=7901    # unique per OS user on a shared machine
+export CLAUDE_HIVE_PORT=<port>  # unique per OS user on a shared machine
 # CLAUDE_HIVE_DB defaults to ~/.claude-hive.db (already per-user)
 ```
 
@@ -135,9 +141,9 @@ Verify: `bun ~/claude-hive-mcp/cli.ts status` should print the broker + peer cou
 
 Ask: "Do you want the team-lead session to receive Discord messages? If yes, I can walk you through creating a bot + configuring access. If no, the team-lead runs without Discord — that's fine."
 
-If yes, invoke the `discord:configure` skill (from the discord plugin) and let it handle bot-token + allowlist setup. The output lives at `.claude/discord/` (gitignored, mode 600).
+If yes, invoke the `discord:configure` skill (from the discord plugin) and let it handle bot-token + allowlist setup. Keep its output in a gitignored folder with mode 600, and record that folder and the allowlist file's name in the `local:` block of `registry.yaml` (`discord_state_subdir`, `discord_allowlist_file`).
 
-If no, skip — the standard "no-discord" shared state at `~/.config/team-lead/no-discord/` is used automatically for peer sessions.
+If no, skip — peer sessions automatically get the shared empty Discord state named by `no_discord_state_dir` in the same block.
 
 ### 8. (Optional) Notion canonical-parent subscription
 
@@ -185,5 +191,5 @@ Then suggest the natural next move based on what they enabled:
 - On a **shared machine**, don't forget the per-user `CLAUDE_HIVE_PORT` — without it, a second OS user's agents join the first user's hive.
 - Don't ask them to fill in `registry.yaml` field-by-field; show them the template, let them edit.
 - Don't enable Discord without explicit yes — bot tokens are sensitive.
-- Don't commit `registry.yaml` or any `.claude/discord/` content — they're gitignored for a reason.
+- Don't commit `registry.yaml`, `.claude/settings.json` or any Discord state — they're gitignored for a reason.
 - Don't repeat this skill on subsequent runs. If `registry.yaml` already exists, `core.hooksPath` is already `.githooks`, and `claude mcp list` shows `claude-hive`, tell the user "Already set up — nothing to do" and exit.

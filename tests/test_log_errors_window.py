@@ -87,7 +87,7 @@ def test_dated_lines_still_win_over_time_only(tmp_path):
 def test_ignored_lines_do_not_count(tmp_path):
     now = datetime.now()
     p = make_log(tmp_path, [f"[b {hhmmss(now)}] error: Failed to start server. "
-                            f"Is port 7902 in use?"] * 5)
+                            f"Is port 8000 in use?"] * 5)
     ok, detail = hc.check_log_errors(
         {"name": "t", "path": str(p), "pattern": "error", "max": 0,
          "window_minutes": 60,
@@ -100,7 +100,7 @@ def test_ignore_does_not_swallow_a_real_error(tmp_path):
     """The whole risk of an ignore rule: it must stay narrow."""
     now = datetime.now()
     p = make_log(tmp_path, [f"[b {hhmmss(now)}] error: Failed to start server. "
-                            f"Is port 7902 in use?",
+                            f"Is port 8000 in use?",
                             f"[b {hhmmss(now)}] error: token rejected"])
     ok, detail = hc.check_log_errors(
         {"name": "t", "path": str(p), "pattern": "error", "max": 0,

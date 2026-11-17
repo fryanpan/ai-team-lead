@@ -63,6 +63,8 @@ from typing import Dict, List, Optional, Tuple
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
 REGISTRY_PATH = os.path.join(REPO_ROOT, "registry.yaml")
+sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))
+import local_config  # noqa: E402
 LSOF_TIMEOUT_SEC = 5.0
 PS_TIMEOUT_SEC = 5.0
 
@@ -88,47 +90,79 @@ def has_fleet_plugin(argv: str) -> bool:
 
 TMUX_BIN = "/opt/homebrew/bin/tmux"
 
+# This machine's own launch details: where a peer's Discord state lives, what
+# an empty one holds, and the flag that loads a direct channel server. They are
+# not written in this file. They are read from the `local:` block of
+# registry.yaml (scripts/local_config.py; registry.yaml.example lists the keys).
+LOCAL_KEYS = (
+    "discord_state_subdir",
+    "discord_allowlist_file",
+    "discord_empty_allowlist",
+    "no_discord_state_dir",
+    "dev_channel_flag",
+)
+_LOCAL_VALUES: Optional[Dict[str, str]] = None
+
+
+def local_values() -> Dict[str, str]:
+    """The launch details above, read once. Exits, naming what could not be
+    read, when the block or a key is missing.
+
+    main() calls this before it kills or spawns anything: a respawn that found
+    the values missing halfway through would leave the fleet down, and one that
+    guessed them would start peers on the wrong Discord state.
+    """
+    global _LOCAL_VALUES
+    if _LOCAL_VALUES is None:
+        try:
+            found = local_config.require(*LOCAL_KEYS)
+        except local_config.LocalConfigError as e:
+            sys.exit(f"respawn.py: nothing killed, nothing spawned. {e}")
+        _LOCAL_VALUES = dict(zip(LOCAL_KEYS, found))
+    return _LOCAL_VALUES
+
+
 # Per-peer DISCORD_STATE_DIR. Gotcha: if you don't scope this per-session, every
-# peer claude inherits the spawner's DISCORD_STATE_DIR (via env propagation),
-# which means they all read the team-lead's access.json + bot token and all
-# subscribe to the team-lead's channel. A single Discord post to the team-lead's
-# channel then fans out to every peer.
+# peer claude inherits the spawner's DISCORD_STATE_DIR (via env propagation), so
+# every peer reads the spawner's Discord state and subscribes to its channel.
 #
 # Encoded fix:
-#   - Peers WITH a local `.claude/discord/access.json` use their own state.
-#   - Peers WITHOUT one use the shared "no-discord" state dir at
-#     `~/.config/team-lead/no-discord/` — discord plugin loads (the channel
-#     flag is in Bryan's zsh `claude` function and isn't easily removed from
-#     a per-peer basis) but has no token + empty access, so nothing connects.
+#   - A peer WITH Discord state of its own uses that.
+#   - A peer WITHOUT any uses a shared state dir that holds an empty allowlist
+#     and no token, so the plugin loads and nothing connects.
 #   - Per-session env is passed via `tmux new-session -e VAR=VAL`, NOT via the
 #     spawner's environment. Reason: tmux's `new-session` reuses the existing
 #     tmux server's env if a server is already running; the client's env at
 #     spawn time gets ignored. The `-e` flag overrides per-session.
-NO_DISCORD_STATE_DIR = os.path.expanduser("~/.config/team-lead/no-discord")
+def no_discord_state_dir() -> str:
+    """The shared state dir for a peer with no Discord state of its own."""
+    return os.path.expanduser(local_values()["no_discord_state_dir"])
 
 
 def ensure_no_discord_state() -> None:
-    """Create the shared no-discord state dir if it doesn't exist. The empty
+    """Create the shared empty Discord state dir if it doesn't exist. The empty
     allowlist + missing .env means the discord plugin loads but doesn't connect."""
-    os.makedirs(NO_DISCORD_STATE_DIR, exist_ok=True)
-    access_json = os.path.join(NO_DISCORD_STATE_DIR, "access.json")
-    if not os.path.isfile(access_json):
-        with open(access_json, "w") as f:
-            f.write('{"dmPolicy":"allowlist","allowFrom":[],"groups":{},"pending":{}}\n')
+    values = local_values()
+    state_dir = no_discord_state_dir()
+    os.makedirs(state_dir, exist_ok=True)
+    allowlist = os.path.join(state_dir, values["discord_allowlist_file"])
+    if not os.path.isfile(allowlist):
+        with open(allowlist, "w") as f:
+            f.write(values["discord_empty_allowlist"] + "\n")
 
 
 def discord_state_dir_for(path: str) -> str:
     """Return the DISCORD_STATE_DIR a peer should use.
 
-    - If the peer has its own `.claude/discord/access.json` (e.g., a peer
-      that has its own Discord bot), use the peer's local state dir.
-    - Otherwise, use the shared no-discord state — the plugin loads but
+    - If the peer has Discord state of its own, use the peer's local state dir.
+    - Otherwise, use the shared empty Discord state — the plugin loads but
       doesn't connect because there's no token + empty access.
     """
-    local = os.path.join(os.path.realpath(path), ".claude", "discord")
-    if os.path.isfile(os.path.join(local, "access.json")):
+    values = local_values()
+    local = os.path.join(os.path.realpath(path), values["discord_state_subdir"])
+    if os.path.isfile(os.path.join(local, values["discord_allowlist_file"])):
         return local
-    return NO_DISCORD_STATE_DIR
+    return no_discord_state_dir()
 
 
 # Project-scoped MCP servers that stand in for a broken `plugin:` channel.
@@ -136,9 +170,9 @@ def discord_state_dir_for(path: str) -> str:
 # fleet-wide — Claude Code resolved them into the config and then never
 # attempted the connection. The workaround is to register the same server as an
 # ordinary MCP server (`claude mcp add <name> --scope local -- <same command>`),
-# which uses the code path that still works. But `--channels` in the `claude`
-# zsh function names the PLUGIN server, so the direct copy provides the tools
-# and no inbound push: Discord messages stop waking the session. Declaring the
+# which uses the code path that still works. But the channel flag the `claude`
+# shell function passes names the PLUGIN server, so the direct copy provides the
+# tools and no inbound push: its messages stop waking the session. Declaring the
 # direct server as a channel too is what restores the wake.
 #
 # Keyed off ~/.claude.json rather than hardcoded, so a peer gets the flag only
@@ -232,8 +266,9 @@ def resolve_account_dir(raw: str) -> Tuple[str, Optional[str]]:
 
 
 def direct_channel_flags(path: str) -> str:
-    """Return `--dangerously-load-development-channels server:<name>` flags for
-    any DIRECT_CHANNEL_SERVERS registered project-scoped for this path."""
+    """Return a `<channel flag> server:<name>` pair for each of the
+    DIRECT_CHANNEL_SERVERS registered project-scoped for this path. The flag
+    itself is the `dev_channel_flag` local value."""
     try:
         with open(global_config_path()) as f:
             cfg = json.load(f)
@@ -243,10 +278,11 @@ def direct_channel_flags(path: str) -> str:
     registered = {}
     for key in project_config_keys(path):
         registered.update((projects.get(key) or {}).get("mcpServers") or {})
-    return "".join(
-        f" --dangerously-load-development-channels server:{name}"
-        for name in DIRECT_CHANNEL_SERVERS if name in registered
-    )
+    wanted = [name for name in DIRECT_CHANNEL_SERVERS if name in registered]
+    if not wanted:
+        return ""
+    flag = local_values()["dev_channel_flag"]
+    return "".join(f" {flag} server:{name}" for name in wanted)
 
 # Substrings that identify known interactive startup dialogs. If any of these
 # appear in a session's captured pane, we send Enter to accept the default
@@ -256,7 +292,7 @@ def direct_channel_flags(path: str) -> str:
 DIALOG_PATTERNS = [
     "Resume from summary",                    # auto-compact-on-resume dialog
     "Resume full session as-is",              # same dialog (different line)
-    "I am using this for local development",  # dev-channel approval (--dangerously-load-development-channels)
+    "I am using this for local development",  # dev-channel approval
     "Use this and all future MCP servers",    # MCP-server approval dialog
     "Yes, I trust this folder",               # folder-trust dialog — DEFAULT IS "No, exit", answered Down+Enter
     "Enter to confirm",                       # generic confirm dialog footer (catches any dialog with this footer)
@@ -782,7 +818,7 @@ def collect_running_targets(running: Dict[int, Dict[str, str]],
                   file=sys.stderr)
         targets.append((display, home))
 
-    targets.sort(key=lambda t: discord_state_dir_for(t[1]) != NO_DISCORD_STATE_DIR)
+    targets.sort(key=lambda t: discord_state_dir_for(t[1]) != no_discord_state_dir())
     return targets
 
 
@@ -1449,6 +1485,10 @@ def main() -> int:
         print(HELP_TEXT)
         return 0
 
+    # Before anything is killed or spawned: stop here, loudly, if this
+    # machine's launch details cannot be read.
+    local_values()
+
     execute = "--execute" in args
     auto_accept = "--no-auto-accept" not in args
     no_compact = "--no-compact" in args
@@ -1713,7 +1753,7 @@ def main() -> int:
                 # A Discord-bearing session has a gateway handshake to win on top
                 # of the usual plugin MCP handshakes, and it is the one observed
                 # losing the race (2026-07-13, 2026-07-24). Give it a quiet start.
-                has_discord = discord_state_dir_for(path) != NO_DISCORD_STATE_DIR
+                has_discord = discord_state_dir_for(path) != no_discord_state_dir()
                 time.sleep(DISCORD_STAGGER_SEC if has_discord else SPAWN_STAGGER_SEC)
             if spawn_session_tmux(name, path):
                 tmux_name = to_tmux_session_name(name)

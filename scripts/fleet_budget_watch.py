@@ -72,7 +72,32 @@ RECENT_H = argval("--recent-hours", 1.0, float)
 ACK_HOLD = argval("--ack-hold", "", str)
 ACK_REASON = argval("--ack-reason", "", str)
 ACK_QUIET_MIN = 240
-HIVE = "http://127.0.0.1:7900/send-message"
+
+
+def _hive_url():
+    """(base URL of the hive broker, "") from this machine's local values
+    (the `local:` block of registry.yaml, read by local_config.py), or
+    (None, why) when they cannot be read. There is no built-in address."""
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import local_config
+        return local_config.get("hive_url").rstrip("/"), ""
+    except Exception as e:
+        return None, str(e) or type(e).__name__
+
+
+HIVE_URL, HIVE_URL_ERROR = _hive_url()
+HIVE = f"{HIVE_URL}/send-message" if HIVE_URL else None
+HIVE_PEERS = f"{HIVE_URL}/list-peers" if HIVE_URL else None
+
+
+def hive_unreadable(what):
+    """Say on stderr, every time, that a hive call was skipped and why."""
+    print(f"!! budget-watch: {what} NOT DONE. {HIVE_URL_ERROR}", file=sys.stderr)
+
+
 TEAM_LEAD_STABLE_ID = "6e87a52503d5"
 # While a breach persists, re-wake on this cadence. A breach that is still true
 # an hour later is still costing quota, and one notification that scrolled past
@@ -1525,10 +1550,13 @@ def peer_stable_ids():
     Matched on the cwd, and a worktree maps to its project: a peer working in
     project-alpha/worktrees/... is still that project's burn.
     """
+    if not HIVE_PEERS:
+        hive_unreadable("peer lookup")
+        return {}
     try:
         raw = subprocess.run(
             ["curl", "-s", "-m", "5", "-X", "POST",
-             "http://127.0.0.1:7900/list-peers",
+             HIVE_PEERS,
              "-H", "content-type: application/json",
              "-d", json.dumps({"scope": "machine"})],
             capture_output=True, text=True, timeout=10).stdout
@@ -1548,6 +1576,9 @@ def peer_stable_ids():
 
 
 def send_hold(stable_id, text):
+    if not HIVE:
+        hive_unreadable("hold message")
+        return False
     try:
         subprocess.run(
             ["curl", "-s", "-m", "5", "-X", "POST", HIVE,
@@ -1980,16 +2011,19 @@ def main():
                 f"Split: {split}. "
                 f"This is the {WINDOW_H:g}h session-limit window, not the weekly meter. "
                 f"{why} State: {STATE}")
-        try:
-            subprocess.run(
-                ["curl", "-s", "-m", "5", "-X", "POST", HIVE,
-                 "-H", "content-type: application/json",
-                 "-d", json.dumps({"from_id": "budget-watch",
-                                   "to_stable_id": TEAM_LEAD_STABLE_ID,
-                                   "text": text})],
-                capture_output=True)
-        except Exception:
-            pass
+        if not HIVE:
+            hive_unreadable("breach wake")
+        else:
+            try:
+                subprocess.run(
+                    ["curl", "-s", "-m", "5", "-X", "POST", HIVE,
+                     "-H", "content-type: application/json",
+                     "-d", json.dumps({"from_id": "budget-watch",
+                                       "to_stable_id": TEAM_LEAD_STABLE_ID,
+                                       "text": text})],
+                    capture_output=True)
+            except Exception:
+                pass
 
     return 2 if verdict == "BREACH" else 0
 

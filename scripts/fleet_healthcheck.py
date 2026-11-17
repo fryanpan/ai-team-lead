@@ -1639,15 +1639,24 @@ def check_subscription_targets(spec):
 
     known = set(spec.get("known_ids", []))
     hive_note = ""
-    try:
-        req = urllib.request.Request(
-            spec.get("hive_url", "http://127.0.0.1:7900") + "/list-peers",
-            data=b'{"scope":"machine"}',
-            headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=3) as r:
-            known |= {p["stable_id"] for p in json.load(r)}
-    except Exception as e:
-        hive_note = f" (claude-hive unreachable: {e}; live worktree sessions may read as stray)"
+    # The hive's address is baked into the config at install time from the
+    # machine's local values. There is no built-in address: a check with none
+    # says it could not look at the hive rather than asking a guessed port.
+    hive_url = spec.get("hive_url")
+    if not hive_url:
+        hive_note = (" (COULD NOT LOOK at claude-hive: this check's config has no "
+                     "hive_url; rerun scripts/install_healthcheck.py; live worktree "
+                     "sessions may read as stray)")
+    else:
+        try:
+            req = urllib.request.Request(
+                hive_url.rstrip("/") + "/list-peers",
+                data=b'{"scope":"machine"}',
+                headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=3) as r:
+                known |= {p["stable_id"] for p in json.load(r)}
+        except Exception as e:
+            hive_note = f" (claude-hive unreachable: {e}; live worktree sessions may read as stray)"
 
     stray = sorted({(sid, label) for sid, label in rows if sid not in known})
     if stray:

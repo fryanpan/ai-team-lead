@@ -25,3 +25,6 @@ docs/product/plans/
 .claude/skills/weekly-plan/parent.txt
 scratchpad/
 .claude/skills/morning-digest/channels.local.md
+# This checkout's Claude Code settings are local to the machine.
+# scripts/setup-private.sh provides the file to worktrees.
+.claude/settings.json

@@ -85,7 +85,7 @@ Shared across the fleet (live in `plugin/team-lead-fleet/skills/`, symlinked int
 
 Three layers protect against private content leaking into a public push:
 
-***REMOVED***
+1. **Private files are gitignored.** `registry.yaml` (projects, plus this machine's own hostnames, addresses and launch details in its `local:` block), `.claude/settings.json`, `docs/process/retrospective.md`, `docs/process/aggregation-log.md`, `docs/process/propagation-log.md`, `.claude/discord/`, `.claude/reviews/`.
 2. **Plugin wording is generic.** The `team-lead-fleet` plugin avoids specific project names; the registry drives ship-skill selection per project.
 3. **Pre-push leak gate.** `.githooks/pre-push` runs `scripts/scrub-check.py` (regex layer) + optionally `scripts/scrub-haiku.py` (AI layer — Claude Haiku 4.5) on the diff being pushed. Blocks the push if either flags a project name or PII pattern. Bypass: `SCRUB_SKIP=1 git push ...` (rare).
 

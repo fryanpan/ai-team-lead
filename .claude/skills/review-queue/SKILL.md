@@ -33,6 +33,11 @@ This section is temporary. Remove it when leads file review items and keep them 
 - **Ranks 1–10 are only things that move this week's goals.** Fleet tooling, design questions
   and nice-to-haves rank 20 and below, or `not-this-week`.
 - **Re-rank the whole queue, not just the new item.** A new ask can push everything below it.
+- **Before you rank an ask, read which task it sits on and what else is open on that task.** A rank
+  or an urgent tag can bring the task's other open items up with it. If an unrelated item is open
+  on the same task, ask the owner to move the new ask to its own task, then rank it. Set
+  2026-11-16, after a deadline ask filed on an unrelated outreach task put that outreach at the
+  top of the queue. Bryan: *"you got the priorities all wrong."*
 
 ## 3. Make each item readable on a phone
 

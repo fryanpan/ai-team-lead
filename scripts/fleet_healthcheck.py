@@ -1610,9 +1610,10 @@ def check_subscription_targets(spec):
     list is added on top. Liveness only ever KEEPS a row: most peers are
     correctly down, and their subscriptions are legitimate.
 
-    ***REMOVED***
-    ***REMOVED***
-    ***REMOVED***
+    Three states. A database that cannot be opened, or a config with no hive
+    address, is "could not look", never a pass. A hive that cannot be reached
+    is said out loud, because rows owned by live-but-unregistered sessions
+    (worktrees) then read as stray.
     """
     import sqlite3
     import urllib.request
@@ -1637,11 +1638,21 @@ def check_subscription_targets(spec):
     except Exception as e:
         return False, f"{name}: COULD NOT LOOK at {db} ({e})"
 
+    # The hive's address is baked into the config at install time from the
+    # machine's local values. There is no built-in address, and a check with
+    # none has not looked at the live sessions, so it is neither a pass nor a
+    # list of stray rows.
+    hive_url = spec.get("hive_url")
+    if not hive_url:
+        return False, (f"{name}: COULD NOT LOOK -- this check's config has no "
+                       f"hive_url, so live sessions were not read; rerun "
+                       f"scripts/install_healthcheck.py")
+
     known = set(spec.get("known_ids", []))
     hive_note = ""
     try:
         req = urllib.request.Request(
-            ***REMOVED***
+            hive_url.rstrip("/") + "/list-peers",
             data=b'{"scope":"machine"}',
             headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=3) as r:

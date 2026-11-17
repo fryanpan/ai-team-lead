@@ -10,6 +10,48 @@
 # calendar_exclusions:
 #   - a recurring block that is not a meeting
 
+# This machine's own values. Scripts and skills read them from here instead of
+# carrying them in the repo: scripts/local_config.py is the reader, and
+# `python3 scripts/local_config.py` lists which keys are set. Every value below
+# is a placeholder. A script that cannot read a key it needs stops and says
+# which one; none of them falls back to a built-in value.
+# Keep each value on one line. Quote a value that holds a `#` or JSON.
+# Never leave a key with no value: a bare `  name:` line is read as a project.
+# Delete the line of a key you do not need yet. install_healthcheck.py needs
+# every key that a check it runs uses, and names the ones it could not read.
+local:
+  # Local address of the claude-hive message broker (the hive's README names
+  # its port).
+  hive_url: http://127.0.0.1:8000
+  # Local addresses of the GitHub channel broker and the Notion receiver.
+  github_broker_url: http://127.0.0.1:8001
+  notion_receiver_url: http://127.0.0.1:8002
+  # Public hostnames of the tunnels in front of the Notion receiver and the
+  # workspaces board. Hostname only, no scheme or path.
+  notion_tunnel_host: notion.example.com
+  board_tunnel_host: board.example.com
+  # launchd job labels (`launchctl list` shows yours).
+  launchd_notion_receiver: com.example.notion-receiver
+  launchd_github_broker: com.example.github-broker
+  launchd_notion_tunnel: com.example.notion-tunnel
+  launchd_board_tunnel: com.example.board-tunnel
+  # Log files of the same two daemons.
+  notion_receiver_log: ~/Library/Logs/notion-receiver.log
+  github_broker_log: ~/Library/Logs/github-broker.log
+  # Discord state. `discord_state_subdir` is the folder inside a project that
+  # holds a peer's own Discord state, `discord_allowlist_file` is the name of
+  # the allowlist file your Discord plugin keeps there, and
+  # `discord_empty_allowlist` is the content of an allowlist that admits
+  # nobody, in that plugin's format. `no_discord_state_dir` is a folder outside
+  # every repo for peers with no Discord state of their own.
+  discord_state_subdir: .claude/discord
+  discord_allowlist_file: allowlist.json
+  discord_empty_allowlist: '{}'
+  no_discord_state_dir: ~/.config/team-lead/empty-discord-state
+  # The Claude Code flag that loads an MCP server as a development channel
+  # (`claude --help` lists it). respawn.py passes it for a direct channel server.
+  dev_channel_flag: --your-channel-flag
+
 projects:
   my-app:
     path: ~/dev/my-app

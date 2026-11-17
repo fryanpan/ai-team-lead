@@ -22,7 +22,7 @@ Spin up a fresh Claude Code session for a project that doesn't already have one 
 
 1. **Homebrew tmux installed.** `/opt/homebrew/bin/tmux` (any 3.x). macOS's bundled `screen` is broken for this purpose — don't fall back to it.
 2. **Target project folder exists locally.** Verify with `ls -d <absolute_path>` first.
-***REMOVED***
+3. **zsh `claude` function is defined** in `~/.zshrc`. Confirm with `grep "^claude ()" ~/.zshrc`. It adds the channel flags and any other default flags every session on this machine gets. Which flags those are is a local detail: see [Local details](#local-details).
 
 ## How to do it
 
@@ -56,21 +56,19 @@ Check that no peer's `cwd` matches the target. If one exists, stop and delegate 
 - **`-n '<Display Name>'` names the agent on launch (required).** Claude Code's `-n/--name` sets the session's display name — shown in the agent picker (`← for agents`), Remote Control, and the terminal title — so a freshly-spawned agent is identifiable at a glance instead of a generic default. Use the human-friendly name from `registry.yaml`'s `session_name` (e.g. `App Dev For All`, `Finance`, `Peer Alpha`); fall back to a Title-Cased project name if the registry has none. The flag forwards cleanly through the `claude` zsh function (the function appends channel flags but passes `"$@"` through), so unlike the channel flags you DO pass `-n` yourself.
 - For a brand-new project with no prior transcript, drop `--continue` (use bare `claude -n '<Display Name>'`) — see `feedback_first_time_spawn.md`.
 - The `zsh -ic` form is **mandatory**. Bryan's `claude` is a zsh function (sourced from `~/.zshrc`), not an alias — bare `/Users/.../bin/claude` skips the function and runs without the channel flags.
-***REMOVED***
+- Don't inline the channel flags in the command. The function will append its own copy and you'll see duplicates in argv.
 
 #### `DISCORD_STATE_DIR` scoping — required to prevent fan-out
 
-***REMOVED***
+**Why this matters:** the team-lead's `.envrc` (or any spawner-side env) propagates `DISCORD_STATE_DIR` into the new tmux session by default, so a peer ends up reading the team-lead's Discord state and its channel subscriptions. A single Discord post to the team-lead's channel then fans out to every peer.
 
 **Fix:** always pass `DISCORD_STATE_DIR` explicitly via tmux's `-e` flag (per-session env override). The `-e` is necessary because `new-session` reuses the tmux server's env if a server is already running — a plain `export` or `env -i` ahead of the tmux call won't help.
 
 **Pick the right value:**
-***REMOVED***
-***REMOVED***
-  ```bash
-  ***REMOVED***
-  ***REMOVED***
-  ```
+- Peer has Discord state of its own → use that peer's local state dir.
+- Peer has none → use the shared empty state dir. The plugin loads but doesn't connect.
+
+Where each of those lives, and what the empty state holds, are local details: see [Local details](#local-details). `respawn.py` creates the shared empty state when it is missing; do not write one by hand.
 
 This logic is encoded in `respawn.py`'s `discord_state_dir_for(path)` + `spawn_session_tmux` for the bulk respawn path. The single-spawn path here needs the same treatment manually.
 
@@ -122,7 +120,7 @@ The new peer should appear with the target `cwd`. Its `session_id` will be a fre
 ps -axww -o pid=,args= | grep -v grep | grep "/claude " | grep "<project-folder-name>"
 ```
 
-***REMOVED***
+You should see every channel flag this machine's local details list. If one is missing, the session was launched without that channel active and messages sent to it through that channel will not arrive. This usually means the zsh function hasn't been updated, or the spawn skipped `zsh -ic` and ran the binary directly.
 
 ### Step 4 — delegate work via send_message
 
@@ -162,7 +160,16 @@ Possible causes:
 
 This means the zsh function is out of date or the session was launched without running it (e.g. `zsh -c` instead of `zsh -ic`). Tell the user:
 
-***REMOVED***
+> The new session registered with the broker but one of its channel flags is missing, so messages on that channel won't be pushed to it. Check the `claude ()` function in `~/.zshrc` against this machine's local details. After updating, kill the session (`tmux kill-session -t <name>`) and respawn it.
+
+## Local details
+
+The channel flags, where a peer's Discord state lives, and which peers have Discord of their own are this machine's own details. They are not in this repo. They are in two local files: the `local:` block of `registry.yaml` and the "Session launch details" section of `docs/process/fleet-ops.md`.
+
+- **`registry.yaml` is gitignored.** `registry.yaml.example` lists every key of the `local:` block with a placeholder and says what each one is.
+- **`docs/process/fleet-ops.md` is linked in by `scripts/setup-private.sh`** on a machine that has the private companion checkout.
+- **On a fresh clone neither exists.** Copy the `local:` block from the example and fill it in from your own Discord plugin and `claude --help`. You do not need the fleet-ops section.
+- **If a value is missing, `respawn.py` stops and names the key.** Do not guess a value, and do not spawn by hand to get around it.
 
 ## Notes on permissions and security
 

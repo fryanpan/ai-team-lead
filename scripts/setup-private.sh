@@ -1,10 +1,16 @@
 #!/bin/bash
-# Symlink private files from the main worktree into a new worktree.
-# Run this after creating a worktree so it has access to gitignored files.
+# Give a new worktree the main worktree's private, gitignored files: symlinks
+# for most of them, and its own copy of .claude/settings.json.
+# Run this after creating a worktree.
 #
 # Usage: ./scripts/setup-private.sh
 
 set -e
+
+# Every path below is relative to the worktree root, so work from there
+# wherever the script was started. Run from a subdirectory it would otherwise
+# create its files inside that subdirectory.
+cd "$(git rev-parse --show-toplevel)"
 
 # Find the main worktree by taking the first entry from `git worktree list`.
 # This works whether run from the main worktree or any linked worktree.
@@ -113,25 +119,36 @@ restore_settings_if_missing() {
     echo "WARNING: $SETTINGS is missing and there is no backup to restore it from. This checkout has no project settings: write your own (templates/settings/settings.json is a starting point)."
   fi
 }
-# A linked worktree gets a link to the main worktree's file, the way it gets
-# the registry. Left alone when the branch still tracks the path (linking over
-# a tracked file would let `git add -A` commit the link), and when a regular
-# file is already there, because it may hold edits made in that worktree.
-link_settings_from_main() {
+# A linked worktree gets its own COPY of the main worktree's file, never a
+# link: the main file is the one a running session uses, and a write inside a
+# worktree must not change it. The copy is taken once and does not follow
+# later changes to the main file. Left alone when the branch still tracks the
+# path, and when a file is already there, because it may hold edits made in
+# that worktree. The one file replaced is a link to the main worktree's file,
+# which an earlier version of this script made.
+copy_settings_from_main() {
   local src="$MAIN_WORKTREE/$SETTINGS" dst="./$SETTINGS"
   if git ls-files --error-unmatch "$dst" >/dev/null 2>&1; then
     return 0
   fi
   if [ ! -f "$src" ]; then
-    echo "WARNING: $src not found — $SETTINGS is not linked into this worktree."
+    echo "WARNING: $src not found — $SETTINGS is not copied into this worktree."
     return 0
   fi
-  if [ -e "$dst" ] && [ ! -L "$dst" ]; then
-    echo "NOTE: $dst is a regular file — left alone, not linked to the main worktree's copy."
+  if [ -L "$dst" ]; then
+    if [ ! "$dst" -ef "$src" ]; then
+      echo "NOTE: $dst is a link to another file — left alone."
+      return 0
+    fi
+  elif [ -e "$dst" ]; then
+    echo "NOTE: $dst already exists — left alone, not replaced by the main worktree's copy."
     return 0
   fi
   mkdir -p ./.claude
-  link_private "$src" "$dst"
+  # Write beside the destination and rename: the rename replaces a link
+  # itself, where a plain cp would write through it into the main file.
+  cp "$src" "$dst.tmp.$$"
+  mv -f "$dst.tmp.$$" "$dst"
 }
 
 if [ "$CURRENT_DIR" = "$MAIN_WORKTREE" ]; then
@@ -144,7 +161,7 @@ fi
 # Registry (project list, team metadata, IDs)
 link_private "$MAIN_WORKTREE/registry.yaml" ./registry.yaml
 
-link_settings_from_main
+copy_settings_from_main
 
 # Local channel list for the morning-digest skill
 if [ -f "$MAIN_WORKTREE/.claude/skills/morning-digest/channels.local.md" ]; then

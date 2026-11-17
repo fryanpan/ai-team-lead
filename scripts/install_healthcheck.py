@@ -8,7 +8,11 @@ the checker or the registry changes. It does three things:
      because a launchd-invoked Apple interpreter cannot open a file on the
      secondary volume at all (verified 2026-08-11);
   2. generates healthcheck-config.json there -- infra checks inline below, one
-     ***REMOVED***
+     session check per respawn:true registry entry, plus any local overlay.
+     The tunnel hostnames, the message brokers' addresses and their job
+     names and logs are read from the `local:` block of registry.yaml (see
+     scripts/local_config.py), and the run stops if that block cannot be read.
+     Other labels and ports are still inline below;
   3. installs a LaunchAgent that runs it three times a day.
 
 Project names live only in the generated config on the boot disk, never in this
@@ -27,11 +31,16 @@ import re
 import shutil
 import subprocess
 import sys
+import urllib.parse
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import local_config  # noqa: E402
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(REPO, "scripts", "fleet_healthcheck.py")
 GUARD_SRC = os.path.join(REPO, "scripts", "fleet_guard.py")
 ROTATE_SRC = os.path.join(REPO, "scripts", "rotate_fleet_logs.py")
+LOCAL_CONFIG_SRC = os.path.join(REPO, "scripts", "local_config.py")
 REGISTRY = os.path.join(REPO, "registry.yaml")
 
 HOME = os.path.expanduser("~")
@@ -65,6 +74,11 @@ STATE_DIR = deploy_root()
 DEST = os.path.join(STATE_DIR, "fleet_healthcheck.py")
 GUARD_DEST = os.path.join(STATE_DIR, "fleet_guard.py")
 CONFIG = os.path.join(STATE_DIR, "healthcheck-config.json")
+# The deployed scripts cannot read the registry's volume under launchd, so the
+# local values they need are copied beside them, with the module that reads them.
+LOCAL_CONFIG_DEST = os.path.join(STATE_DIR, "local_config.py")
+LOCAL_VALUES_DEST = os.path.join(STATE_DIR, local_config.DEPLOYED_NAME)
+DEPLOYED_LOCAL_KEYS = ("hive_url",)
 OVERLAY = os.path.join(HOME, ".config", "team-lead", "healthcheck-extra.json")
 
 ***REMOVED***
@@ -99,16 +113,20 @@ ROTATE_KEEP = 3
 
 # Every check below asserts an END STATE. Each maps to a specific outage that a
 # liveness check called green on -- see the module docstring in the checker.
+#
+# `{local:<key>}` is replaced with that key of the registry's `local:` block,
+# and `{port:<key>}` with the port number of the URL under that key. See
+# fill_local() below. A key that is not set stops the install.
 BASE_CHECKS = [
     # --- daemons that must be up and owned by launchd (not by a session) ---
-    ***REMOVED***
-    ***REMOVED***
+    {"type": "launchd", "label": "{local:launchd_notion_receiver}", "skip": "notion bridge retired 2026-09-12"},
+    {"type": "launchd", "label": "{local:launchd_github_broker}"},
     # Both spellings, per the fleet rename rule: the job is live under either
     # during the transition and pinning to one produces a false RED.
     ***REMOVED***
                                  ***REMOVED***
-    ***REMOVED***
-    ***REMOVED***
+    {"type": "launchd", "label": "{local:launchd_board_tunnel}"},
+    {"type": "launchd", "label": "{local:launchd_notion_tunnel}", "skip": "notion bridge retired 2026-09-12"},
 
     # --- the scheduled half: these have no PID between runs, so check_launchd
     #     would be red at every quiet moment. What they owe us is proof they
@@ -131,16 +149,16 @@ BASE_CHECKS = [
 
     # --- exactly one listener per port: two in different address families
     #     both bind successfully and silently steal each other's traffic ---
-    ***REMOVED***
+    {"type": "port", "port": "{port:notion_receiver_url}", "name": "notion receiver", "skip": "notion bridge retired 2026-09-12"},
     {"type": "port", "port": 8787, "name": "live-feedback"},
-    ***REMOVED***
-    ***REMOVED***
+    {"type": "port", "port": "{port:github_broker_url}", "name": "github broker"},
+    {"type": "port", "port": "{port:hive_url}", "name": "claude-hive"},
 
     # --- end-to-end paths. The tunnel probe is the only check that proves a
     #     webhook can actually reach the daemon; a local port proves nothing
     #     about what the public hostname routes to. ---
     {"type": "http", "name": "notion tunnel", "skip": "notion bridge retired 2026-09-12", "expect": '"status":"ok"',
-     ***REMOVED***
+     "url": "https://{local:notion_tunnel_host}/health"},
     # An expect marker, because without one this passed on ANY non-empty body
     # -- a wrong service on the port, an error page, or a stale static response
     # all read green.
@@ -154,14 +172,14 @@ BASE_CHECKS = [
     # are HTML that cannot match. If this check goes red after a routing or
     # access change on the hostname, re-derive the marker.
     {"type": "http", "name": "live-feedback tunnel", "expect": '"error":"not_found"',
-     ***REMOVED***
+     "url": "https://{local:board_tunnel_host}/"},
     # `polling`, not `ok`. The token spec below documents why: /health answers
     # {"ok":true} with no token and no polling at all, so matching on ok made
     # this check pass in precisely the state it existed to catch. Dropping the
     # log-silence bound above is only safe because this one now asserts the
     # broker is actually working.
     {"type": "http", "name": "github broker", "expect": '"polling":true',
-     ***REMOVED***
+     "url": "{local:github_broker_url}/health"},
 
     # --- the machine itself. Added 2026-08-18 after Bryan reported it feeling
     #     slow: 13GB was swapped out on a 16GB machine and nothing anywhere
@@ -194,16 +212,16 @@ BASE_CHECKS = [
     # passes; the port check alone would not, since a hung process keeps its
     # socket.
     {"type": "log_errors", "name": "notion receiver", "max": 3, "skip": "notion bridge retired 2026-09-12",
-     ***REMOVED***
+     "path": "{local:notion_receiver_log}",
      "pattern": r'"level":\s*"error"', "window_minutes": 90,
      "max_error_streak": 6},
     # An `expect` marker, for the same reason the tunnel check above has one.
-    ***REMOVED***
+    # 2026-09-03: a peer's dev workspaces server bound the receiver's port while the receiver
     # was down, answered this URL, and the check went GREEN -- a port that
     # replies is not the daemon that is supposed to reply. Notion comments were
     # dropped for an unknown stretch behind a green check.
     {"type": "http", "name": "notion receiver", "skip": "notion bridge retired 2026-09-12", "expect": '"status":"ok"',
-     ***REMOVED***
+     "url": "{local:notion_receiver_url}/health"},
     # `ignore` covers the broker start race, and nothing else. Every session's
     # MCP server tries to start a broker if one is not already up; when one is,
     # the attempt fails and logs at error level. It is the expected outcome of
@@ -213,7 +231,7 @@ BASE_CHECKS = [
     # until that lands this states the tolerance in one place instead of
     # narrowing the pattern until it catches nothing new.
     {"type": "log_errors", "name": "github broker", "max": 0,
-     ***REMOVED***
+     "path": "{local:github_broker_log}",
      "pattern": r"WARNING|error", "window_minutes": 1440,
      "ignore": r"Failed to start server\. Is port \d+ in use\?",
      # NO max_silence_minutes. THIS LOG IS EVENT-DRIVEN: the broker writes on
@@ -335,6 +353,60 @@ BASE_CHECKS = [
         "plugin:github-claude-channel@github-claude-channel",
     ]},
 ]
+
+
+LOCAL_TOKEN = re.compile(r"\{(local|port):([a-z][a-z0-9_]*)\}")
+
+
+def fill_local(obj, values, missing=None):
+    """`obj` with every `{local:<key>}` and `{port:<key>}` token replaced.
+
+    Raises local_config.LocalConfigError naming every key that is not set, or
+    whose URL carries no port. A token is never left in place and never
+    replaced with a default: a check on a made-up address reads green or red
+    for reasons that have nothing to do with the service.
+    """
+    top = missing is None
+    if top:
+        missing = []
+
+    def value(kind, key):
+        raw = values.get(key)
+        if not raw:
+            missing.append(key)
+            return None
+        if kind == "local":
+            return raw.rstrip("/") if key.endswith("_url") else raw
+        try:
+            port = urllib.parse.urlparse(raw).port
+        except ValueError:
+            port = None
+        if port is None:
+            missing.append(f"{key} (no port in its URL)")
+        return port
+
+    if isinstance(obj, dict):
+        # A check marked `skip` never runs, so a key only it uses is not
+        # needed: its token is filled with nothing and nobody reads it.
+        sink = [] if obj.get("skip") else missing
+        out = {k: fill_local(v, values, sink) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        out = [fill_local(v, values, missing) for v in obj]
+    elif isinstance(obj, str):
+        whole = LOCAL_TOKEN.fullmatch(obj)
+        if whole:
+            out = value(whole.group(1), whole.group(2))
+        else:
+            out = LOCAL_TOKEN.sub(
+                lambda m: str(value(m.group(1), m.group(2)) or ""), obj)
+    else:
+        out = obj
+    if top and missing:
+        raise local_config.LocalConfigError(
+            "COULD NOT READ local values: the `local:` block of "
+            f"{REGISTRY} does not set {', '.join(sorted(set(missing)))}. "
+            "registry.yaml.example shows each key.")
+    return out
 
 
 def registry_sessions():
@@ -486,13 +558,36 @@ def find_manifest(root, plugin):
 
 
 def main():
+    # Read the local values BEFORE anything is deployed. A run that cannot read
+    # them stops here and says so: a config written without them would check
+    # nothing real, and the deployed guard would have no hive address.
+    try:
+        values = local_config.load(REGISTRY)
+        base_checks = fill_local(BASE_CHECKS, values)
+        deployed_values = fill_local(
+            {k: "{local:%s}" % k for k in DEPLOYED_LOCAL_KEYS}, values)
+    except local_config.LocalConfigError as e:
+        print(f"NOT DEPLOYED. {e}", file=sys.stderr)
+        return 2
+    print(f"read local values from the `local:` block of {REGISTRY}")
+
     os.makedirs(STATE_DIR, exist_ok=True)
 
+    # The values and their reader go first, and the values file is replaced in
+    # one step: the guard runs every few minutes and imports both, so it must
+    # never find the new guard beside a missing reader or a half-written file.
+    tmp_values = LOCAL_VALUES_DEST + ".tmp"
+    fd = os.open(tmp_values, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(deployed_values, f, indent=2)
+    os.replace(tmp_values, LOCAL_VALUES_DEST)
+    shutil.copy2(LOCAL_CONFIG_SRC, LOCAL_CONFIG_DEST)
     shutil.copy2(SRC, DEST)
     shutil.copy2(GUARD_SRC, GUARD_DEST)
     shutil.copy2(ROTATE_SRC, ROTATE_DEST)
     os.chmod(DEST, 0o755)
     print(f"deployed checker -> {DEST}")
+    print(f"deployed local values ({', '.join(DEPLOYED_LOCAL_KEYS)}) -> {LOCAL_VALUES_DEST}")
 
     # Leave no second copy behind after a root change -- a stale config in the
     # old root is a monitor reporting on a config nobody maintains any more.
@@ -504,7 +599,7 @@ def main():
                 os.remove(p)
                 print(f"  removed stale {p}")
 
-    ***REMOVED***
+    checks = list(base_checks)
     sessions = registry_sessions()
     plugins = plugin_version_checks()
     checks.extend(sessions)
@@ -513,7 +608,8 @@ def main():
     checks.append({"type": "subscription_targets", "name": "sentry subscriptions",
                    "db": "~/.sentry-channel.db", "table": "subscriptions",
                    "column": "peer_stable_id", "label_column": "project_slug",
-                   ***REMOVED***
+                   "known_ids": known,
+                   "hive_url": deployed_values["hive_url"]})
     print(f"  {len(BASE_CHECKS)} infra + {len(sessions)} session "
           f"+ {len(plugins)} plugin checks")
 

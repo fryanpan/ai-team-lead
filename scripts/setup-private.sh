@@ -75,13 +75,76 @@ link_from_private_checkout() {
 link_from_private_checkout docs/process/fleet-ops.md
 link_from_private_checkout docs/process/learnings.md
 
+# This checkout's Claude Code settings (.claude/settings.json: permissions,
+# hooks, env). They are local to the machine, so git does not track them.
+#
+# The main worktree's file is the live one and this script NEVER replaces it.
+# Only when it is missing (a fresh clone on a machine that has the private
+# checkout) is it restored, as a copy, from the backup kept there.
+SETTINGS=".claude/settings.json"
+SETTINGS_BACKUP="team-lead/settings.json"
+# Git treats an ignored file as free to overwrite: switching the main worktree
+# to a commit from before the file was untracked replaces it with that commit's
+# copy, and switching back removes it. So each run (the checkout and merge
+# hooks call this script) keeps a copy of the live file inside the git
+# directory, where no checkout reaches, and a missing file comes back from
+# that copy first.
+SETTINGS_KEEP="$(git rev-parse --git-common-dir)/team-lead-settings.keep.json"
+keep_settings_copy() {
+  [ -f "./$SETTINGS" ] && [ ! -L "./$SETTINGS" ] || return 0
+  # A tracked file here is an older commit's copy, not the live one.
+  git ls-files --error-unmatch "./$SETTINGS" >/dev/null 2>&1 && return 0
+  cmp -s "./$SETTINGS" "$SETTINGS_KEEP" 2>/dev/null && return 0
+  cp "./$SETTINGS" "$SETTINGS_KEEP" && chmod 600 "$SETTINGS_KEEP"
+}
+restore_settings_if_missing() {
+  if [ -e "./$SETTINGS" ] || [ -L "./$SETTINGS" ]; then
+    return 0
+  fi
+  if [ -f "$SETTINGS_KEEP" ]; then
+    mkdir -p ./.claude
+    cp -n "$SETTINGS_KEEP" "./$SETTINGS"
+    echo "Restored $SETTINGS from the copy kept in the git directory."
+  elif [ -n "$PRIVATE_CHECKOUT" ] && [ -f "$PRIVATE_CHECKOUT/$SETTINGS_BACKUP" ]; then
+    mkdir -p ./.claude
+    cp -n "$PRIVATE_CHECKOUT/$SETTINGS_BACKUP" "./$SETTINGS"
+    echo "Restored $SETTINGS from the private checkout's backup copy."
+  else
+    echo "WARNING: $SETTINGS is missing and there is no backup to restore it from. This checkout has no project settings: write your own (templates/settings/settings.json is a starting point)."
+  fi
+}
+# A linked worktree gets a link to the main worktree's file, the way it gets
+# the registry. Left alone when the branch still tracks the path (linking over
+# a tracked file would let `git add -A` commit the link), and when a regular
+# file is already there, because it may hold edits made in that worktree.
+link_settings_from_main() {
+  local src="$MAIN_WORKTREE/$SETTINGS" dst="./$SETTINGS"
+  if git ls-files --error-unmatch "$dst" >/dev/null 2>&1; then
+    return 0
+  fi
+  if [ ! -f "$src" ]; then
+    echo "WARNING: $src not found — $SETTINGS is not linked into this worktree."
+    return 0
+  fi
+  if [ -e "$dst" ] && [ ! -L "$dst" ]; then
+    echo "NOTE: $dst is a regular file — left alone, not linked to the main worktree's copy."
+    return 0
+  fi
+  mkdir -p ./.claude
+  link_private "$src" "$dst"
+}
+
 if [ "$CURRENT_DIR" = "$MAIN_WORKTREE" ]; then
+  restore_settings_if_missing
+  keep_settings_copy
   echo "In main worktree: private-checkout files linked, nothing else to link."
   exit 0
 fi
 
 # Registry (project list, team metadata, IDs)
 link_private "$MAIN_WORKTREE/registry.yaml" ./registry.yaml
+
+link_settings_from_main
 
 # Local channel list for the morning-digest skill
 if [ -f "$MAIN_WORKTREE/.claude/skills/morning-digest/channels.local.md" ]; then

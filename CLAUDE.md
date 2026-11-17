@@ -45,10 +45,15 @@ The trigger is always "the mode didn't cover my case" — a `respawn: false` ent
 | Path | Holds |
 | --- | --- |
 | `plugin/team-lead-fleet/` | Canonical fleet-wide skills + alwaysApply rules. Every peer enables this plugin. |
+| `.claude/settings.json` | Team-Lead's permissions, hooks and env. Local file, not tracked. |
 | `.claude/skills/`, `.claude/rules/` | Team-Lead's own. Fleet-shared entries are **symlinks** into the plugin — single source of truth. `claude-hive-peer.md` is peer-only and deliberately not symlinked here. |
 | `docs/process/` | This project's learnings + retros |
 
-Gitignored and symlinked into worktrees by `./scripts/setup-private.sh`: `registry.yaml`, `docs/process/retrospective.md`, `docs/process/propagation-log.md`, `docs/process/aggregation-log.md`. One-time after a fresh clone: `git config core.hooksPath .githooks`.
+Gitignored and symlinked into worktrees by `./scripts/setup-private.sh`: `registry.yaml`, `.claude/settings.json`, `docs/process/retrospective.md`, `docs/process/propagation-log.md`, `docs/process/aggregation-log.md`.
+
+**This machine's own values are not in the repo.** Hostnames, local service addresses, launchd job names and session launch details live in the `local:` block of `registry.yaml`. `scripts/local_config.py` reads them and `registry.yaml.example` lists every key. A script that cannot read a value it needs stops and says which one; never give it a built-in value to fall back to. After you change the block, rerun `python3 scripts/install_healthcheck.py`, which copies what the launchd jobs need into the deploy root.
+
+**`.claude/settings.json` is local too.** Git does not track it. The main worktree's copy is the live one, and `setup-private.sh` never replaces it: it only restores a missing one, and links it into other worktrees. **Do not switch the main worktree to a commit from before 2026-11-17**: git overwrites an ignored file on checkout, so the live settings are replaced by that commit's copy and removed on the way back. `setup-private.sh` keeps a copy in the git directory on every checkout and merge and restores from it, so only edits made since the last one are lost. One-time after a fresh clone: `git config core.hooksPath .githooks`.
 
 **This repo is public, so anything describing how the fleet is defended lives in a private companion checkout**, named by the `checkout=` line of `~/.config/team-lead/private-overlay.conf`: security rules, gate details, machine layout, hostnames and accounts, which agent reads which inbox or channel. Never name that repo in this one. Its rules reach every session through this plugin's SessionStart hook. `docs/process/learnings.md` and `docs/process/fleet-ops.md` are symlinks into it (setup-private.sh, also run on pull). Commit and push edits to them there, not here. Its README has the ship steps.
 

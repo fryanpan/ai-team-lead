@@ -86,7 +86,8 @@ def hive_url():
             break
         elif inside:
             m = re.match(r"^  hive_url:\s*(\S+)", line)
-            if m:
+            # A value that starts with # is a comment: the key is not set.
+            if m and not m.group(1).startswith("#"):
                 return m.group(1).strip("'\"").rstrip("/")
     raise NoHiveAddress(f"{registry} sets no hive_url in a `local:` block")
 

@@ -20,6 +20,7 @@ Where the values are read from, first hit wins:
 
 There are three results, never two: the value, a LocalConfigError that says
 the file could not be read, or a LocalConfigError that names the missing keys.
+A key whose line holds only a comment is a missing key.
 A caller must report the error. It must never fall back to a built-in value.
 
 Minimal line parse, the same approach as the registry parsers: no PyYAML.
@@ -65,10 +66,20 @@ class LocalConfigError(Exception):
     """The local values could not be read, or a needed key is not set."""
 
 
+BOM = "\ufeff"
+
+
 def parse_local(text):
-    """The scalars of the top-level `local:` block, or None when there is no block."""
+    """The scalars of the top-level `local:` block, or None when there is no block.
+
+    Raises LocalConfigError for a value this parse cannot read: one that opens
+    with a quote and does not close it, or has text after the closing quote.
+    """
     values, inside = None, False
-    for line in text.splitlines():
+    # Some editors save a byte order mark first. With it left in, the first
+    # line never matches and a file whose first line is `local:` reads as
+    # having no block.
+    for line in text.lstrip(BOM).splitlines():
         if re.match(r"^local:\s*(#.*)?$", line):
             values, inside = {}, True
             continue
@@ -81,14 +92,24 @@ def parse_local(text):
         m = re.match(r"^  ([a-z][a-z0-9_]*):\s*(.*)$", line)
         if not m:
             continue
-        value = m.group(2).strip()
-        quoted = re.match(r"""^(['"])(.*)\1\s*(#.*)?$""", value)
-        if quoted:
-            value = quoted.group(2)     # a quoted value keeps any # inside it
+        key, value = m.group(1), m.group(2).strip()
+        if value[:1] in ("'", '"'):
+            # A quoted value keeps any # inside it. Backslashes are kept as
+            # written, in double quotes too: this is not a YAML parser, and no
+            # value here needs an escape.
+            quoted = re.match(r"""^(['"])(.*)\1\s*(#.*)?$""", value)
+            if not quoted or len(value) == 1:
+                raise LocalConfigError(
+                    f"COULD NOT READ local values: the value of `{key}` opens "
+                    f"with a quote that is not closed, or has text after the "
+                    f"closing quote: {value}")
+            value = quoted.group(2)
+        elif value.startswith("#"):
+            value = ""                  # only a comment: the key is not set
         else:
             value = re.split(r"\s+#", value, maxsplit=1)[0].strip()
         if value:
-            values[m.group(1)] = value
+            values[key] = value
     return values
 
 
@@ -119,7 +140,7 @@ def load(path=None):
             f"`local:` block.") from e
     if is_json:
         try:
-            values = json.loads(text)
+            values = json.loads(text.lstrip(BOM))
         except ValueError as e:
             raise LocalConfigError(
                 f"COULD NOT READ local values: {path} is not valid JSON ({e}). "
@@ -128,7 +149,10 @@ def load(path=None):
             raise LocalConfigError(
                 f"COULD NOT READ local values: {path} does not hold an object.")
         return {k: str(v) for k, v in values.items() if v not in (None, "")}
-    values = parse_local(text)
+    try:
+        values = parse_local(text)
+    except LocalConfigError as e:
+        raise LocalConfigError(f"{e} (in {path})") from None
     if values is None:
         raise LocalConfigError(
             f"COULD NOT READ local values: {path} has no `local:` block. "

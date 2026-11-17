@@ -240,8 +240,9 @@ def test_subscription_check_says_when_it_has_no_hive_address(tmp_path):
         "name": "subs", "db": str(db), "table": "subscriptions",
         "column": "peer_stable_id", "label_column": "project_slug",
         "known_ids": ["known1"]})
-    assert ok
-    assert "COULD NOT LOOK at claude-hive" in detail
+    assert ok is False, "a check that could not look is never green"
+    assert detail.startswith("subs: COULD NOT LOOK")
+    assert "hive_url" in detail and "undeliverable" not in detail
 
 
 # ── the permission-wait hook ─────────────────────────────────────────────────
@@ -333,23 +334,151 @@ def test_a_skipped_check_does_not_need_its_keys(installer):
         installer.fill_local([{"type": "launchd", "label": "{local:launchd_notion_receiver}"}], {})
 
 
-def test_install_writes_the_reader_and_values_before_the_guard():
-    src = open(os.path.join(SCRIPTS, "install_healthcheck.py")).read()
-    body = src[src.index("def main():"):]
-    assert (body.index("os.replace(tmp_values, LOCAL_VALUES_DEST)")
-            < body.index("shutil.copy2(LOCAL_CONFIG_SRC, LOCAL_CONFIG_DEST)")
-            < body.index("shutil.copy2(GUARD_SRC, GUARD_DEST)"))
+def test_install_writes_the_reader_and_values_before_the_guard(
+        installer, lc, tmp_path, monkeypatch):
+    """The guard runs every few minutes and imports the reader, which reads the
+    values file. So when the new guard lands, both must already be in place."""
+    root = tmp_path / "root"
+    registry = tmp_path / "registry.yaml"
+    with open(EXAMPLE) as f:
+        registry.write_text(f.read())
+    dests = {name: str(root / os.path.basename(getattr(installer, name)))
+             for name in ("DEST", "GUARD_DEST", "ROTATE_DEST", "CONFIG",
+                          "LOCAL_CONFIG_DEST", "LOCAL_VALUES_DEST")}
+    for name, path in dests.items():
+        monkeypatch.setattr(installer, name, path)
+    monkeypatch.setattr(installer, "REGISTRY", str(registry))
+    monkeypatch.setattr(installer, "STATE_DIR", str(root))
+    monkeypatch.setattr(installer, "FALLBACK_ROOT", str(root))
+    monkeypatch.setattr(installer, "OVERLAY", str(tmp_path / "no-overlay.json"))
+    for name in ("registry_sessions", "plugin_version_checks", "registry_stable_ids"):
+        monkeypatch.setattr(installer, name, lambda: [])
+    monkeypatch.setattr(sys, "argv", ["install_healthcheck.py", "--no-agent"])
+
+    seen = {}
+    real_copy = installer.shutil.copy2
+
+    def copy(src, dst):
+        if dst == dests["GUARD_DEST"]:
+            seen["reader"] = os.path.exists(dests["LOCAL_CONFIG_DEST"])
+            try:
+                seen["hive_url"] = lc.get("hive_url", path=dests["LOCAL_VALUES_DEST"])
+            except lc.LocalConfigError as e:
+                seen["hive_url"] = str(e)
+        return real_copy(src, dst)
+
+    monkeypatch.setattr(installer.shutil, "copy2", copy)
+    assert installer.main() == 0
+    assert seen == {"reader": True, "hive_url": "http://127.0.0.1:8000"}
+    assert os.path.exists(dests["GUARD_DEST"])
 
 
-def test_guard_reports_not_checked_under_its_own_banner(unreadable, monkeypatch, tmp_path):
+def run_guard_main(guard, monkeypatch, loops, state):
+    """fleet_guard.main() with every outside call stubbed. Returns the titles
+    it notified under and the state it saved."""
+    m = {"swap_gb": 0.5, "free_pct": 60, "load_per_core": 0.4,
+         "orphan_workers": 0, "anon_gb": 5.0, "boot_free_gb": 90.0,
+         "healthcheck_age_min": 5.0, "pagesize": 16384, "epoch": 1.0,
+         "pageins": 0, "pageouts": 0, "compressed_gb": 1.0,
+         "orphan_worker_gb": 0.0, "claude_sessions": 2, "claude_gb": 1.0}
+    titles, saved = [], []
+    monkeypatch.setattr(guard.sys, "argv", ["fleet_guard.py"])
+    monkeypatch.setattr(guard, "read_metrics", lambda: m)
+    monkeypatch.setattr(guard, "load_state", lambda: state)
+    monkeypatch.setattr(guard, "read_history", lambda: [])
+    monkeypatch.setattr(guard, "read_process_table", lambda: [])
+    monkeypatch.setattr(guard, "loop_status", lambda: dict(loops))
+    monkeypatch.setattr(guard, "reap_orphaned_chromes", lambda **kw: ([], []))
+    monkeypatch.setattr(guard, "top_holders", lambda: "holders")
+    monkeypatch.setattr(guard, "notify", lambda title, msg: titles.append(title) or True)
+    monkeypatch.setattr(guard, "hive_alert", lambda title, msg: "no-config")
+    monkeypatch.setattr(guard, "save_state", saved.append)
+    monkeypatch.setattr(guard, "record_history", lambda s: None)
+    assert guard.main() == 0
+    return titles, saved[0]
+
+
+def test_guard_reports_not_checked_under_its_own_banner(unreadable, monkeypatch):
     guard = load("fleet_guard_lc_banner", os.path.join(SCRIPTS, "fleet_guard.py"))
-    src = open(os.path.join(SCRIPTS, "fleet_guard.py")).read()
+    loops = {guard.HIVE_BROKER: "no-config", "some-loop": "up"}
+    titles, saved = run_guard_main(guard, monkeypatch, loops, {})
     # not counted as a loop that is down and failed to restart
-    assert 'if s not in ("up", "revived", "no-config")' in src
-    assert '"loops_not_checked": not_checked' in src
-    assert 'notify("Monitor loop not checked"' in src
-    # and a revive that cannot probe the broker does not claim it came up
+    assert "Monitor loop not checked" in titles
+    assert "Monitor loop down" not in titles and "Monitor loop restarted" not in titles
+    assert saved["loops_down"] == []
+    assert saved["loops_not_checked"] == [guard.HIVE_BROKER]
+    # said once, not on every run while it stays unread
+    titles, _ = run_guard_main(guard, monkeypatch, loops, saved)
+    assert "Monitor loop not checked" not in titles
+
+
+def test_a_revive_that_cannot_probe_the_broker_does_not_claim_it_came_up(
+        unreadable, monkeypatch):
+    guard = load("fleet_guard_lc_revive", os.path.join(SCRIPTS, "fleet_guard.py"))
     guard.sh = lambda cmd, timeout=10: ("", 0)
     monkeypatch.setattr(guard.time, "sleep", lambda s: None)
     ok, detail = guard.revive(guard.HIVE_BROKER, "true")
     assert ok is False and "/health" in detail
+
+
+# ── a value that is not there, and a file that cannot be parsed ──────────────
+
+@pytest.mark.parametrize("line", [
+    "  hive_url:   # fill me in",
+    "  hive_url: #fill me in",
+    "  hive_url: #",
+])
+def test_a_key_with_only_a_comment_is_not_set(lc, tmp_path, line):
+    p = tmp_path / "registry.yaml"
+    p.write_text(f"local:\n{line}\n  board_tunnel_host: board.example.com\n")
+    assert lc.load(str(p)) == {"board_tunnel_host": "board.example.com"}
+    with pytest.raises(lc.LocalConfigError, match="does not set hive_url"):
+        lc.get("hive_url", path=str(p))
+
+
+def test_a_quoted_value_may_start_with_a_hash(lc):
+    assert lc.parse_local("local:\n  dev_channel_flag: '#x'\n") == {
+        "dev_channel_flag": "#x"}
+
+
+def test_hook_reads_a_key_with_only_a_comment_as_not_set(hook, monkeypatch):
+    opened = []
+    monkeypatch.setattr(hook.urllib.request, "urlopen",
+                        lambda *a, **k: opened.append(a))
+    for line in ("  hive_url:   # fill me in", "  hive_url: #fill"):
+        (hook.lead / "registry.yaml").write_text(f"local:\n{line}\n")
+        with pytest.raises(hook.NoHiveAddress):
+            hook.hive_url()
+        assert hook.deliver("s", "/x", "m") == "no-config"
+    assert not opened, "nothing may be sent to a guessed address"
+
+
+def test_a_leading_byte_order_mark_is_ignored(lc, tmp_path):
+    p = tmp_path / "registry.yaml"
+    p.write_bytes(b"\xef\xbb\xbflocal:\n  hive_url: http://127.0.0.1:8000\n")
+    assert lc.get("hive_url", path=str(p)) == "http://127.0.0.1:8000"
+    j = tmp_path / "local-config.json"
+    j.write_bytes(b"\xef\xbb\xbf" + json.dumps({"hive_url": "http://127.0.0.1:8000"}).encode())
+    assert lc.get("hive_url", path=str(j)) == "http://127.0.0.1:8000"
+
+
+@pytest.mark.parametrize("value", [
+    '"http://127.0.0.1:8000',
+    "'http://127.0.0.1:8000",
+    '"http://127.0.0.1:8000\'',
+    '"http://127.0.0.1:8000" trailing',
+    '"',
+])
+def test_an_unbalanced_quote_is_could_not_read_not_a_value(lc, tmp_path, value):
+    p = tmp_path / "registry.yaml"
+    p.write_text(f"local:\n  board_tunnel_host: board.example.com\n  hive_url: {value}\n")
+    with pytest.raises(lc.LocalConfigError, match="COULD NOT READ.*hive_url.*quote"):
+        lc.load(str(p))
+    # also for a caller that asked only for another key: the file is unreadable
+    with pytest.raises(lc.LocalConfigError, match="quote"):
+        lc.get("board_tunnel_host", path=str(p))
+
+
+def test_backslashes_in_double_quotes_are_kept_as_written(lc):
+    assert lc.parse_local('local:\n  notion_receiver_log: "a\\nb"\n') == {
+        "notion_receiver_log": "a\\nb"}

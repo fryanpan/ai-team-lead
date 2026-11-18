@@ -55,6 +55,37 @@ def argval(flag, default, cast=str):
     return cast(sys.argv[i])
 
 HOME = os.path.expanduser("~")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import local_config  # noqa: E402
+
+# The folder that holds this checkout, as a physical path. The other project
+# checkouts sit beside it, and project_of() matches transcript folders to them.
+CHECKOUTS_DIR, CHECKOUTS_DIR_ERROR = local_config.try_read(
+    local_config.checkouts_dir)
+
+
+def encoded(path):
+    """A folder's path the way a transcript folder spells it: every character
+    that is not a letter or a digit becomes "-"."""
+    return re.sub(r"[^A-Za-z0-9]", "-", path)
+
+
+def checkout_prefixes():
+    """What a transcript folder's name holds just before the project's own
+    folder name: the checkouts folder, spelled as a transcript folder spells
+    it. A link to that folder from the home folder under the same name is a
+    second spelling, and a session started through it is filed under that."""
+    if not CHECKOUTS_DIR:
+        return []
+    spellings = [CHECKOUTS_DIR]
+    linked = os.path.join(HOME, os.path.basename(CHECKOUTS_DIR))
+    if linked != CHECKOUTS_DIR and os.path.realpath(linked) == CHECKOUTS_DIR:
+        spellings.append(linked)
+    return [encoded(s) + "-" for s in spellings]
+
+
+CHECKOUT_PREFIXES = checkout_prefixes()
+_PROJECTS_NOT_MAPPED_SAID = False
 PROJ = os.path.join(HOME, ".claude", "projects")
 WINDOW_H = argval("--window-hours", 5.0, float)
 AS_JSON = "--json" in sys.argv
@@ -78,14 +109,8 @@ def _hive_url():
     """(base URL of the hive broker, "") from this machine's local values
     (the `local:` block of registry.yaml, read by local_config.py), or
     (None, why) when they cannot be read. There is no built-in address."""
-    try:
-        here = os.path.dirname(os.path.abspath(__file__))
-        if here not in sys.path:
-            sys.path.insert(0, here)
-        import local_config
-        return local_config.get("hive_url").rstrip("/"), ""
-    except Exception as e:
-        return None, str(e) or type(e).__name__
+    return local_config.try_read(
+        lambda: local_config.get("hive_url").rstrip("/"))
 
 
 HIVE_URL, HIVE_URL_ERROR = _hive_url()
@@ -400,21 +425,30 @@ def project_of(transcript_dir):
     project-alpha — otherwise a project dodges its own budget simply by
     working in a worktree, which is where the heaviest work usually happens.
     """
+    global _PROJECTS_NOT_MAPPED_SAID
     name = os.path.basename(transcript_dir)
-    parts = [p for p in name.split("-") if p]
-    # the encoded dir is the full path with separators flattened; find the
-    # segment right after the last "dev" marker
-    for i, p in enumerate(parts):
-        if p == "dev" and i + 1 < len(parts):
-            rest = parts[i + 1:]
-            # rejoin greedily against known repo dirs
-            for take in range(len(rest), 0, -1):
-                cand = "-".join(rest[:take])
-                if os.path.isdir(os.path.join(HOME, "..", "dev", cand)) or \
-                   os.path.isdir(os.path.join("/Volumes/Data/Users/bryanchan/dev", cand)):
-                    return cand
-            return rest[0]
-    return name
+    if not CHECKOUTS_DIR:
+        if not _PROJECTS_NOT_MAPPED_SAID:
+            _PROJECTS_NOT_MAPPED_SAID = True
+            print("budget-watch: transcript folders NOT MAPPED to projects, "
+                  "each is billed under its own folder name: "
+                  f"{CHECKOUTS_DIR_ERROR}", file=sys.stderr)
+        return name
+    # the encoded dir is the full path with separators flattened; the project
+    # is what follows the checkouts folder, wherever in the name that sits
+    at = [(name.find(p), p) for p in CHECKOUT_PREFIXES if p in name]
+    if not at:
+        return name
+    start, prefix = min(at)
+    rest = [p for p in name[start + len(prefix):].split("-") if p]
+    if not rest:
+        return name
+    # rejoin greedily against known repo dirs
+    for take in range(len(rest), 0, -1):
+        cand = "-".join(rest[:take])
+        if os.path.isdir(os.path.join(CHECKOUTS_DIR, cand)):
+            return cand
+    return rest[0]
 
 def transcripts_under(project_dir):
     """Every transcript billing to this project, subagents included.

@@ -227,7 +227,7 @@ def main_checkout_of(root):
     try:
         with open(git) as f:
             first = f.readline().strip()
-    except OSError as e:
+    except (OSError, ValueError) as e:     # ValueError: not text
         raise LocalConfigError(
             f"COULD NOT READ the main checkout: {git} cannot be read ({e}). "
             f"Run this from the main checkout.") from None

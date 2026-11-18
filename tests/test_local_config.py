@@ -1444,3 +1444,43 @@ def test_the_board_server_pair_may_share_a_label(
     assert rc == 0 and calls
     with open(EXAMPLE) as f:
         assert "only the\n  # board server pair above may share one" in f.read()
+
+
+def test_a_banner_gives_each_loop_its_own_reason(deployed_unreadable):
+    """Two loops with no checkout path and the broker failing its own restart
+    in one run: the broker is not listed under the path reason."""
+    guard = load("fleet_guard_mixed_banner", os.path.join(SCRIPTS, "fleet_guard.py"))
+    reasons = {n: guard.revive(n, guard.LOOPS[n])[1] for n in guard.LOOP_SCRIPTS}
+    reasons[guard.HIVE_BROKER] = "broker session is up but /health does not answer"
+    names = sorted(reasons)
+    banner = guard.loop_down_banner(names, reasons)
+    assert len(banner) <= guard.NOTIFY_MAX, len(banner)
+    assert banner == (
+        "Rerun scripts/install_healthcheck.py from the main checkout. "
+        "fleet-budget, fleet-monitor down and not restarted: the checkout's "
+        "path could not be read. hive-broker not restarted: broker session is "
+        "up but /health does not answer")
+    path_part, other_part = banner.split(" hive-broker not restarted", 1)
+    assert "hive-broker" not in path_part
+    assert "path could not be read" not in other_part
+    # a long reason for the other loop is trimmed, not the action
+    reasons[guard.HIVE_BROKER] = "new-session rc=1 " + "x" * 200
+    banner = guard.loop_down_banner(names, reasons)
+    assert len(banner) <= guard.NOTIFY_MAX
+    assert banner.startswith("Rerun scripts/install_healthcheck.py from the main checkout.")
+    assert "hive-broker not restarted: new-session rc=1" in banner
+
+
+def test_a_git_file_that_is_not_text_is_could_not_read(lc, tmp_path):
+    worktree = tmp_path / "w"
+    worktree.mkdir()
+    (worktree / ".git").write_bytes(b"gitdir: /x/.git/worktrees/\xff\xfe\n")
+    with pytest.raises(lc.LocalConfigError, match="COULD NOT READ the main checkout"):
+        lc.main_checkout_of(str(worktree))
+    (worktree / ".git").write_text("gitdir: /x/.git/worktrees/w\n")
+    (worktree / ".git").chmod(0)
+    try:
+        with pytest.raises(lc.LocalConfigError, match="COULD NOT READ the main checkout"):
+            lc.main_checkout_of(str(worktree))
+    finally:
+        (worktree / ".git").chmod(0o644)

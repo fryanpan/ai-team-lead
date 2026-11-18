@@ -42,7 +42,8 @@ local:
   launchd_board_server_former: com.example.board-server-old
   # The three jobs install_healthcheck.py creates: the health check, the
   # machine guard and the log rotation. Pick the labels before the first
-  # install. To change one later, remove the old job yourself first.
+  # install. To change one later, remove the old job yourself first: the
+  # installer stops when a job runs one of its programs under another label.
   launchd_healthcheck: com.example.fleet-healthcheck
   launchd_guard: com.example.fleet-guard
   launchd_log_rotate: com.example.fleet-log-rotate

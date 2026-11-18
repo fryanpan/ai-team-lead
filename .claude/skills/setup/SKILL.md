@@ -53,7 +53,7 @@ Ask: "Want to add your projects now, or skip and add them later via `/add-projec
 
 `registry.yaml` is gitignored — it never leaves their machine.
 
-**Fill in the `local:` block.** It holds this machine's own values: local service addresses, tunnel hostnames, launchd job labels and session launch details. Every value in the example is a placeholder, and each has a comment saying what it is. Scripts read the block through `scripts/local_config.py` and stop with a "could not read" message that names the key when one they need is missing, so a key for a service the user does not run can wait until a script asks for it. Delete that key's line; never leave a key with no value. `scripts/install_healthcheck.py` needs every key that a check it runs uses. Check with:
+**Fill in the `local:` block.** It holds this machine's own values: local service addresses, tunnel hostnames, launchd job labels and session launch details. Every value in the example is a placeholder, and each has a comment saying what it is. Scripts read the block through `scripts/local_config.py` and stop with a "could not read" message that names the key when one they need is missing, so a key for a service the user does not run can wait until a script asks for it. Delete that key's line; never leave a key with no value. `scripts/install_healthcheck.py` needs every key that a check it runs uses. Run it from the main checkout: it refuses to run from a linked worktree. Check with:
 
 ```sh
 python3 scripts/local_config.py   # lists each key as set or MISSING

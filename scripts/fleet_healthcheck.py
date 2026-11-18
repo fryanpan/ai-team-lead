@@ -175,19 +175,25 @@ BUN_CANDIDATES = [
 # reads the one install_healthcheck.py wrote beside it, through local_config.py.
 
 
-def _probe_data_file():
-    """(the file to probe, "") or (None, why) when the path cannot be read."""
-    try:
-        here = os.path.dirname(os.path.abspath(__file__))
-        if here not in sys.path:
-            sys.path.insert(0, here)
-        import local_config
-        return os.path.join(local_config.repo_root(), "README.md"), ""
-    except Exception as e:      # a missing module is a "could not read" too
-        return None, str(e) or type(e).__name__
+_HERE = os.path.dirname(os.path.abspath(__file__))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+try:
+    import local_config
+    _try_read = local_config.try_read
+except ImportError as _e:       # the reader itself is a "could not read" too
+    local_config = None
 
+    def _try_read(read, _why=("COULD NOT READ local values: local_config.py "
+                              f"is not beside this script ({_e}). Rerun "
+                              "scripts/install_healthcheck.py from the main "
+                              "checkout.")):
+        return None, _why
 
-PROBE_DATA_FILE, PROBE_DATA_FILE_ERROR = _probe_data_file()
+PROBE_DATA_FILE, PROBE_DATA_FILE_ERROR = _try_read(
+    lambda: os.path.join(local_config.repo_root(), "README.md"))
+# How a resolve_bun() reason starts when nothing was probed at all.
+BUN_NOT_PROBED = "COULD NOT LOOK"
 
 # Seconds to wait on any bun call. Was 30, which turned a broken bun into a
 # three-minute run: six checks each burning a full timeout in series. A probe
@@ -215,8 +221,10 @@ def resolve_bun():
 
     if not PROBE_DATA_FILE:
         # Not "no bun works": nothing was probed, and the reason says so.
-        _BUN_RESOLVED = (None, f"COULD NOT LOOK, no file to probe: "
-                               f"{PROBE_DATA_FILE_ERROR}")
+        _BUN_RESOLVED = (None, f"{BUN_NOT_PROBED}, no file to probe with: "
+                               f"{PROBE_DATA_FILE_ERROR} Rerun "
+                               f"scripts/install_healthcheck.py from the main "
+                               f"checkout.")
         return _BUN_RESOLVED
 
     tried = []
@@ -246,7 +254,15 @@ def resolve_bun():
 
 
 def bun_works():
-    return resolve_bun()[0] is not None
+    """Three results, never two. True: a bun reads the secondary volume.
+    False: every candidate was tried and none can. None: nothing was probed,
+    because there was no file to probe with. `if not bun_works()` treats the
+    last two alike, which is right only where the caller then reports with
+    bun_unavailable() or tries without bun."""
+    path, reason = resolve_bun()
+    if path is not None:
+        return True
+    return None if reason.startswith(BUN_NOT_PROBED) else False
 
 
 def bun_path():
@@ -257,6 +273,14 @@ def bun_path():
 BUN_UNAVAILABLE = ("no bun on this machine can read the secondary volume in "
                    "this context, so anything stored there is unreadable "
                    "here -- see fleet-ops.md")
+
+
+def bun_unavailable():
+    """Why a check that needs bun has none: no candidate can read the volume,
+    or nothing was probed. The second is "could not look" and reads that way."""
+    if bun_works() is None:
+        return resolve_bun()[1]
+    return BUN_UNAVAILABLE
 
 
 _PLUGIN_PROBE_JS = r"""
@@ -414,7 +438,7 @@ def check_self_version(spec):
     on the boot disk and reads normally.
     """
     if not bun_works():
-        return False, f"{spec['name']}: cannot verify -- {BUN_UNAVAILABLE}"
+        return False, f"{spec['name']}: cannot verify -- {bun_unavailable()}"
     source = os.path.expanduser(spec["source"])
     running = os.path.abspath(__file__)
 
@@ -425,7 +449,7 @@ def check_self_version(spec):
         return False, f"{spec['name']}: cannot read running copy {running}: {e}"
 
     if not bun_works():
-        return False, f"{spec['name']}: cannot verify -- {BUN_UNAVAILABLE}"
+        return False, f"{spec['name']}: cannot verify -- {bun_unavailable()}"
     r = subprocess.run([bun_path(), "-e", _READ_SHA_JS, "--", source],
                        capture_output=True, text=True, cwd="/", timeout=BUN_TIMEOUT)
     if r.returncode != 0:
@@ -467,7 +491,7 @@ def check_archive_backlog(spec):
     denied checker reports a healthy mtime on data it cannot read.
     """
     if not bun_works():
-        return False, f"{spec['name']}: cannot verify -- {BUN_UNAVAILABLE}"
+        return False, f"{spec['name']}: cannot verify -- {bun_unavailable()}"
     live = os.path.expanduser(spec["live_root"])
     archive = os.path.expanduser(spec["archive_root"])
     max_age = float(spec.get("max_age_days", 21))
@@ -477,7 +501,7 @@ def check_archive_backlog(spec):
     ignore = spec.get("ignore_dirs", [])
 
     if not bun_works():
-        return False, f"{spec['name']}: cannot verify -- {BUN_UNAVAILABLE}"
+        return False, f"{spec['name']}: cannot verify -- {bun_unavailable()}"
     for label, pth in (("live store", live), ("archive", archive)):
         if not exists_via_bun(pth):
             return False, f"{spec['name']}: {label} MISSING at {pth}"
@@ -790,6 +814,12 @@ def check_tcc_grant(spec):
 
     prior = prev_status().get("tcc", {})
     was_boot, was_readable = prior.get("boot"), prior.get("readable")
+    if bun_works() is None:
+        # Nothing was probed, so nothing is known about the grant. The last
+        # real observation is kept as it was: recording "unreadable" here
+        # would later read as a grant that did not survive a reboot.
+        _TCC_RECORD.update(prior)
+        return False, f"{name}: {reason}"
     _TCC_RECORD.update({"boot": boot, "readable": readable,
                         "binary": resolved or None})
 
@@ -1206,7 +1236,7 @@ def read_text_via_bun(path):
         with io.open(path, encoding="utf-8") as fh:
             return fh.read(), None
     except OSError as exc:
-        return None, f"{exc} -- {BUN_UNAVAILABLE}"
+        return None, f"{exc} -- {bun_unavailable()}"
 
 
 _RATE_LIMIT_JS = r"""
@@ -1291,7 +1321,7 @@ def check_rate_limit_hits(spec):
     root = os.path.expanduser(spec.get("root", "~/.claude/projects"))
 
     if not bun_works():
-        return False, f"{name}: cannot scan transcripts -- {BUN_UNAVAILABLE}"
+        return False, f"{name}: cannot scan transcripts -- {bun_unavailable()}"
     try:
         r = subprocess.run([bun_path(), "-e", _RATE_LIMIT_JS, "--",
                             root, str(since_ms)],

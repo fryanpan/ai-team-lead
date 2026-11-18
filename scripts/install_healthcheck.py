@@ -83,6 +83,13 @@ DEPLOYED_LOCAL_KEYS = ("hive_url",)
 # the monitor loops, the checker to probe the volume the checkout is on. It is
 # worked out here, as the physical path, and written beside the keys above.
 REPO_ROOT = os.path.realpath(REPO)
+
+
+def linked_worktree(repo):
+    """True when `repo` is a linked git worktree: its `.git` is a file."""
+    return os.path.isfile(os.path.join(repo, ".git"))
+
+
 OVERLAY = os.path.join(HOME, ".config", "team-lead", "healthcheck-extra.json")
 
 # The labels of the three jobs this installer creates are local values. Each
@@ -97,6 +104,39 @@ LAUNCH_AGENTS = os.path.join(HOME, "Library", "LaunchAgents")
 
 def plist_path(label):
     return os.path.join(LAUNCH_AGENTS, f"{label}.plist")
+
+
+def jobs_under_another_label(wanted):
+    """Plists in LAUNCH_AGENTS that run one of this installer's programs under
+    a label other than the configured one.
+
+    `wanted` maps each deployed program's path to (configured label, the key
+    that holds it). Returns (found, unread): `found` is a list of
+    (plist path, its label, program, configured label, key), and `unread`
+    names the plists that could not be parsed. Such a job keeps running beside
+    the one this run would create, so the caller stops instead of installing.
+    """
+    found, unread = [], []
+    try:
+        names = sorted(os.listdir(LAUNCH_AGENTS))
+    except FileNotFoundError:
+        return found, unread
+    for name in names:
+        if not name.endswith(".plist"):
+            continue
+        path = os.path.join(LAUNCH_AGENTS, name)
+        try:
+            with open(path, "rb") as fh:
+                plist = plistlib.load(fh)
+            args = plist.get("ProgramArguments") or []
+            label = plist.get("Label") or name[:-len(".plist")]
+        except Exception:
+            unread.append(path)
+            continue
+        for program, (configured, key) in wanted.items():
+            if program in args and label != configured:
+                found.append((path, label, program, configured, key))
+    return found, unread
 
 
 # Hourly, at :20. It was 3x/day until 2026-09-01, when the log showed the
@@ -341,7 +381,7 @@ BASE_CHECKS = [
     #     means every check below silently runs the OLD file, three green times
     #     a day, with no surface saying the new one never ran. ---
     {"type": "self_version", "name": "checker version",
-     "source": "~/dev/ai-team-lead/scripts/fleet_healthcheck.py"},
+     "source": os.path.join(REPO_ROOT, "scripts", "fleet_healthcheck.py")},
 
     # --- delivery, not schedule: the archiver's launchd job died 2026-08-08 and
     #     nothing surfaced it for 17 days, because running the analysis pipeline
@@ -569,7 +609,25 @@ def find_manifest(root, plugin):
     return candidates[0] if candidates else None
 
 
+def check_ident(c):
+    """What an overlay entry is matched on: label, then name, then type and
+    port. A label may be a list of spellings, which is joined so the result
+    can key a dict."""
+    label = c.get("label")
+    if isinstance(label, (list, tuple)):
+        label = ",".join(str(x) for x in label)
+    return label or c.get("name") or f"{c.get('type')}:{c.get('port')}"
+
+
 def main():
+    # The checkout's path goes into the deploy root and the guard restarts the
+    # monitor loops from it. Run from a linked worktree it would be that
+    # worktree's path, which is removed when its branch is done.
+    if linked_worktree(REPO):
+        print(f"NOT DEPLOYED. {REPO} is a linked git worktree. Run this from "
+              f"the main checkout: the deployed jobs are pointed at the "
+              f"checkout the installer runs in.", file=sys.stderr)
+        return 2
     # Read the local values BEFORE anything is deployed. A run that cannot read
     # them stops here and says so: a config written without them would check
     # nothing real, and the deployed guard would have no hive address.
@@ -589,6 +647,31 @@ def main():
         labels["healthcheck"], labels["guard"], labels["rotate"])
     PLIST, GUARD_PLIST, ROTATE_PLIST = (
         plist_path(LABEL), plist_path(GUARD_LABEL), plist_path(ROTATE_LABEL))
+
+    if "--no-agent" not in sys.argv:
+        # Before anything is written. A job that already runs one of these
+        # programs under another label would keep running beside the new one.
+        found, unread = jobs_under_another_label({
+            DEST: (LABEL, JOB_LABEL_KEYS["healthcheck"]),
+            GUARD_DEST: (GUARD_LABEL, JOB_LABEL_KEYS["guard"]),
+            ROTATE_DEST: (ROTATE_LABEL, JOB_LABEL_KEYS["rotate"]),
+        })
+        for path in unread:
+            print(f"  ! could not read {path}; not checked for a job under "
+                  f"another label")
+        if found:
+            print("NOT DEPLOYED. A launchd job already runs a program this "
+                  "installer deploys, under a label the local block does not "
+                  "name:", file=sys.stderr)
+            for path, label, program, configured, key in found:
+                print(f"  {path} runs {program} as `{label}`, and `{key}` in "
+                      f"the `local:` block of {REGISTRY} is `{configured}`.",
+                      file=sys.stderr)
+            print("Either set the key to the label the job has, or remove "
+                  "that job yourself (`launchctl bootout gui/$(id -u)/<label>` "
+                  "and delete its plist), then rerun. Nothing was changed.",
+                  file=sys.stderr)
+            return 2
 
     os.makedirs(STATE_DIR, exist_ok=True)
 
@@ -637,11 +720,9 @@ def main():
     if os.path.exists(OVERLAY):
         with open(OVERLAY) as f:
             extra = json.load(f).get("checks", [])
-        def ident(c):
-            return c.get("label") or c.get("name") or f"{c.get('type')}:{c.get('port')}"
-        by_id = {ident(c): c for c in checks}
+        by_id = {check_ident(c): c for c in checks}
         for c in extra:
-            by_id[ident(c)] = c
+            by_id[check_ident(c)] = c
         checks = list(by_id.values())
         print(f"  merged {len(extra)} overlay checks from {OVERLAY}")
 

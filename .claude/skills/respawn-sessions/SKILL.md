@@ -237,6 +237,7 @@ bash .claude/skills/respawn-sessions/self-respawn.sh <team-lead-claude-pid>
 **How it works:** the team-lead runs as a bare `claude --continue` process and can't revive itself directly (a dying process can't respawn itself, and a detached spawn needs a pty). The script schedules a **detached** respawn via `setsid` — so it survives the team-lead's own death — then kills self. The detached job waits for the old process to exit, then spawns a fresh team-lead into tmux session `team-lead` on the **current** binary + plugin set, resuming this very conversation via `--continue`, and auto-accepts the startup dialogs (dev-channel / MCP / resume-from-summary → this is what compacts you).
 
 - **~10–20s gap** with no team-lead, then back in `tmux:team-lead`, same conversation (compacted), named "Team Lead". Reconnect via `tmux a -t team-lead` or Remote Control — it re-registers on the hive.
+- **It respawns into the main checkout**, also when the copy you run sits in a linked worktree. Set `TL_DIR` to use another folder. If it cannot find the main checkout it stops before it kills anything.
 - **Do this LAST** — it ends the current session. Deliver any report and finish any in-flight handoff first.
 - **No `-e DISCORD_STATE_DIR`** — the team-lead keeps its own shell/direnv discord state (unlike peers, which get an explicit override to prevent channel fan-out).
 - **Tell a live human first** if one's mid-conversation — the `--continue` preserves context, but the ~15s gap + reconnect is visible. For a fully-autonomous/off-hours run, just fire it.

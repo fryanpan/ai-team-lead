@@ -12,8 +12,22 @@
 #
 # Launch (detached), by this script's physical path:
 #   tmux new-session -d -s fleet-budget <checkout>/scripts/fleet_budget_loop.sh
-# The watch script is found beside this one.
-SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/fleet_budget_watch.py"
+# The watch script is taken from the main checkout. This script's own folder
+# gives the checkout it is in. When that is a linked git worktree its `.git` is
+# a file that names the main checkout, and the path is read from there, with
+# no other program involved.
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+CHECKOUT="${HERE%/*}"
+if [ -f "$CHECKOUT/.git" ]; then
+  read -r GITDIR < "$CHECKOUT/.git"
+  GITDIR="${GITDIR#gitdir: }"
+  case "$GITDIR" in
+    /*/.git/worktrees/*) CHECKOUT="${GITDIR%/.git/worktrees/*}" ;;
+    *) echo "ABORT: $CHECKOUT is a linked worktree and its .git file does not name the main checkout. Start this loop from the main checkout." >&2
+       exit 1 ;;
+  esac
+fi
+SCRIPT="$CHECKOUT/scripts/fleet_budget_watch.py"
 INTERVAL="${FLEET_BUDGET_INTERVAL:-900}"        # 15m when the fleet is clear
 DANGER_INTERVAL="${FLEET_BUDGET_DANGER_INTERVAL:-300}"  # 5m once it is not
 STATE="$HOME/Library/Application Support/team-lead/budget-watch.json"

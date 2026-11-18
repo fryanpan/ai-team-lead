@@ -36,8 +36,14 @@ def lc():
 
 
 @pytest.fixture
-def installer():
-    return load("install_healthcheck_lc", os.path.join(SCRIPTS, "install_healthcheck.py"))
+def installer(tmp_path, monkeypatch):
+    """The installer, as if it ran from a main checkout. It refuses to run
+    from a linked worktree, and the tests may themselves run inside one."""
+    mod = load("install_healthcheck_lc", os.path.join(SCRIPTS, "install_healthcheck.py"))
+    main_checkout = tmp_path / "main-checkout"
+    (main_checkout / ".git").mkdir(parents=True)
+    monkeypatch.setattr(mod, "REPO", str(main_checkout))
+    return mod
 
 
 @pytest.fixture
@@ -495,6 +501,11 @@ def example_values(lc):
         return lc.parse_local(f.read())
 
 
+def example_text():
+    with open(EXAMPLE) as f:
+        return f.read()
+
+
 def test_every_launchd_label_in_the_checks_comes_from_the_local_values(installer, lc):
     """No label is written in the installer: change a value and the check
     that carries it changes with it."""
@@ -510,12 +521,13 @@ def test_every_launchd_label_in_the_checks_comes_from_the_local_values(installer
         assert values[key] in flat, key
 
 
-def install_into(installer, tmp_path, monkeypatch, registry_text, argv=()):
+def install_into(installer, tmp_path, monkeypatch, registry_text, argv=(),
+                 overlay=None):
     """Run the installer's main() against a temp deploy root and LaunchAgents
     folder, with launchctl stubbed. Returns (exit code, launchctl calls, root)."""
     root = tmp_path / "root"
     agents = tmp_path / "LaunchAgents"
-    agents.mkdir()
+    agents.mkdir(exist_ok=True)
     registry = tmp_path / "registry.yaml"
     registry.write_text(registry_text)
     for name in ("DEST", "GUARD_DEST", "ROTATE_DEST", "CONFIG",
@@ -526,7 +538,10 @@ def install_into(installer, tmp_path, monkeypatch, registry_text, argv=()):
     monkeypatch.setattr(installer, "STATE_DIR", str(root))
     monkeypatch.setattr(installer, "FALLBACK_ROOT", str(root))
     monkeypatch.setattr(installer, "LAUNCH_AGENTS", str(agents))
-    monkeypatch.setattr(installer, "OVERLAY", str(tmp_path / "no-overlay.json"))
+    overlay_path = tmp_path / "overlay.json"
+    if overlay is not None:
+        overlay_path.write_text(json.dumps({"checks": overlay}))
+    monkeypatch.setattr(installer, "OVERLAY", str(overlay_path))
     for name in ("registry_sessions", "plugin_version_checks", "registry_stable_ids"):
         monkeypatch.setattr(installer, name, lambda: [])
     monkeypatch.setattr(sys, "argv", ["install_healthcheck.py", *argv])
@@ -546,9 +561,7 @@ def install_into(installer, tmp_path, monkeypatch, registry_text, argv=()):
 def test_install_names_its_three_jobs_from_the_local_values(
         installer, tmp_path, monkeypatch):
     import plistlib
-    with open(EXAMPLE) as f:
-        text = f.read()
-    rc, calls, root = install_into(installer, tmp_path, monkeypatch, text)
+    rc, calls, root = install_into(installer, tmp_path, monkeypatch, example_text())
     assert rc == 0
     agents = tmp_path / "LaunchAgents"
     want = {"com.example.fleet-healthcheck": "fleet_healthcheck.py",
@@ -565,13 +578,16 @@ def test_install_names_its_three_jobs_from_the_local_values(
         assert ["launchctl", "bootout", f"gui/{uid}/{label}"] in calls
         assert ["launchctl", "bootstrap", f"gui/{uid}",
                 str(agents / f"{label}.plist")] in calls
+    # a second run finds its own three jobs under the configured labels: fine
+    rc, _, _ = install_into(installer, tmp_path, monkeypatch, example_text())
+    assert rc == 0
 
 
 @pytest.mark.parametrize("key", LABEL_KEYS)
 def test_install_deploys_nothing_when_a_label_is_not_set(
         installer, tmp_path, monkeypatch, capsys, key):
-    with open(EXAMPLE) as f:
-        text = "".join(l for l in f if not l.startswith(f"  {key}:"))
+    text = "".join(l + "\n" for l in example_text().splitlines()
+                   if not l.startswith(f"  {key}:"))
     rc, calls, root = install_into(installer, tmp_path, monkeypatch, text)
     assert rc == 2 and not calls and not root.exists()
     assert not list((tmp_path / "LaunchAgents").iterdir())
@@ -581,9 +597,8 @@ def test_install_deploys_nothing_when_a_label_is_not_set(
 
 def test_install_writes_the_checkouts_path_for_the_deployed_scripts(
         installer, lc, tmp_path, monkeypatch):
-    with open(EXAMPLE) as f:
-        text = f.read()
-    rc, _, root = install_into(installer, tmp_path, monkeypatch, text, ["--no-agent"])
+    rc, _, root = install_into(installer, tmp_path, monkeypatch, example_text(),
+                               ["--no-agent"])
     assert rc == 0
     deployed = json.loads((root / "local-config.json").read_text())
     assert deployed == {"hive_url": "http://127.0.0.1:8000",
@@ -592,6 +607,92 @@ def test_install_writes_the_checkouts_path_for_the_deployed_scripts(
     reader = load("deployed_local_config", str(root / "local_config.py"))
     monkeypatch.delenv("TEAM_LEAD_LOCAL_CONFIG")
     assert reader.repo_root() == os.path.realpath(ROOT)
+    assert reader.checkouts_dir() == os.path.dirname(os.path.realpath(ROOT))
+
+
+def test_install_refuses_to_run_from_a_linked_worktree(
+        installer, tmp_path, monkeypatch, capsys):
+    """Its path would go into the deploy root, and the guard would restart the
+    loops from a folder that is removed when the branch is done."""
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+    (worktree / ".git").write_text("gitdir: /somewhere/.git/worktrees/w\n")
+    monkeypatch.setattr(installer, "REPO", str(worktree))
+    rc, calls, root = install_into(installer, tmp_path, monkeypatch, example_text())
+    assert rc == 2 and not calls and not root.exists()
+    assert not list((tmp_path / "LaunchAgents").iterdir())
+    err = capsys.readouterr().err
+    assert "NOT DEPLOYED" in err and "linked git worktree" in err
+    assert "main checkout" in err
+    # a checkout with no .git at all is not a linked worktree
+    assert installer.linked_worktree(str(tmp_path)) is False
+    assert installer.linked_worktree(str(worktree)) is True
+
+
+@pytest.mark.parametrize("program, key", [
+    ("fleet_healthcheck.py", "launchd_healthcheck"),
+    ("fleet_guard.py", "launchd_guard"),
+    ("rotate_fleet_logs.py", "launchd_log_rotate"),
+])
+def test_install_stops_when_a_job_runs_its_program_under_another_label(
+        installer, tmp_path, monkeypatch, capsys, program, key):
+    import plistlib
+    agents = tmp_path / "LaunchAgents"
+    agents.mkdir()
+    stale = agents / "old.label.plist"
+    with open(stale, "wb") as f:
+        plistlib.dump({"Label": "old.label", "ProgramArguments": [
+            "/usr/bin/python3", str(tmp_path / "root" / program)]}, f)
+    # another program's job, and a file that is not a plist, are left alone
+    with open(agents / "someone.else.plist", "wb") as f:
+        plistlib.dump({"Label": "someone.else",
+                       "ProgramArguments": ["/usr/bin/true"]}, f)
+    (agents / "broken.plist").write_text("not a plist")
+    before = sorted(p.name for p in agents.iterdir())
+    rc, calls, root = install_into(installer, tmp_path, monkeypatch, example_text())
+    assert rc == 2 and not calls and not root.exists()
+    assert sorted(p.name for p in agents.iterdir()) == before
+    captured = capsys.readouterr()
+    assert "NOT DEPLOYED" in captured.err and "Nothing was changed" in captured.err
+    assert str(stale) in captured.err and "`old.label`" in captured.err
+    assert f"`{key}`" in captured.err
+    assert "could not read" in captured.out and "broken.plist" in captured.out
+    # --no-agent creates no job, so it is not stopped by one
+    rc, calls, root = install_into(installer, tmp_path, monkeypatch, example_text(),
+                                   ["--no-agent"])
+    assert rc == 0 and not calls
+
+
+def test_an_overlay_can_replace_a_check_whose_label_is_a_list(
+        installer, tmp_path, monkeypatch):
+    both = ["com.example.board-server", "com.example.board-server-old"]
+    overlay = [
+        {"type": "launchd", "label": both, "skip": "replaced by the overlay"},
+        {"type": "port", "port": 8787, "name": "live-feedback", "skip": "overlay"},
+        {"type": "http", "name": "only in the overlay", "url": "http://127.0.0.1:1/"},
+    ]
+    rc, _, root = install_into(installer, tmp_path, monkeypatch, example_text(),
+                               ["--no-agent"], overlay=overlay)
+    assert rc == 0
+    checks = json.loads((root / "healthcheck-config.json").read_text())["checks"]
+    board = [c for c in checks if c.get("label") == both]
+    assert board == [overlay[0]]
+    assert [c for c in checks if c.get("name") == "live-feedback"
+            and c["type"] == "port"] == [overlay[1]]
+    assert overlay[2] in checks
+    # every other check is still there, matched the way the merge matches
+    idents = [installer.check_ident(c) for c in checks]
+    assert len(idents) == len(set(idents))
+    assert "sentry subscriptions" in idents and "com.example.fleet-guard" in idents
+    assert installer.check_ident({"label": both}) == ",".join(both)
+    assert installer.check_ident({"type": "port", "port": 1}) == "port:1"
+
+
+def test_the_checker_version_check_reads_the_source_from_this_checkout(installer):
+    spec = next(c for c in installer.BASE_CHECKS if c["type"] == "self_version")
+    assert spec["source"] == os.path.join(
+        os.path.realpath(ROOT), "scripts", "fleet_healthcheck.py")
+    assert os.path.exists(spec["source"])
 
 
 def test_repo_root_in_a_checkout_is_the_folder_above_the_scripts(
@@ -602,6 +703,7 @@ def test_repo_root_in_a_checkout_is_the_folder_above_the_scripts(
     assert lc.repo_root() == os.path.realpath(ROOT)
     monkeypatch.delenv("TEAM_LEAD_LOCAL_CONFIG")
     assert lc.repo_root() == os.path.realpath(ROOT)
+    assert lc.checkouts_dir() == os.path.dirname(os.path.realpath(ROOT))
 
 
 def test_a_deployed_copy_without_the_path_says_so(lc, tmp_path, monkeypatch):
@@ -610,8 +712,11 @@ def test_a_deployed_copy_without_the_path_says_so(lc, tmp_path, monkeypatch):
     monkeypatch.setenv("TEAM_LEAD_LOCAL_CONFIG", str(values))
     with pytest.raises(lc.LocalConfigError, match="does not set repo_root"):
         lc.repo_root()
+    assert lc.try_read(lc.repo_root)[0] is None
+    assert "does not set repo_root" in lc.try_read(lc.checkouts_dir)[1]
     values.write_text(json.dumps({"repo_root": "/Volumes/Disk/Users/someone/dev/x"}))
     assert lc.repo_root() == "/Volumes/Disk/Users/someone/dev/x"
+    assert lc.try_read(lc.checkouts_dir) == ("/Volumes/Disk/Users/someone/dev", "")
 
 
 def load_guard(name, tmp_path, monkeypatch, repo_root, home):
@@ -620,6 +725,7 @@ def load_guard(name, tmp_path, monkeypatch, repo_root, home):
                                   "repo_root": repo_root}))
     monkeypatch.setenv("TEAM_LEAD_LOCAL_CONFIG", str(values))
     monkeypatch.setenv("HOME", home)
+    monkeypatch.delenv("TEAM_LEAD_DIR", raising=False)
     return load(name, os.path.join(SCRIPTS, "fleet_guard.py"))
 
 
@@ -628,7 +734,8 @@ def test_guard_builds_each_loop_command_from_the_path_and_the_home_folder(
     """The commands are handed to tmux as written and show in the process
     table, so they are compared whole. With the checkout at
     <volume>/Users/<user>/dev/<repo> and the home folder at /Users/<user>,
-    these are the three strings this file used to spell out."""
+    these are the three strings this file used to spell out: a path with
+    nothing in it to quote is not changed by the quoting."""
     guard = load_guard("fleet_guard_loops", tmp_path, monkeypatch,
                        "/Volumes/Disk/Users/someone/dev/team-lead-checkout",
                        "/Users/someone")
@@ -664,11 +771,87 @@ def test_guard_selftest_lists_the_folder_that_holds_the_checkout(
     assert "/bin/ls /Volumes/Disk/Users/someone/dev >/dev/null" in ran
 
 
+def as_tmux_runs_it(command, tmp_path):
+    """What ends up running when revive() hands `command` to tmux.
+
+    revive() writes `tmux new-session -d -s <name> <command>` as a shell line.
+    tmux runs several arguments as they are, and gives a single argument to a
+    shell of its own. A stand-in for tmux does the same here and records the
+    final argv. Returns that argv.
+    """
+    import subprocess
+    record = tmp_path / "argv.json"
+    printer = tmp_path / "print_argv.py"
+    printer.write_text(
+        "import json, sys\n"
+        f"json.dump(sys.argv[1:], open({str(record)!r}, 'w'))\n")
+    stand_in = tmp_path / "tmux_stand_in.py"
+    stand_in.write_text(
+        "import subprocess, sys\n"
+        "args = sys.argv[1:]\n"
+        "if len(args) == 1:\n"
+        "    sys.exit(subprocess.run(['/bin/sh', '-c', args[0]]).returncode)\n"
+        "sys.exit(subprocess.run(args).returncode)\n")
+    # the program at the head of the command is replaced by one that records
+    # its own argv; everything after it goes through both shells untouched
+    assert subprocess.run(
+        f"{sys.executable} {stand_in} {command}", shell=True,
+        env=dict(os.environ, RECORD=str(record))).returncode in (0, 126, 127)
+    return record
+
+
+def test_a_path_with_a_space_reaches_tmux_and_its_shell_whole(tmp_path, monkeypatch):
+    spaced = tmp_path / "My Disk" / "dev folder" / "team lead"
+    scripts = spaced / "scripts"
+    scripts.mkdir(parents=True)
+    home = tmp_path / "home dir"
+    (home / ".bun" / "bin").mkdir(parents=True)
+    (home / "claude-hive-mcp").mkdir()
+    guard = load_guard("fleet_guard_spaces", tmp_path, monkeypatch,
+                       str(spaced), str(home))
+    import shlex
+    import subprocess
+    # a loop script: one argument for tmux, which its shell reads as one path
+    for name, script in guard.LOOP_SCRIPTS.items():
+        outer = shlex.split(guard.LOOPS[name])
+        assert len(outer) == 1, "tmux must get the command as one argument"
+        assert shlex.split(outer[0]) == [str(scripts / script)]
+        marker = tmp_path / f"{name}.ran"
+        (scripts / script).write_text(f"#!/bin/sh\necho ran > {shlex.quote(str(marker))}\n")
+        (scripts / script).chmod(0o755)
+        # the shell line revive() builds, with a stand-in that does what tmux
+        # does with one argument: give it to a shell
+        line = f"/bin/sh -c 'exec /bin/sh -c \"$1\"' tmux {guard.LOOPS[name]}"
+        assert subprocess.run(line, shell=True).returncode == 0
+        assert marker.read_text() == "ran\n", name
+    # the broker: two arguments, which tmux runs without a shell
+    assert shlex.split(guard.LOOPS[guard.HIVE_BROKER]) == [
+        str(home / ".bun" / "bin" / "bun"),
+        str(home / "claude-hive-mcp" / "broker.ts")]
+    # selftest and probe: the folder is one argument to ls
+    revived, ran = [], []
+    monkeypatch.setattr(guard, "revive",
+                        lambda name, cmd: (revived.append(cmd), (True, "READABLE"))[1])
+    monkeypatch.setattr(guard, "sh", lambda cmd, timeout=10: (ran.append(cmd), ("", 0))[1])
+    monkeypatch.setattr(guard, "notify", lambda *a: True)
+    assert guard.selftest() == 0
+    argv = shlex.split(revived[0])
+    assert argv[:2] == ["/bin/bash", "-c"] and len(argv) == 3
+    assert shlex.split(argv[2])[:2] == ["ls", str(spaced.parent)]
+    out = subprocess.run(["/bin/bash", "-c", argv[2].replace("sleep 30", "true")],
+                         capture_output=True, text=True).stdout
+    assert out.strip() == "SECONDARY-VOLUME-READABLE"
+    guard.probe()
+    ls = next(c for c in ran if c.startswith("/bin/ls "))
+    assert shlex.split(ls)[:2] == ["/bin/ls", str(spaced.parent)]
+
+
 @pytest.fixture
 def deployed_unreadable(monkeypatch, tmp_path):
     """A deployed copy whose values file is not there. Unlike a checkout, it
     has no way to work the checkout's path out."""
     monkeypatch.setenv("TEAM_LEAD_LOCAL_CONFIG", str(tmp_path / "local-config.json"))
+    monkeypatch.delenv("TEAM_LEAD_DIR", raising=False)
 
 
 def test_guard_without_the_path_still_checks_loops_and_says_why_none_restart(
@@ -691,6 +874,7 @@ def test_guard_without_the_path_still_checks_loops_and_says_why_none_restart(
     calls.clear()
     ok, detail = guard.revive("fleet-monitor", guard.LOOPS["fleet-monitor"])
     assert ok is False and "COULD NOT READ" in detail
+    assert "install_healthcheck.py from the main checkout" in detail
     assert not calls, "no session may be killed or started without a command"
     assert guard.selftest() == 1 and not calls
     guard.probe()
@@ -698,11 +882,79 @@ def test_guard_without_the_path_still_checks_loops_and_says_why_none_restart(
     assert "selftest NOT RUN" in out and "secondary volume NOT CHECKED" in out
 
 
-def test_checker_probes_a_file_in_the_checkout(tmp_path, monkeypatch):
+def test_the_loop_down_alert_says_why_and_what_to_do(deployed_unreadable, monkeypatch):
+    guard = load("fleet_guard_alert_text", os.path.join(SCRIPTS, "fleet_guard.py"))
+    messages = {}
+    calls = []
+    monkeypatch.setattr(guard, "sh", lambda cmd, timeout=10: (calls.append(cmd), ("", 0))[1])
+    loops = {"fleet-monitor": "down", "fleet-budget": "up"}
+    titles, saved = run_guard_main(guard, monkeypatch, loops, {})
+    # run_guard_main replaced notify; put a recording one in and run again on
+    # a fresh state so the loop is newly down once more
+    monkeypatch.setattr(guard, "notify",
+                        lambda title, msg: messages.setdefault(title, msg) or True)
+    assert guard.main() == 0
+    assert "Monitor loop down" in titles and "Monitor loop restarted" not in titles
+    text = messages["Monitor loop down"]
+    assert "fleet-monitor" in text and "could not be restarted" in text
+    assert "the checkout's path could not be read" in text and "COULD NOT READ" in text
+    assert "Rerun scripts/install_healthcheck.py from the main checkout" in text
+    assert saved["loops"]["fleet-monitor"] == "revive-failed"
+    assert not any("new-session" in c or "kill-session" in c for c in calls)
+
+
+def test_guard_finds_the_team_lead_session_by_the_checkouts_path(
+        tmp_path, monkeypatch):
+    checkout = tmp_path / "physical" / "team-lead-checkout"
+    checkout.mkdir(parents=True)
+    link = tmp_path / "linked"
+    link.symlink_to(tmp_path / "physical")
+    guard = load_guard("fleet_guard_stable_id", tmp_path, monkeypatch,
+                       os.path.realpath(checkout), str(tmp_path))
+    peers = [
+        {"stable_id": "elsewhere", "cwd": str(tmp_path)},
+        # the session's cwd may be spelled through a link: same folder
+        {"stable_id": "abc123", "cwd": str(link / "team-lead-checkout")},
+        {"stable_id": "abc123-9f", "cwd": os.path.realpath(checkout)},
+    ]
+    monkeypatch.setattr(guard, "sh", lambda cmd, timeout=10: (json.dumps(peers), 0))
+    assert guard.team_lead_dir() == os.path.realpath(checkout)
+    assert guard.team_lead_stable_id() == "abc123"
+    # TEAM_LEAD_DIR still names another folder when it is set
+    monkeypatch.setenv("TEAM_LEAD_DIR", str(tmp_path))
+    assert guard.team_lead_stable_id() == "elsewhere"
+
+
+def test_guard_without_the_path_does_not_guess_where_the_team_lead_is(
+        tmp_path, monkeypatch, capsys):
     values = tmp_path / "local-config.json"
-    values.write_text(json.dumps({"repo_root": "/Volumes/Disk/Users/someone/dev/x"}))
+    values.write_text(json.dumps({"hive_url": "http://hive.test:1111"}))
     monkeypatch.setenv("TEAM_LEAD_LOCAL_CONFIG", str(values))
-    hc = load("fleet_healthcheck_probe", os.path.join(SCRIPTS, "fleet_healthcheck.py"))
+    monkeypatch.delenv("TEAM_LEAD_DIR", raising=False)
+    guard = load("fleet_guard_no_lead_dir", os.path.join(SCRIPTS, "fleet_guard.py"))
+    calls = []
+    monkeypatch.setattr(guard, "sh", lambda cmd, timeout=10: (calls.append(cmd), ("[]", 0))[1])
+    assert guard.HIVE_SEND and guard.team_lead_dir() is None
+    assert guard.team_lead_stable_id() is None
+    assert guard.hive_alert("t", "m") == "no-config"
+    assert not calls, "no peer is looked up for a folder that was not read"
+    out = capsys.readouterr().out
+    assert "HIVE ALERT NOT SENT" in out and "install_healthcheck.py" in out
+    with open(os.path.join(SCRIPTS, "fleet_guard.py")) as f:
+        assert "~/dev/" not in f.read()
+
+
+def load_checker(name, tmp_path, monkeypatch, values):
+    path = tmp_path / "local-config.json"
+    if values is not None:
+        path.write_text(json.dumps(values))
+    monkeypatch.setenv("TEAM_LEAD_LOCAL_CONFIG", str(path))
+    return load(name, os.path.join(SCRIPTS, "fleet_healthcheck.py"))
+
+
+def test_checker_probes_a_file_in_the_checkout(tmp_path, monkeypatch):
+    hc = load_checker("fleet_healthcheck_probe", tmp_path, monkeypatch,
+                      {"repo_root": "/Volumes/Disk/Users/someone/dev/x"})
     assert hc.PROBE_DATA_FILE == "/Volumes/Disk/Users/someone/dev/x/README.md"
     seen = []
 
@@ -714,73 +966,286 @@ def test_checker_probes_a_file_in_the_checkout(tmp_path, monkeypatch):
                         lambda cmd, **kw: (seen.append(cmd), Done())[1])
     assert hc.resolve_bun()[0] == sys.executable
     assert "/Volumes/Disk/Users/someone/dev/x/README.md" in seen[0][2]
+    assert hc.bun_works() is True
 
 
-def test_checker_without_the_path_could_not_look(deployed_unreadable, monkeypatch):
-    hc = load("fleet_healthcheck_no_probe", os.path.join(SCRIPTS, "fleet_healthcheck.py"))
-    assert hc.PROBE_DATA_FILE is None
+def test_checker_tells_no_bun_works_from_nothing_probed(tmp_path, monkeypatch):
+    """Three results: a bun reads the volume, none can, or nothing was probed."""
+    hc = load_checker("fleet_healthcheck_none_works", tmp_path, monkeypatch,
+                      {"repo_root": "/Volumes/Disk/Users/someone/dev/x"})
+
+    class Failed:
+        returncode, stdout, stderr = 1, "", "EPERM: operation not permitted\n"
+
+    monkeypatch.setattr(hc, "BUN_CANDIDATES", [sys.executable])
+    monkeypatch.setattr(hc.subprocess, "run", lambda cmd, **kw: Failed())
+    assert hc.bun_works() is False
+    assert hc.bun_unavailable() == hc.BUN_UNAVAILABLE
+    ok, detail = hc.check_self_version({"name": "checker version", "source": "/x"})
+    assert ok is False and hc.BUN_UNAVAILABLE in detail and "COULD NOT LOOK" not in detail
+
+
+@pytest.fixture
+def blind_checker(tmp_path, monkeypatch):
+    """The checker as a deployed copy with no values file: it has no file to
+    probe with, so it never finds out whether any bun reads the volume."""
+    hc = load_checker("fleet_healthcheck_blind", tmp_path, monkeypatch, None)
     ran = []
     monkeypatch.setattr(hc, "BUN_CANDIDATES", [sys.executable])
-    monkeypatch.setattr(hc.subprocess, "run", lambda *a, **k: ran.append(a))
+    real_run = hc.subprocess.run
+
+    def run(cmd, *a, **k):
+        if cmd and cmd[0] == sys.executable:
+            ran.append(cmd)
+        return real_run(cmd, *a, **k)
+
+    monkeypatch.setattr(hc.subprocess, "run", run)
+    hc.ran = ran
+    return hc
+
+
+def test_checker_without_the_path_could_not_look(blind_checker):
+    hc = blind_checker
+    assert hc.PROBE_DATA_FILE is None
     path, reason = hc.resolve_bun()
-    assert path is None and not ran
+    assert path is None and not hc.ran
     assert reason.startswith("COULD NOT LOOK") and "COULD NOT READ" in reason
-    assert hc.bun_works() is False
+    assert "install_healthcheck.py from the main checkout" in reason
+    assert hc.bun_works() is None, "not probed is not the same as no bun works"
+    assert hc.bun_unavailable() == reason
 
 
-def test_budget_watch_matches_projects_beside_this_checkout(monkeypatch, tmp_path):
-    bw = load_budget_watch("budget_watch_checkouts", monkeypatch)
-    assert bw.CHECKOUTS_DIR == os.path.dirname(os.path.realpath(ROOT))
-    (tmp_path / "two-word-project").mkdir()
-    monkeypatch.setattr(bw, "CHECKOUTS_DIR", str(tmp_path))
-    assert bw.project_of(
-        "/x/-Volumes-Disk-Users-someone-dev-two-word-project-worktrees-w") \
-        == "two-word-project"
+@pytest.mark.parametrize("check, spec", [
+    ("check_self_version", {"name": "checker version", "source": "/x"}),
+    ("check_archive_backlog", {"name": "transcript archive", "live_root": "/a",
+                               "archive_root": "/b"}),
+    ("check_rate_limit_hits", {"name": "session-limit hits"}),
+    ("check_tcc_grant", {"name": "secondary-volume access"}),
+])
+def test_a_check_that_needs_bun_reports_could_not_look(blind_checker, check, spec):
+    hc = blind_checker
+    ok, detail = getattr(hc, check)(spec)
+    assert ok is False, "a check that could not look is never green"
+    assert detail.startswith(spec["name"]) and "COULD NOT LOOK" in detail
+    assert hc.BUN_UNAVAILABLE not in detail, "nothing was tried, so nothing failed"
+    assert "UNREADABLE" not in detail and not hc.ran
 
 
-def test_turn_attribution_strips_the_checkouts_folder_from_a_transcript_name():
+def test_the_trend_log_read_says_could_not_look_when_it_falls_back(
+        blind_checker, tmp_path):
+    hc = blind_checker
+    text, err = hc.read_text_via_bun(str(tmp_path / "absent.md"))
+    assert text is None and "COULD NOT LOOK" in err and hc.BUN_UNAVAILABLE not in err
+    # without bun it still tries the plain read, and that can succeed
+    (tmp_path / "there.md").write_text("x")
+    assert hc.read_text_via_bun(str(tmp_path / "there.md")) == ("x", None)
+
+
+def test_the_grant_record_keeps_its_last_real_observation(blind_checker, monkeypatch):
+    """Not probed is not "unreadable". Stored as unreadable, the next run after
+    a reboot would report a grant that did not survive it."""
+    hc = blind_checker
+    prior = {"boot": "{ sec = 1, usec = 0 }", "readable": True, "binary": "/x/bun"}
+    monkeypatch.setattr(hc, "prev_status", lambda: {"tcc": dict(prior)})
+    monkeypatch.setattr(hc, "_sysctl", lambda name: "{ sec = 2, usec = 0 }")
+    ok, detail = hc.check_tcc_grant({"name": "secondary-volume access"})
+    assert ok is False and "COULD NOT LOOK" in detail
+    assert "DID NOT SURVIVE" not in detail
+    assert hc._TCC_RECORD == prior
+    # and with no earlier observation there is nothing to keep
+    hc._TCC_RECORD.clear()
+    monkeypatch.setattr(hc, "prev_status", lambda: {})
+    hc.check_tcc_grant({"name": "secondary-volume access"})
+    assert "readable" not in hc._TCC_RECORD
+
+
+def budget_watch_at(name, monkeypatch, tmp_path, home_link=False):
+    """The budget watch with the checkouts folder at <tmp>/Disk/Users/someone/dev
+    and the home folder at <tmp>/home. With `home_link`, the home folder has a
+    link named `dev` to the checkouts folder."""
+    holder = tmp_path / "Disk" / "Users" / "someone" / "dev"
+    for project in ("team-lead-checkout", "two-word-project", "coach"):
+        (holder / project).mkdir(parents=True)
+    home = tmp_path / "home"
+    home.mkdir()
+    if home_link:
+        (home / "dev").symlink_to(holder)
+    values = tmp_path / "local-config.json"
+    values.write_text(json.dumps({
+        "hive_url": "http://hive.test:1111",
+        "repo_root": os.path.realpath(holder / "team-lead-checkout")}))
+    monkeypatch.setenv("TEAM_LEAD_LOCAL_CONFIG", str(values))
+    monkeypatch.setenv("HOME", str(home))
+    bw = load_budget_watch(name, monkeypatch)
+    return bw, os.path.realpath(holder), str(home)
+
+
+def test_budget_watch_names_projects_as_before_for_this_layout(monkeypatch, tmp_path):
+    """Every shape of transcript folder name the old rule handled, under a
+    checkouts folder laid out as <disk>/Users/<user>/dev with a `dev` link in
+    the home folder. The old rule looked for a `dev` segment; the names it gave
+    are the expected values here."""
+    bw, holder, home = budget_watch_at("budget_watch_layout", monkeypatch, tmp_path, True)
+    assert bw.CHECKOUTS_DIR == holder
+    enc, enc_home = bw.encoded(holder), bw.encoded(os.path.join(home, "dev"))
+    assert bw.CHECKOUT_PREFIXES == [enc + "-", enc_home + "-"]
+    cases = {
+        # a project, a project with a two-word name, and one with no folder
+        f"{enc}-coach": "coach",
+        f"{enc}-two-word-project": "two-word-project",
+        f"{enc}-gone-project": "gone",
+        # a worktree bills to its repo: both ways a worktree folder is spelled
+        f"{enc}-two-word-project--claude-worktrees-agent-a1": "two-word-project",
+        f"{enc}-two-word-project-worktrees-w": "two-word-project",
+        f"{enc}-team-lead-checkout-": "team-lead-checkout",
+        # a session started through the link in the home folder
+        f"{enc_home}-coach": "coach",
+        # a scratch folder named after a checkout
+        f"-private-tmp-claude-501-{enc}-team-lead-checkout-0a1b-scratchpad":
+            "team-lead-checkout",
+        # the checkouts folder itself, and folders that are not under it
+        enc: enc,
+        "-private-tmp": "-private-tmp",
+        "-Users-other-Library-CloudStorage-Notes": "-Users-other-Library-CloudStorage-Notes",
+        "-": "-",
+    }
+    for folder, project in cases.items():
+        assert bw.project_of("/projects/" + folder) == project, folder
+
+
+def test_budget_watch_needs_no_folder_named_dev(monkeypatch, tmp_path):
+    holder = tmp_path / "Work Disk" / "code"
+    (holder / "team-lead-checkout").mkdir(parents=True)
+    (holder / "some-project").mkdir()
+    values = tmp_path / "local-config.json"
+    values.write_text(json.dumps({"repo_root": os.path.realpath(holder / "team-lead-checkout")}))
+    monkeypatch.setenv("TEAM_LEAD_LOCAL_CONFIG", str(values))
+    bw = load_budget_watch("budget_watch_no_dev", monkeypatch)
+    enc = bw.encoded(os.path.realpath(holder))
+    assert bw.project_of(f"/p/{enc}-some-project-worktrees-w") == "some-project"
+    # a `dev` segment somewhere else in a name is no longer a marker
+    assert bw.project_of("/p/-private-tmp-dev-some-project") == "-private-tmp-dev-some-project"
+    with open(os.path.join(SCRIPTS, "fleet_budget_watch.py")) as f:
+        source = f.read()
+    assert '"dev"' not in source and '".."' not in source
+
+
+def test_budget_watch_without_the_path_says_projects_are_not_mapped(
+        deployed_unreadable, monkeypatch, capsys):
+    bw = load_budget_watch("budget_watch_unmapped", monkeypatch)
+    assert bw.CHECKOUTS_DIR is None and bw.CHECKOUT_PREFIXES == []
+    assert bw.project_of("/p/-Volumes-Disk-Users-someone-dev-coach") == \
+        "-Volumes-Disk-Users-someone-dev-coach"
+    bw.project_of("/p/-another")
+    err = capsys.readouterr().err
+    assert err.count("NOT MAPPED") == 1 and "COULD NOT READ" in err
+
+
+def test_turn_attribution_strips_the_checkouts_folder_from_a_transcript_name(
+        tmp_path, monkeypatch):
+    values = tmp_path / "local-config.json"
+    values.write_text(json.dumps({"repo_root": "/Volumes/Disk/Users/someone/dev/x"}))
+    monkeypatch.setenv("TEAM_LEAD_LOCAL_CONFIG", str(values))
     ta = load("turn_attribution_prefix", os.path.join(SCRIPTS, "turn_attribution.py"))
-    holder = os.path.dirname(os.path.realpath(ROOT))
-    encoded = "".join(c if c.isalnum() else "-" for c in holder)
-    assert ta.CHECKOUTS_PREFIX == encoded + "-"
-    assert (encoded + "-some-project").replace(ta.CHECKOUTS_PREFIX, "") == "some-project"
+    assert ta.checkouts_prefix() == "-Volumes-Disk-Users-someone-dev-"
+    values.write_text("{}")
+    monkeypatch.setattr(sys, "argv", ["turn_attribution.py"])
+    with pytest.raises(SystemExit) as e:
+        ta.main()
+    assert "nothing measured" in str(e.value.code) and "repo_root" in str(e.value.code)
 
 
-def run_line_from(script, prefix, folder):
-    """Run the one assignment line of `script` that starts with `prefix`, from
-    a copy placed in `folder`, and return the value it set."""
-    import subprocess
+def script_head(script, last_line_starts):
+    """`script` from its first line through the line that starts with
+    `last_line_starts`: the part that works out a path, without what follows."""
+    out = []
     with open(os.path.join(ROOT, script)) as f:
-        line = next(l for l in f if l.startswith(prefix + "="))
-    assert "${BASH_SOURCE[0]}" in line
-    folder.mkdir(parents=True)
-    (folder / "probe.sh").write_text(f'#!/bin/bash\n{line}echo "${prefix}"\n')
-    return lambda via, env=None: subprocess.run(
-        ["/bin/bash", str(via / "probe.sh")], capture_output=True, text=True,
-        env=dict(os.environ, **(env or {}))).stdout.strip()
+        for line in f:
+            out.append(line)
+            if line.startswith(last_line_starts):
+                return "".join(out)
+    raise AssertionError(f"{script} has no line starting {last_line_starts!r}")
 
 
-@pytest.mark.parametrize("script, beside", [
+def run_head(folder, head, show, args=(), env=None):
+    """Put `head` in `folder` as a script that then prints $`show`, and run
+    it. Returns (exit code, stdout, stderr)."""
+    import subprocess
+    folder.mkdir(parents=True, exist_ok=True)
+    probe = folder / "probe.sh"
+    probe.write_text(head + f'echo "${show}"\n')
+    r = subprocess.run(["/bin/bash", str(probe), *args], capture_output=True,
+                       text=True, env=dict(os.environ, **(env or {})))
+    return r.returncode, r.stdout.strip(), r.stderr + r.stdout
+
+
+@pytest.mark.parametrize("script, program", [
     ("scripts/fleet_budget_loop.sh", "fleet_budget_watch.py"),
     ("scripts/fleet_monitor_loop.sh", "fleet_context_report.py"),
 ])
-def test_a_loop_script_finds_its_program_beside_itself(script, beside, tmp_path):
-    """Also when it is started through a symlinked spelling of its folder: the
-    program path is the physical one either way."""
-    assert os.path.exists(os.path.join(SCRIPTS, beside))
-    real = tmp_path / "real"
-    run = run_line_from(script, "SCRIPT", real)
+def test_a_loop_script_runs_the_main_checkouts_program(script, program, tmp_path):
+    assert os.path.exists(os.path.join(SCRIPTS, program))
+    head = script_head(script, "SCRIPT=")
+    main = tmp_path / "main"
+    (main / ".git" / "worktrees" / "w").mkdir(parents=True)
+    want = os.path.join(os.path.realpath(main), "scripts", program)
+    # in the main checkout, also when started through a link to it
+    assert run_head(main / "scripts", head, "SCRIPT")[:2] == (0, want)
     link = tmp_path / "link"
-    link.symlink_to(real)
-    want = os.path.join(os.path.realpath(real), beside)
-    assert run(real) == want
-    assert run(link) == want
+    link.symlink_to(main)
+    import subprocess
+    r = subprocess.run(["/bin/bash", str(link / "scripts" / "probe.sh")],
+                       capture_output=True, text=True)
+    assert (r.returncode, r.stdout.strip()) == (0, want)
+    # a checkout with no .git at all is its own checkout
+    plain = tmp_path / "plain"
+    assert run_head(plain / "scripts", head, "SCRIPT")[:2] == (
+        0, os.path.join(os.path.realpath(plain), "scripts", program))
+    # a copy in a linked worktree still runs the main checkout's program
+    worktree = tmp_path / "elsewhere" / "w"
+    worktree.mkdir(parents=True)
+    (worktree / ".git").write_text(
+        f"gitdir: {os.path.realpath(main)}/.git/worktrees/w\n")
+    assert run_head(worktree / "scripts", head, "SCRIPT")[:2] == (0, want)
+    # and stops when its .git file does not name a main checkout
+    (worktree / ".git").write_text("gitdir: ../somewhere\n")
+    rc, out, said = run_head(worktree / "scripts", head, "SCRIPT")
+    assert rc == 1 and out == "" and "ABORT" in said
 
 
-def test_self_respawn_defaults_to_the_checkout_it_is_in(tmp_path, monkeypatch):
+def git(*args, cwd):
+    import subprocess
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com",
+                    "-c", "core.hooksPath=/dev/null", *args],
+                   cwd=cwd, check=True, capture_output=True)
+
+
+def test_self_respawn_finds_the_main_checkout_from_a_worktrees_copy(
+        tmp_path, monkeypatch):
     monkeypatch.delenv("TL_DIR", raising=False)
+    for name in [k for k in os.environ if k.startswith("GIT_")]:
+        monkeypatch.delenv(name)
     script = ".claude/skills/respawn-sessions/self-respawn.sh"
-    folder = tmp_path / "checkout" / ".claude" / "skills" / "respawn-sessions"
-    run = run_line_from(script, "TL_DIR", folder)
-    assert run(folder) == os.path.realpath(tmp_path / "checkout")
-    assert run(folder, {"TL_DIR": "/somewhere/else"}) == "/somewhere/else"
+    head = script_head(script, '[ -n "$TL_DIR" ]')
+    inside = os.path.join(".claude", "skills", "respawn-sessions")
+    main = tmp_path / "main"
+    main.mkdir()
+    git("init", "-q", cwd=main)
+    git("commit", "-q", "--allow-empty", "-m", "x", cwd=main)
+    worktree = tmp_path / "elsewhere" / "w"
+    git("worktree", "add", "-q", str(worktree), "-b", "w", cwd=main)
+    want = os.path.realpath(main)
+    assert run_head(main / inside, head, "TL_DIR", ["123"])[:2] == (0, want)
+    assert run_head(worktree / inside, head, "TL_DIR", ["123"])[:2] == (0, want)
+    # an explicit TL_DIR is used as given
+    assert run_head(worktree / inside, head, "TL_DIR", ["123"],
+                    {"TL_DIR": "/somewhere/else"})[:2] == (0, "/somewhere/else")
+    # outside any checkout it stops, before the part of the script that kills
+    rc, out, said = run_head(tmp_path / "nowhere" / inside, head, "TL_DIR", ["123"],
+                             {"GIT_CEILING_DIRECTORIES": str(tmp_path)})
+    assert rc == 1 and "ABORT" in said and "Not killing self" in said
+    assert out.startswith("ABORT"), "nothing ran after the abort"
+    with open(os.path.join(ROOT, script)) as f:
+        body = f.read()
+    stop = body.index('[ -n "$TL_DIR" ]')
+    assert stop < body.index("kill-session") and stop < body.index('kill "$SELF_PID"')

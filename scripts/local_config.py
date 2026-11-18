@@ -203,6 +203,25 @@ def repo_root():
     return os.path.realpath(os.path.dirname(HERE))
 
 
+def checkouts_dir():
+    """The folder that holds this repo's checkout. Other project checkouts
+    usually sit beside it. Raises LocalConfigError like repo_root()."""
+    return os.path.dirname(repo_root())
+
+
+def try_read(read):
+    """(read(), "") or (None, why) when the value cannot be read.
+
+    For a script that must keep running without the value and report that it
+    could not look. The caller says what it did not do; it never puts a
+    built-in value in place of the one it could not read.
+    """
+    try:
+        return read(), ""
+    except Exception as e:
+        return None, str(e) or type(e).__name__
+
+
 def main(argv):
     try:
         if len(argv) > 1:

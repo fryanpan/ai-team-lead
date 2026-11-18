@@ -303,7 +303,14 @@ console.log(JSON.stringify(out));
 
 
 def exists_via_bun(path):
-    ***REMOVED***
+    """Existence test for a path that may resolve onto the secondary volume.
+
+    True, False, or None for "could not look": nothing was probed, so there is
+    no bun to ask, and the plain test did not find the path. From this context
+    a plain test also fails for a path that is there, so that is no answer.
+    """
+    if bun_works() is None:
+        return True if os.path.exists(path) else None
     if not bun_works():
         return os.path.exists(path)
     r = subprocess.run(
@@ -1369,7 +1376,10 @@ def check_trend_log(spec):
     """
     path = os.path.expanduser(spec["path"])
     limit_h = spec.get("max_age_hours", 8)
-    ***REMOVED***
+    there = exists_via_bun(path)
+    if there is None:
+        return False, f"{spec['name']}: {bun_unavailable()}"
+    if not there:
         return False, f"{spec['name']}: MISSING {path}"
     text, err = read_text_via_bun(path)
     if text is None:
@@ -1489,7 +1499,10 @@ def check_file_present(spec):
     monitor exists to avoid.
     """
     path = os.path.expanduser(spec["path"])
-    ***REMOVED***
+    there = exists_via_bun(path)
+    if there is None:
+        return False, f"{spec['name']}: {bun_unavailable()}"
+    if not there:
         return False, f"{spec['name']}: MISSING {path} -- {spec.get('why', '')}"
     return True, f"{spec['name']}: present"
 
@@ -1528,6 +1541,10 @@ def check_token_resolvable(spec):
         if ok:
             return True, f"{name}: resolvable from {spec.get('commands_label', cmd[0])}"
 
+    if bun_works() is None:
+        # No source answered, and the file and the commands were tried without
+        # bun, which cannot see what the consumer sees. Not a "no".
+        return False, f"{name}: {bun_unavailable()}"
     tried = []
     if env_var:
         tried.append(f"${env_var}")

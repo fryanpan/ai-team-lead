@@ -703,7 +703,8 @@ def test_repo_root_in_a_checkout_is_the_folder_above_the_scripts(
     assert lc.repo_root() == os.path.realpath(ROOT)
     monkeypatch.delenv("TEAM_LEAD_LOCAL_CONFIG")
     assert lc.repo_root() == os.path.realpath(ROOT)
-    assert lc.checkouts_dir() == os.path.dirname(os.path.realpath(ROOT))
+    assert lc.main_checkout() == lc.main_checkout_of(os.path.realpath(ROOT))
+    assert lc.checkouts_dir() == os.path.dirname(lc.main_checkout())
 
 
 def test_a_deployed_copy_without_the_path_says_so(lc, tmp_path, monkeypatch):
@@ -769,35 +770,6 @@ def test_guard_selftest_lists_the_folder_that_holds_the_checkout(
         "|| echo SECONDARY-VOLUME-DENIED; sleep 30'"]
     guard.probe()
     assert "/bin/ls /Volumes/Disk/Users/someone/dev >/dev/null" in ran
-
-
-def as_tmux_runs_it(command, tmp_path):
-    """What ends up running when revive() hands `command` to tmux.
-
-    revive() writes `tmux new-session -d -s <name> <command>` as a shell line.
-    tmux runs several arguments as they are, and gives a single argument to a
-    shell of its own. A stand-in for tmux does the same here and records the
-    final argv. Returns that argv.
-    """
-    import subprocess
-    record = tmp_path / "argv.json"
-    printer = tmp_path / "print_argv.py"
-    printer.write_text(
-        "import json, sys\n"
-        f"json.dump(sys.argv[1:], open({str(record)!r}, 'w'))\n")
-    stand_in = tmp_path / "tmux_stand_in.py"
-    stand_in.write_text(
-        "import subprocess, sys\n"
-        "args = sys.argv[1:]\n"
-        "if len(args) == 1:\n"
-        "    sys.exit(subprocess.run(['/bin/sh', '-c', args[0]]).returncode)\n"
-        "sys.exit(subprocess.run(args).returncode)\n")
-    # the program at the head of the command is replaced by one that records
-    # its own argv; everything after it goes through both shells untouched
-    assert subprocess.run(
-        f"{sys.executable} {stand_in} {command}", shell=True,
-        env=dict(os.environ, RECORD=str(record))).returncode in (0, 126, 127)
-    return record
 
 
 def test_a_path_with_a_space_reaches_tmux_and_its_shell_whole(tmp_path, monkeypatch):
@@ -882,25 +854,56 @@ def test_guard_without_the_path_still_checks_loops_and_says_why_none_restart(
     assert "selftest NOT RUN" in out and "secondary volume NOT CHECKED" in out
 
 
-def test_the_loop_down_alert_says_why_and_what_to_do(deployed_unreadable, monkeypatch):
+@pytest.mark.parametrize("down", [
+    ["fleet-monitor"],
+    ["fleet-budget", "fleet-monitor"],
+])
+def test_the_loop_down_banner_shows_what_to_do_before_it_is_cut(
+        deployed_unreadable, monkeypatch, capsys, down):
     guard = load("fleet_guard_alert_text", os.path.join(SCRIPTS, "fleet_guard.py"))
-    messages = {}
     calls = []
     monkeypatch.setattr(guard, "sh", lambda cmd, timeout=10: (calls.append(cmd), ("", 0))[1])
-    loops = {"fleet-monitor": "down", "fleet-budget": "up"}
-    titles, saved = run_guard_main(guard, monkeypatch, loops, {})
-    # run_guard_main replaced notify; put a recording one in and run again on
-    # a fresh state so the loop is newly down once more
-    monkeypatch.setattr(guard, "notify",
-                        lambda title, msg: messages.setdefault(title, msg) or True)
+    loops = {name: "down" if name in down else "up" for name in guard.LOOP_SCRIPTS}
+    run_guard_main(guard, monkeypatch, loops, {})
+    # again from a fresh state, this time keeping what notify() was given, cut
+    # where the real notify() cuts it
+    shown = {}
+    monkeypatch.setattr(
+        guard, "notify",
+        lambda title, msg: shown.setdefault(title, (msg, msg[:guard.NOTIFY_MAX])) and True)
+    capsys.readouterr()
     assert guard.main() == 0
-    assert "Monitor loop down" in titles and "Monitor loop restarted" not in titles
-    text = messages["Monitor loop down"]
-    assert "fleet-monitor" in text and "could not be restarted" in text
-    assert "the checkout's path could not be read" in text and "COULD NOT READ" in text
-    assert "Rerun scripts/install_healthcheck.py from the main checkout" in text
-    assert saved["loops"]["fleet-monitor"] == "revive-failed"
+    full, banner = shown["Monitor loop down"]
+    assert full == banner, f"{len(full)} characters: the banner would be cut"
+    assert banner.startswith(
+        "Rerun scripts/install_healthcheck.py from the main checkout.")
+    for name in down:
+        assert name in banner
+    assert "not restarted" in banner
+    assert "the checkout's path could not be read" in banner
+    assert "Monitor loop restarted" not in shown
+    # the whole reason is in the log, one line for each loop
+    out = capsys.readouterr().out
+    for name in down:
+        line = next(l for l in out.splitlines() if f"LOOP NOT RESTARTED {name}:" in l)
+        assert "COULD NOT READ" in line and "install_healthcheck.py" in line
     assert not any("new-session" in c or "kill-session" in c for c in calls)
+
+
+def test_a_loop_down_banner_for_another_reason_also_fits(deployed_unreadable):
+    guard = load("fleet_guard_banner_fit", os.path.join(SCRIPTS, "fleet_guard.py"))
+    reasons = {"fleet-budget": "new-session rc=1 " + "x" * 120,
+               "fleet-monitor": "session did not survive 3s -- loop script exited"}
+    one = guard.loop_down_banner(["fleet-monitor"], reasons)
+    assert one == ("fleet-monitor not running and could not be restarted "
+                   "(fleet-monitor: session did not survive 3s -- loop script exited)")
+    two = guard.loop_down_banner(["fleet-budget", "fleet-monitor"], reasons)
+    assert len(two) <= guard.NOTIFY_MAX
+    assert "fleet-budget: new-session rc=1" in two and "fleet-monitor: session did" in two
+    assert guard.loop_down_banner(["hive-broker"], {}) == \
+        "hive-broker not running and could not be restarted"
+    with open(os.path.join(SCRIPTS, "fleet_guard.py")) as f:
+        assert "message[:NOTIFY_MAX]" in f.read()
 
 
 def test_guard_finds_the_team_lead_session_by_the_checkouts_path(
@@ -1249,3 +1252,195 @@ def test_self_respawn_finds_the_main_checkout_from_a_worktrees_copy(
         body = f.read()
     stop = body.index('[ -n "$TL_DIR" ]')
     assert stop < body.index("kill-session") and stop < body.index('kill "$SELF_PID"')
+
+
+# ── the main checkout, from a linked worktree ────────────────────────────────
+
+def test_the_main_checkout_is_read_from_a_worktrees_git_file(lc, tmp_path):
+    main = tmp_path / "main"
+    (main / ".git" / "worktrees" / "w").mkdir(parents=True)
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    worktree = tmp_path / "w"
+    worktree.mkdir()
+    assert lc.main_checkout_of(str(main)) == str(main)
+    assert lc.main_checkout_of(str(plain)) == str(plain)
+    (worktree / ".git").write_text(f"gitdir: {main}/.git/worktrees/w\n")
+    assert lc.main_checkout_of(str(worktree)) == os.path.realpath(main)
+    for text in ("gitdir: ../main/.git/worktrees/w\n",       # not a full path
+                 f"gitdir: {main}/.git/modules/w\n",          # a submodule
+                 f"gitdir: {main}/.git/worktrees/\n",
+                 f"gitdir: {main}/.git/worktrees/a/b\n",
+                 "something else\n", ""):
+        (worktree / ".git").write_text(text)
+        with pytest.raises(lc.LocalConfigError, match="COULD NOT READ the main checkout"):
+            lc.main_checkout_of(str(worktree))
+
+
+def test_budget_watch_names_projects_the_same_from_a_linked_worktree(
+        tmp_path, monkeypatch, capsys):
+    """A copy of the script in a linked worktree sits two folders further down.
+    The checkouts folder is still the one that holds the MAIN checkout."""
+    import shutil
+    for name in [k for k in os.environ if k.startswith("GIT_")]:
+        monkeypatch.delenv(name)
+    holder = tmp_path / "holder"
+    main = holder / "main-repo"
+    (main / "scripts").mkdir(parents=True)
+    (holder / "some-project").mkdir()
+    for name in ("local_config.py", "fleet_budget_watch.py", "turn_attribution.py"):
+        shutil.copy(os.path.join(SCRIPTS, name), main / "scripts" / name)
+    git("init", "-q", cwd=main)
+    git("add", "scripts", cwd=main)
+    git("commit", "-q", "-m", "x", cwd=main)
+    worktree = main / ".claude" / "worktrees" / "w"
+    git("worktree", "add", "-q", str(worktree), "-b", "w", cwd=main)
+    registry = tmp_path / "registry.yaml"
+    registry.write_text("local:\n  hive_url: http://127.0.0.1:8000\n")
+    monkeypatch.setenv("TEAM_LEAD_LOCAL_CONFIG", str(registry))
+    monkeypatch.setattr(sys, "path", list(sys.path))
+    monkeypatch.setattr(sys, "argv", ["fleet_budget_watch.py"])
+
+    def load_from(checkout, script, name):
+        # each copy imports the local_config.py beside it
+        monkeypatch.delitem(sys.modules, "local_config", raising=False)
+        return load(name, str(checkout / "scripts" / script))
+
+    from_main = load_from(main, "fleet_budget_watch.py", "bw_from_main")
+    from_worktree = load_from(worktree, "fleet_budget_watch.py", "bw_from_worktree")
+    assert from_worktree.local_config.HERE == os.path.realpath(worktree / "scripts")
+    want = os.path.realpath(holder)
+    assert from_main.CHECKOUTS_DIR == want and from_worktree.CHECKOUTS_DIR == want
+    enc = from_main.encoded(want)
+    names = {
+        f"{enc}-some-project": "some-project",
+        f"{enc}-some-project--claude-worktrees-x": "some-project",
+        f"{enc}-main-repo": "main-repo",
+        f"{enc}-main-repo--claude-worktrees-w": "main-repo",
+        "-private-tmp": "-private-tmp",
+    }
+    for folder, project in names.items():
+        assert from_main.project_of("/p/" + folder) == project, folder
+        assert from_worktree.project_of("/p/" + folder) == project, folder
+    assert "NOT MAPPED" not in capsys.readouterr().err
+    ta = load_from(worktree, "turn_attribution.py", "ta_from_worktree")
+    assert ta.checkouts_prefix() == enc + "-"
+
+    # a .git file that does not name a main checkout: said, not guessed
+    (worktree / ".git").write_text("gitdir: ../somewhere\n")
+    blind = load_from(worktree, "fleet_budget_watch.py", "bw_from_odd_worktree")
+    assert blind.CHECKOUTS_DIR is None
+    assert blind.project_of(f"/p/{enc}-some-project") == f"{enc}-some-project"
+    err = capsys.readouterr().err
+    assert "NOT MAPPED" in err and "COULD NOT READ the main checkout" in err
+    ta = load_from(worktree, "turn_attribution.py", "ta_from_odd_worktree")
+    monkeypatch.setattr(sys, "argv", ["turn_attribution.py"])
+    with pytest.raises(SystemExit) as e:
+        ta.main()
+    assert "nothing measured" in str(e.value.code)
+
+
+def test_the_missing_path_message_says_who_writes_it(lc, tmp_path, monkeypatch):
+    values = tmp_path / "local-config.json"
+    values.write_text(json.dumps({"hive_url": "http://127.0.0.1:8000"}))
+    monkeypatch.setenv("TEAM_LEAD_LOCAL_CONFIG", str(values))
+    with pytest.raises(lc.LocalConfigError) as e:
+        lc.repo_root()
+    said = str(e.value)
+    assert "does not set repo_root" in said and str(values) in said
+    assert "install_healthcheck.py writes it" in said
+    assert "from the main checkout" in said
+    assert "registry.yaml.example" not in said, "it is not a key of the block"
+
+
+# ── checks that test for a file, when nothing was probed ─────────────────────
+
+def test_file_present_could_not_look_is_not_missing(blind_checker, tmp_path):
+    hc = blind_checker
+    spec = {"name": "broker token", "path": str(tmp_path / "absent"), "why": "w"}
+    ok, detail = hc.check_file_present(spec)
+    assert ok is False and detail.startswith("broker token: COULD NOT LOOK")
+    assert "MISSING" not in detail and "install_healthcheck.py" in detail
+    # a file the plain test does find was seen
+    (tmp_path / "there").write_text("x")
+    assert hc.exists_via_bun(str(tmp_path / "there")) is True
+    assert hc.exists_via_bun(str(tmp_path / "absent")) is None
+    assert hc.check_file_present({"name": "broker token",
+                                  "path": str(tmp_path / "there")}) == \
+        (True, "broker token: present")
+
+
+def test_trend_log_could_not_look_is_not_missing(blind_checker, tmp_path):
+    hc = blind_checker
+    ok, detail = hc.check_trend_log({"name": "quota trend log",
+                                     "path": str(tmp_path / "absent.md")})
+    assert ok is False and detail.startswith("quota trend log: COULD NOT LOOK")
+    assert "MISSING" not in detail and "install_healthcheck.py" in detail
+
+
+def test_token_resolvable_could_not_look_is_not_no_source(
+        blind_checker, tmp_path, monkeypatch):
+    hc = blind_checker
+    monkeypatch.delenv("SOME_TEST_TOKEN", raising=False)
+    spec = {"name": "tracker token", "env": "SOME_TEST_TOKEN",
+            "path": str(tmp_path / "absent"), "commands": [["/usr/bin/false"]]}
+    ok, detail = hc.check_token_resolvable(spec)
+    assert ok is False and detail.startswith("tracker token: COULD NOT LOOK")
+    assert "NO SOURCE" not in detail and "install_healthcheck.py" in detail
+    # a source that does answer is still an answer
+    monkeypatch.setenv("SOME_TEST_TOKEN", "x")
+    assert hc.check_token_resolvable(spec)[0] is True
+
+
+def test_a_probed_checker_still_says_missing(tmp_path, monkeypatch):
+    """The other two states are as before: with a probe that ran and found no
+    bun that reads the volume, the plain test answers."""
+    hc = load_checker("fleet_healthcheck_probed", tmp_path, monkeypatch,
+                      {"repo_root": "/Volumes/Disk/Users/someone/dev/x"})
+
+    class Failed:
+        returncode, stdout, stderr = 1, "", "EPERM\n"
+
+    monkeypatch.setattr(hc, "BUN_CANDIDATES", [sys.executable])
+    monkeypatch.setattr(hc.subprocess, "run", lambda cmd, **kw: Failed())
+    monkeypatch.delenv("SOME_TEST_TOKEN", raising=False)
+    absent = str(tmp_path / "absent")
+    assert hc.exists_via_bun(absent) is False
+    assert "MISSING" in hc.check_file_present({"name": "n", "path": absent})[1]
+    assert "MISSING" in hc.check_trend_log({"name": "n", "path": absent})[1]
+    detail = hc.check_token_resolvable(
+        {"name": "n", "env": "SOME_TEST_TOKEN", "path": absent})[1]
+    assert "COULD NOT LOOK" not in detail and absent in detail
+
+
+# ── one label for two of the installer's jobs ────────────────────────────────
+
+@pytest.mark.parametrize("key, same_as", [
+    ("launchd_guard", "launchd_healthcheck"),
+    ("launchd_log_rotate", "launchd_guard"),
+    ("launchd_log_rotate", "launchd_healthcheck"),
+])
+def test_install_refuses_one_label_for_two_of_its_jobs(
+        installer, lc, tmp_path, monkeypatch, capsys, key, same_as):
+    label = example_values(lc)[same_as]
+    text = "".join(
+        (f"  {key}: {label}" if l.startswith(f"  {key}:") else l) + "\n"
+        for l in example_text().splitlines())
+    rc, calls, root = install_into(installer, tmp_path, monkeypatch, text)
+    assert rc == 2 and not calls and not root.exists()
+    assert not list((tmp_path / "LaunchAgents").iterdir())
+    err = capsys.readouterr().err
+    assert "NOT DEPLOYED" in err and f"`{key}`" in err and f"`{same_as}`" in err
+    assert f"`{label}`" in err and "Nothing was changed" in err
+
+
+def test_the_board_server_pair_may_share_a_label(
+        installer, tmp_path, monkeypatch):
+    text = "".join(
+        ("  launchd_board_server_former: com.example.board-server"
+         if l.startswith("  launchd_board_server_former:") else l) + "\n"
+        for l in example_text().splitlines())
+    rc, calls, root = install_into(installer, tmp_path, monkeypatch, text)
+    assert rc == 0 and calls
+    with open(EXAMPLE) as f:
+        assert "only the\n  # board server pair above may share one" in f.read()

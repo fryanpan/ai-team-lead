@@ -177,6 +177,10 @@ REPO_ROOT, REPO_ROOT_ERROR = _try_read(lambda: local_config.repo_root())
 CHECKOUTS_DIR = os.path.dirname(REPO_ROOT) if REPO_ROOT else None
 REPO_ROOT_FIX = ("Rerun scripts/install_healthcheck.py from the main checkout; "
                  "it writes the path beside this script.")
+# What revive() says when it had no command to run, and what a banner shows of
+# a message: notify() cuts there.
+NO_PATH = "the checkout's path could not be read"
+NOTIFY_MAX = 240
 LOOP_SCRIPTS = {
     "fleet-budget": "fleet_budget_loop.sh",
     "fleet-monitor": "fleet_monitor_loop.sh",
@@ -1247,7 +1251,7 @@ def revive(name, command):
     it would report "restarted" forever while the session died on every attempt.
     """
     if not command:
-        return False, (f"not restarted, the checkout's path could not be read: "
+        return False, (f"not restarted, {NO_PATH}: "
                        f"{REPO_ROOT_ERROR} {REPO_ROOT_FIX}")
     sh(f"{tmux()} kill-session -t {name}")        # best effort; may not exist
     out, rc = sh(f"{tmux()} new-session -d -s {name} {command}")
@@ -1374,6 +1378,25 @@ def hive_alert(title, message):
     return "sent" if rc == 0 else "failed"
 
 
+def loop_down_banner(names, reasons):
+    """The banner for loops that are down and were not restarted.
+
+    A banner shows NOTIFY_MAX characters, so what to do goes first and the
+    whole text stays under the cut. The full reasons go to the log.
+    """
+    listed = ", ".join(names)
+    if any(NO_PATH in reasons.get(n, "") for n in names):
+        return (f"Rerun scripts/install_healthcheck.py from the main checkout. "
+                f"{listed} down and not restarted: {NO_PATH}.")
+    text = f"{listed} not running and could not be restarted"
+    given = [n for n in names if reasons.get(n)]
+    if given:
+        room = NOTIFY_MAX - len(text) - 3 - sum(len(n) + 4 for n in given)
+        each = max(0, room // len(given))
+        text += " (" + "; ".join(f"{n}: {reasons[n][:each]}" for n in given) + ")"
+    return text
+
+
 def notify(title, message):
     r = subprocess.run(
         ["osascript",
@@ -1381,7 +1404,7 @@ def notify(title, message):
          "-e", 'display notification (item 1 of argv) with title '
                '(item 2 of argv) sound name "Basso"',
          "-e", "end run",
-         message[:240], title[:80]],
+         message[:NOTIFY_MAX], title[:80]],
         capture_output=True, text=True)
     if r.returncode != 0:
         print(f"  !! NOTIFY FAILED (rc={r.returncode}): {r.stderr.strip()[:200]}")
@@ -1523,6 +1546,10 @@ def main():
     not_checked = [n for n, s in loops.items() if s == "no-config"]
 
     stamp = time.strftime("%Y-%m-%dT%H:%M:%S")
+    # The whole reason a restart failed. The banner has no room for it.
+    for name in revived:
+        if loops[name] == "revive-failed":
+            print(f"[{stamp}] LOOP NOT RESTARTED {name}: {revived[name]}")
     detail = (f"swap {m['swap_gb']}GB ({trend['text']}) · {paging['text']} · "
               f"anon+comp {m['anon_gb']}/"
               f"{m['compressed_gb']}GB · free {m['free_pct']}% · "
@@ -1583,12 +1610,7 @@ def main():
             notify("Monitor loop restarted", f"{', '.join(ok)} was down, back up")
             fired = True
     if loops_newly_down:
-        # The reason each restart gave, so the banner says what to do next.
-        why = "; ".join(f"{n}: {revived[n]}" for n in loops_newly_down
-                        if n in revived)
-        notify("Monitor loop down",
-               ***REMOVED***
-               f"restarted" + (f" ({why})" if why else ""))
+        notify("Monitor loop down", loop_down_banner(loops_newly_down, revived))
         fired = True
     if newly_not_checked:
         notify("Monitor loop not checked",

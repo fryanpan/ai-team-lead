@@ -482,3 +482,305 @@ def test_an_unbalanced_quote_is_could_not_read_not_a_value(lc, tmp_path, value):
 def test_backslashes_in_double_quotes_are_kept_as_written(lc):
     assert lc.parse_local('local:\n  notion_receiver_log: "a\\nb"\n') == {
         "notion_receiver_log": "a\\nb"}
+
+
+# ── launchd labels and the checkout's path ───────────────────────────────────
+
+LABEL_KEYS = ("launchd_healthcheck", "launchd_guard", "launchd_log_rotate",
+              "launchd_board_server", "launchd_board_server_former")
+
+
+def example_values(lc):
+    with open(EXAMPLE) as f:
+        return lc.parse_local(f.read())
+
+
+def test_every_launchd_label_in_the_checks_comes_from_the_local_values(installer, lc):
+    """No label is written in the installer: change a value and the check
+    that carries it changes with it."""
+    values = dict(example_values(lc), launchd_guard="another.guard-label")
+    filled = installer.fill_local(installer.BASE_CHECKS, values)
+    labels = [c["label"] for c in filled if c["type"] in ("launchd", "launchd_ran")]
+    flat = [x for l in labels for x in ([l] if isinstance(l, str) else l)]
+    known = {v for k, v in values.items() if k.startswith("launchd_")}
+    assert flat and set(flat) <= known
+    assert "another.guard-label" in flat
+    assert ["com.example.board-server", "com.example.board-server-old"] in labels
+    for key in LABEL_KEYS:
+        assert values[key] in flat, key
+
+
+def install_into(installer, tmp_path, monkeypatch, registry_text, argv=()):
+    """Run the installer's main() against a temp deploy root and LaunchAgents
+    folder, with launchctl stubbed. Returns (exit code, launchctl calls, root)."""
+    root = tmp_path / "root"
+    agents = tmp_path / "LaunchAgents"
+    agents.mkdir()
+    registry = tmp_path / "registry.yaml"
+    registry.write_text(registry_text)
+    for name in ("DEST", "GUARD_DEST", "ROTATE_DEST", "CONFIG",
+                 "LOCAL_CONFIG_DEST", "LOCAL_VALUES_DEST"):
+        monkeypatch.setattr(
+            installer, name, str(root / os.path.basename(getattr(installer, name))))
+    monkeypatch.setattr(installer, "REGISTRY", str(registry))
+    monkeypatch.setattr(installer, "STATE_DIR", str(root))
+    monkeypatch.setattr(installer, "FALLBACK_ROOT", str(root))
+    monkeypatch.setattr(installer, "LAUNCH_AGENTS", str(agents))
+    monkeypatch.setattr(installer, "OVERLAY", str(tmp_path / "no-overlay.json"))
+    for name in ("registry_sessions", "plugin_version_checks", "registry_stable_ids"):
+        monkeypatch.setattr(installer, name, lambda: [])
+    monkeypatch.setattr(sys, "argv", ["install_healthcheck.py", *argv])
+    calls = []
+
+    class Done:
+        returncode, stdout, stderr = 0, "", ""
+
+    def run(cmd, **kw):
+        calls.append(cmd)
+        return Done()
+
+    monkeypatch.setattr(installer.subprocess, "run", run)
+    return installer.main(), calls, root
+
+
+def test_install_names_its_three_jobs_from_the_local_values(
+        installer, tmp_path, monkeypatch):
+    import plistlib
+    with open(EXAMPLE) as f:
+        text = f.read()
+    rc, calls, root = install_into(installer, tmp_path, monkeypatch, text)
+    assert rc == 0
+    agents = tmp_path / "LaunchAgents"
+    want = {"com.example.fleet-healthcheck": "fleet_healthcheck.py",
+            "com.example.fleet-guard": "fleet_guard.py",
+            "com.example.fleet-log-rotate": "rotate_fleet_logs.py"}
+    assert sorted(p.name for p in agents.iterdir()) == sorted(
+        f"{label}.plist" for label in want)
+    uid = os.getuid()
+    for label, program in want.items():
+        with open(agents / f"{label}.plist", "rb") as f:
+            plist = plistlib.load(f)
+        assert plist["Label"] == label
+        assert plist["ProgramArguments"][1] == str(root / program)
+        assert ["launchctl", "bootout", f"gui/{uid}/{label}"] in calls
+        assert ["launchctl", "bootstrap", f"gui/{uid}",
+                str(agents / f"{label}.plist")] in calls
+
+
+@pytest.mark.parametrize("key", LABEL_KEYS)
+def test_install_deploys_nothing_when_a_label_is_not_set(
+        installer, tmp_path, monkeypatch, capsys, key):
+    with open(EXAMPLE) as f:
+        text = "".join(l for l in f if not l.startswith(f"  {key}:"))
+    rc, calls, root = install_into(installer, tmp_path, monkeypatch, text)
+    assert rc == 2 and not calls and not root.exists()
+    assert not list((tmp_path / "LaunchAgents").iterdir())
+    err = capsys.readouterr().err
+    assert "NOT DEPLOYED" in err and key in err
+
+
+def test_install_writes_the_checkouts_path_for_the_deployed_scripts(
+        installer, lc, tmp_path, monkeypatch):
+    with open(EXAMPLE) as f:
+        text = f.read()
+    rc, _, root = install_into(installer, tmp_path, monkeypatch, text, ["--no-agent"])
+    assert rc == 0
+    deployed = json.loads((root / "local-config.json").read_text())
+    assert deployed == {"hive_url": "http://127.0.0.1:8000",
+                        "repo_root": os.path.realpath(ROOT)}
+    # and the deployed reader hands it to a deployed script
+    reader = load("deployed_local_config", str(root / "local_config.py"))
+    monkeypatch.delenv("TEAM_LEAD_LOCAL_CONFIG")
+    assert reader.repo_root() == os.path.realpath(ROOT)
+
+
+def test_repo_root_in_a_checkout_is_the_folder_above_the_scripts(
+        lc, tmp_path, monkeypatch):
+    registry = tmp_path / "registry.yaml"
+    registry.write_text("local:\n  hive_url: http://127.0.0.1:8000\n")
+    monkeypatch.setenv("TEAM_LEAD_LOCAL_CONFIG", str(registry))
+    assert lc.repo_root() == os.path.realpath(ROOT)
+    monkeypatch.delenv("TEAM_LEAD_LOCAL_CONFIG")
+    assert lc.repo_root() == os.path.realpath(ROOT)
+
+
+def test_a_deployed_copy_without_the_path_says_so(lc, tmp_path, monkeypatch):
+    values = tmp_path / "local-config.json"
+    values.write_text(json.dumps({"hive_url": "http://127.0.0.1:8000"}))
+    monkeypatch.setenv("TEAM_LEAD_LOCAL_CONFIG", str(values))
+    with pytest.raises(lc.LocalConfigError, match="does not set repo_root"):
+        lc.repo_root()
+    values.write_text(json.dumps({"repo_root": "/Volumes/Disk/Users/someone/dev/x"}))
+    assert lc.repo_root() == "/Volumes/Disk/Users/someone/dev/x"
+
+
+def load_guard(name, tmp_path, monkeypatch, repo_root, home):
+    values = tmp_path / "local-config.json"
+    values.write_text(json.dumps({"hive_url": "http://hive.test:1111",
+                                  "repo_root": repo_root}))
+    monkeypatch.setenv("TEAM_LEAD_LOCAL_CONFIG", str(values))
+    monkeypatch.setenv("HOME", home)
+    return load(name, os.path.join(SCRIPTS, "fleet_guard.py"))
+
+
+def test_guard_builds_each_loop_command_from_the_path_and_the_home_folder(
+        tmp_path, monkeypatch):
+    """The commands are handed to tmux as written and show in the process
+    table, so they are compared whole. With the checkout at
+    <volume>/Users/<user>/dev/<repo> and the home folder at /Users/<user>,
+    these are the three strings this file used to spell out."""
+    guard = load_guard("fleet_guard_loops", tmp_path, monkeypatch,
+                       "/Volumes/Disk/Users/someone/dev/team-lead-checkout",
+                       "/Users/someone")
+    assert guard.LOOPS == {
+        "fleet-budget": "/Volumes/Disk/Users/someone/dev/team-lead-checkout"
+                        "/scripts/fleet_budget_loop.sh",
+        "fleet-monitor": "/Volumes/Disk/Users/someone/dev/team-lead-checkout"
+                         "/scripts/fleet_monitor_loop.sh",
+        "hive-broker": "/Users/someone/.bun/bin/bun "
+                       "/Users/someone/claude-hive-mcp/broker.ts",
+    }
+    assert guard.CHECKOUTS_DIR == "/Volumes/Disk/Users/someone/dev"
+    for name, script in guard.LOOP_SCRIPTS.items():
+        assert os.path.exists(os.path.join(SCRIPTS, script)), name
+
+
+def test_guard_selftest_lists_the_folder_that_holds_the_checkout(
+        tmp_path, monkeypatch):
+    guard = load_guard("fleet_guard_selftest", tmp_path, monkeypatch,
+                       "/Volumes/Disk/Users/someone/dev/team-lead-checkout",
+                       "/Users/someone")
+    revived, ran = [], []
+    monkeypatch.setattr(guard, "revive",
+                        lambda name, cmd: (revived.append(cmd), (True, "READABLE"))[1])
+    monkeypatch.setattr(guard, "sh", lambda cmd, timeout=10: (ran.append(cmd), ("", 0))[1])
+    monkeypatch.setattr(guard, "notify", lambda *a: True)
+    assert guard.selftest() == 0
+    assert revived == [
+        "/bin/bash -c 'ls /Volumes/Disk/Users/someone/dev "
+        ">/dev/null 2>&1 && echo SECONDARY-VOLUME-READABLE "
+        "|| echo SECONDARY-VOLUME-DENIED; sleep 30'"]
+    guard.probe()
+    assert "/bin/ls /Volumes/Disk/Users/someone/dev >/dev/null" in ran
+
+
+@pytest.fixture
+def deployed_unreadable(monkeypatch, tmp_path):
+    """A deployed copy whose values file is not there. Unlike a checkout, it
+    has no way to work the checkout's path out."""
+    monkeypatch.setenv("TEAM_LEAD_LOCAL_CONFIG", str(tmp_path / "local-config.json"))
+
+
+def test_guard_without_the_path_still_checks_loops_and_says_why_none_restart(
+        deployed_unreadable, monkeypatch, capsys):
+    guard = load("fleet_guard_no_path", os.path.join(SCRIPTS, "fleet_guard.py"))
+    assert guard.REPO_ROOT is None and "COULD NOT READ" in guard.REPO_ROOT_ERROR
+    assert guard.LOOPS["fleet-budget"] is None and guard.LOOPS["fleet-monitor"] is None
+    calls = []
+    monkeypatch.setattr(guard, "TMUX", "/bin/sh")       # any file that exists
+    monkeypatch.setattr(guard, "notify", lambda *a: True)
+
+    def sh(cmd, timeout=10):
+        calls.append(cmd)
+        return ("fleet-budget: 1 windows", 0) if cmd.endswith(" ls") else ("", 0)
+
+    monkeypatch.setattr(guard, "sh", sh)
+    status = guard.loop_status()
+    # still looked for, and still reported down when it is not there
+    assert status["fleet-budget"] == "up" and status["fleet-monitor"] == "down"
+    calls.clear()
+    ok, detail = guard.revive("fleet-monitor", guard.LOOPS["fleet-monitor"])
+    assert ok is False and "COULD NOT READ" in detail
+    assert not calls, "no session may be killed or started without a command"
+    assert guard.selftest() == 1 and not calls
+    guard.probe()
+    out = capsys.readouterr().out
+    assert "selftest NOT RUN" in out and "secondary volume NOT CHECKED" in out
+
+
+def test_checker_probes_a_file_in_the_checkout(tmp_path, monkeypatch):
+    values = tmp_path / "local-config.json"
+    values.write_text(json.dumps({"repo_root": "/Volumes/Disk/Users/someone/dev/x"}))
+    monkeypatch.setenv("TEAM_LEAD_LOCAL_CONFIG", str(values))
+    hc = load("fleet_healthcheck_probe", os.path.join(SCRIPTS, "fleet_healthcheck.py"))
+    assert hc.PROBE_DATA_FILE == "/Volumes/Disk/Users/someone/dev/x/README.md"
+    seen = []
+
+    class Done:
+        returncode, stdout, stderr = 0, "42\n", ""
+
+    monkeypatch.setattr(hc, "BUN_CANDIDATES", [sys.executable])
+    monkeypatch.setattr(hc.subprocess, "run",
+                        lambda cmd, **kw: (seen.append(cmd), Done())[1])
+    assert hc.resolve_bun()[0] == sys.executable
+    assert "/Volumes/Disk/Users/someone/dev/x/README.md" in seen[0][2]
+
+
+def test_checker_without_the_path_could_not_look(deployed_unreadable, monkeypatch):
+    hc = load("fleet_healthcheck_no_probe", os.path.join(SCRIPTS, "fleet_healthcheck.py"))
+    assert hc.PROBE_DATA_FILE is None
+    ran = []
+    monkeypatch.setattr(hc, "BUN_CANDIDATES", [sys.executable])
+    monkeypatch.setattr(hc.subprocess, "run", lambda *a, **k: ran.append(a))
+    path, reason = hc.resolve_bun()
+    assert path is None and not ran
+    assert reason.startswith("COULD NOT LOOK") and "COULD NOT READ" in reason
+    assert hc.bun_works() is False
+
+
+def test_budget_watch_matches_projects_beside_this_checkout(monkeypatch, tmp_path):
+    bw = load_budget_watch("budget_watch_checkouts", monkeypatch)
+    assert bw.CHECKOUTS_DIR == os.path.dirname(os.path.realpath(ROOT))
+    (tmp_path / "two-word-project").mkdir()
+    monkeypatch.setattr(bw, "CHECKOUTS_DIR", str(tmp_path))
+    assert bw.project_of(
+        "/x/-Volumes-Disk-Users-someone-dev-two-word-project-worktrees-w") \
+        == "two-word-project"
+
+
+def test_turn_attribution_strips_the_checkouts_folder_from_a_transcript_name():
+    ta = load("turn_attribution_prefix", os.path.join(SCRIPTS, "turn_attribution.py"))
+    holder = os.path.dirname(os.path.realpath(ROOT))
+    encoded = "".join(c if c.isalnum() else "-" for c in holder)
+    assert ta.CHECKOUTS_PREFIX == encoded + "-"
+    assert (encoded + "-some-project").replace(ta.CHECKOUTS_PREFIX, "") == "some-project"
+
+
+def run_line_from(script, prefix, folder):
+    """Run the one assignment line of `script` that starts with `prefix`, from
+    a copy placed in `folder`, and return the value it set."""
+    import subprocess
+    with open(os.path.join(ROOT, script)) as f:
+        line = next(l for l in f if l.startswith(prefix + "="))
+    assert "${BASH_SOURCE[0]}" in line
+    folder.mkdir(parents=True)
+    (folder / "probe.sh").write_text(f'#!/bin/bash\n{line}echo "${prefix}"\n')
+    return lambda via, env=None: subprocess.run(
+        ["/bin/bash", str(via / "probe.sh")], capture_output=True, text=True,
+        env=dict(os.environ, **(env or {}))).stdout.strip()
+
+
+@pytest.mark.parametrize("script, beside", [
+    ("scripts/fleet_budget_loop.sh", "fleet_budget_watch.py"),
+    ("scripts/fleet_monitor_loop.sh", "fleet_context_report.py"),
+])
+def test_a_loop_script_finds_its_program_beside_itself(script, beside, tmp_path):
+    """Also when it is started through a symlinked spelling of its folder: the
+    program path is the physical one either way."""
+    assert os.path.exists(os.path.join(SCRIPTS, beside))
+    real = tmp_path / "real"
+    run = run_line_from(script, "SCRIPT", real)
+    link = tmp_path / "link"
+    link.symlink_to(real)
+    want = os.path.join(os.path.realpath(real), beside)
+    assert run(real) == want
+    assert run(link) == want
+
+
+def test_self_respawn_defaults_to_the_checkout_it_is_in(tmp_path, monkeypatch):
+    monkeypatch.delenv("TL_DIR", raising=False)
+    script = ".claude/skills/respawn-sessions/self-respawn.sh"
+    folder = tmp_path / "checkout" / ".claude" / "skills" / "respawn-sessions"
+    run = run_line_from(script, "TL_DIR", folder)
+    assert run(folder) == os.path.realpath(tmp_path / "checkout")
+    assert run(folder, {"TL_DIR": "/somewhere/else"}) == "/somewhere/else"

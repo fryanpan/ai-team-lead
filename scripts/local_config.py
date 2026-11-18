@@ -15,7 +15,8 @@ Where the values are read from, first hit wins:
 
   1. TEAM_LEAD_LOCAL_CONFIG, a path to either file below (tests use this);
   2. `local-config.json` beside this module. install_healthcheck.py writes it
-     into the deploy root, because a launchd job cannot read the repo's volume;
+     into the deploy root, because a launchd job cannot read the repo's volume.
+     It also holds the checkout's own path, which the installer works out;
   3. `registry.yaml` one directory above this module (a repo checkout).
 
 There are three results, never two: the value, a LocalConfigError that says
@@ -52,6 +53,11 @@ KEYS = (
     "launchd_github_broker",
     "launchd_notion_tunnel",
     "launchd_board_tunnel",
+    "launchd_board_server",
+    "launchd_board_server_former",
+    "launchd_healthcheck",
+    "launchd_guard",
+    "launchd_log_rotate",
     "notion_receiver_log",
     "github_broker_log",
     "discord_state_subdir",
@@ -60,6 +66,11 @@ KEYS = (
     "no_discord_state_dir",
     "dev_channel_flag",
 )
+
+
+# Not a key of the `local:` block. install_healthcheck.py works this value out
+# and writes it into the deployed copy; see repo_root().
+REPO_ROOT_KEY = "repo_root"
 
 
 class LocalConfigError(Exception):
@@ -175,6 +186,21 @@ def require(*keys, path=None):
 def get(key, path=None):
     """One value. Raises LocalConfigError when it is not set."""
     return require(key, path=path)[0]
+
+
+def repo_root():
+    """The physical path of this repo's checkout.
+
+    In a checkout it is the folder above this module, so nobody has to write
+    it down. A deployed copy of this module is not inside the checkout and
+    cannot work the path out, so install_healthcheck.py writes it into
+    local-config.json and it is read from there. Raises LocalConfigError when
+    the deployed copy does not hold it. There is no built-in path.
+    """
+    path, deployed = source_path()
+    if deployed:
+        return get(REPO_ROOT_KEY, path=path)
+    return os.path.realpath(os.path.dirname(HERE))
 
 
 def main(argv):

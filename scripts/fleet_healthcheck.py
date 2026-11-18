@@ -170,8 +170,24 @@ BUN_CANDIDATES = [
 ]
 
 # A file on the secondary volume, used to probe for the capability we actually
-# need. Any tracked file on that volume would do.
-PROBE_DATA_FILE = "/Volumes/Data/Users/bryanchan/dev/ai-team-lead/README.md"
+# need. Any tracked file on that volume would do, so it is one in the repo's
+# checkout. The checkout's path is not written in this file: a deployed copy
+# reads the one install_healthcheck.py wrote beside it, through local_config.py.
+
+
+def _probe_data_file():
+    """(the file to probe, "") or (None, why) when the path cannot be read."""
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import local_config
+        return os.path.join(local_config.repo_root(), "README.md"), ""
+    except Exception as e:      # a missing module is a "could not read" too
+        return None, str(e) or type(e).__name__
+
+
+PROBE_DATA_FILE, PROBE_DATA_FILE_ERROR = _probe_data_file()
 
 # Seconds to wait on any bun call. Was 30, which turned a broken bun into a
 # three-minute run: six checks each burning a full timeout in series. A probe
@@ -195,6 +211,12 @@ def resolve_bun():
     """
     global _BUN_RESOLVED
     if _BUN_RESOLVED is not None:
+        return _BUN_RESOLVED
+
+    if not PROBE_DATA_FILE:
+        # Not "no bun works": nothing was probed, and the reason says so.
+        _BUN_RESOLVED = (None, f"COULD NOT LOOK, no file to probe: "
+                               f"{PROBE_DATA_FILE_ERROR}")
         return _BUN_RESOLVED
 
     tried = []
@@ -563,9 +585,9 @@ def check_launchd(spec):
     # `label` may be a list: a job being renamed is live under either spelling
     # during the transition, and a check pinned to one of them reports the
     # other as a dead daemon. That is a FALSE RED, and it is worse than no
-    # check -- com.fryanpan.live-feedback was reported "not loaded in launchd
-    # at all" for 8 consecutive runs while the job ran healthy under its new
-    # name com.fryanpan.claude-workspaces (2026-08-21). Accept any spelling;
+    # check -- the board server's job was reported "not loaded in launchd
+    # at all" for 8 consecutive runs while it ran healthy under its new
+    # label (2026-08-21). Accept any spelling;
     # report which one actually matched.
     labels = spec["label"]
     if isinstance(labels, str):
@@ -1362,7 +1384,7 @@ def check_monitor_loops(spec):
     heartbeat, and it stays correct when a loop is added.
 
     The guard's own liveness is asserted separately (`launchd_ran` on
-    com.fryanpan.fleet-guard) -- but a state file written once and then
+    the guard's launchd job) -- but a state file written once and then
     abandoned would still read healthy here, so its age is checked too. A
     monitor that reports on another monitor has to prove it is itself awake.
     """

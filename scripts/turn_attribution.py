@@ -30,6 +30,11 @@ import json, os, re, sys, glob, datetime, collections
 
 HOME = os.path.expanduser("~")
 PROJ = os.path.join(HOME, ".claude", "projects")
+# A transcript folder is named after the session's working folder, with every
+# character that is not a letter or a digit written as "-". This is that name
+# for the folder holding this checkout, which the other checkouts sit beside.
+CHECKOUTS_PREFIX = re.sub(r"[^A-Za-z0-9]", "-", os.path.dirname(os.path.dirname(
+    os.path.dirname(os.path.realpath(__file__))))) + "-"
 
 
 def argval(flag, default=None):
@@ -167,7 +172,7 @@ def main():
     for project in sorted(glob.glob(os.path.join(PROJ, "*"))):
         if not os.path.isdir(project):
             continue
-        name = os.path.basename(project).replace("-Volumes-Data-Users-bryanchan-dev-", "")
+        name = os.path.basename(project).replace(CHECKOUTS_PREFIX, "")
         for transcript in glob.glob(os.path.join(project, "*.jsonl")):
             scan_parent(transcript, days, per_session[name])
         for transcript in glob.glob(os.path.join(project, "*", "subagents", "*.jsonl")):

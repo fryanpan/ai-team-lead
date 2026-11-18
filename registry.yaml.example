@@ -35,6 +35,17 @@ local:
   launchd_github_broker: com.example.github-broker
   launchd_notion_tunnel: com.example.notion-tunnel
   launchd_board_tunnel: com.example.board-tunnel
+  # The workspaces board server's job, and the label it had before a rename.
+  # A job that is live under either label passes the check. If yours was never
+  # renamed, give the same label twice.
+  launchd_board_server: com.example.board-server
+  launchd_board_server_former: com.example.board-server-old
+  # The three jobs install_healthcheck.py creates: the health check, the
+  # machine guard and the log rotation. Pick the labels before the first
+  # install. To change one later, remove the old job yourself first.
+  launchd_healthcheck: com.example.fleet-healthcheck
+  launchd_guard: com.example.fleet-guard
+  launchd_log_rotate: com.example.fleet-log-rotate
   # Log files of the same two daemons.
   notion_receiver_log: ~/Library/Logs/notion-receiver.log
   github_broker_log: ~/Library/Logs/github-broker.log

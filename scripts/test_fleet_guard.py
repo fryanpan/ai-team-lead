@@ -38,7 +38,7 @@ import fleet_guard as fg  # noqa: E402
 # reasons this must never match.
 NORMAL_CHROME = (
     "  501      1 3-02:15:10 /Applications/Google Chrome.app/Contents/MacOS/"
-    "Google Chrome --type=browser --user-data-dir=/Users/bryanchan/Library/"
+    "Google Chrome --type=browser --user-data-dir=/Users/someone/Library/"
     "Application Support/Google/Chrome"
 )
 
@@ -101,14 +101,14 @@ def test_is_temp_dir_path():
     assert fg.is_temp_dir_path("/var/folders/zz/abc123/T/cw-ui-shot/profile")
     assert fg.is_temp_dir_path("/tmp/profile")
     assert fg.is_temp_dir_path("/private/tmp/profile")
-    assert not fg.is_temp_dir_path("/Users/bryanchan/Library/Application Support/Google/Chrome")
+    assert not fg.is_temp_dir_path("/Users/someone/Library/Application Support/Google/Chrome")
     assert not fg.is_temp_dir_path(None)
     assert not fg.is_temp_dir_path("")
 
     saved = os.environ.get("TMPDIR")
-    os.environ["TMPDIR"] = "/Users/bryanchan/.custom-tmp"
+    os.environ["TMPDIR"] = "/Users/someone/.custom-tmp"
     try:
-        assert fg.is_temp_dir_path("/Users/bryanchan/.custom-tmp/profile-xyz")
+        assert fg.is_temp_dir_path("/Users/someone/.custom-tmp/profile-xyz")
     finally:
         if saved is None:
             os.environ.pop("TMPDIR", None)

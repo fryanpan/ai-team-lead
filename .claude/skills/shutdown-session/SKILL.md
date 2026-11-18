@@ -41,9 +41,9 @@ done
 
 Output looks like:
 ```
-48464   /Volumes/Data/Users/bryanchan/dev/ai-team-lead
-62102   /Volumes/Data/Users/bryanchan/dev/<project-a>
-62110   /Volumes/Data/Users/bryanchan/dev/<project-b>
+48464   /Users/someone/dev/ai-team-lead
+62102   /Users/someone/dev/<project-a>
+62110   /Users/someone/dev/<project-b>
 ...
 ```
 

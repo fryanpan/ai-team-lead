@@ -55,6 +55,10 @@ def argval(flag, default, cast=str):
     return cast(sys.argv[i])
 
 HOME = os.path.expanduser("~")
+# The folder that holds this checkout, as a physical path. The other project
+# checkouts sit beside it, and project_of() matches transcript folders to them.
+CHECKOUTS_DIR = os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.realpath(__file__))))
 PROJ = os.path.join(HOME, ".claude", "projects")
 WINDOW_H = argval("--window-hours", 5.0, float)
 AS_JSON = "--json" in sys.argv
@@ -411,7 +415,7 @@ def project_of(transcript_dir):
             for take in range(len(rest), 0, -1):
                 cand = "-".join(rest[:take])
                 if os.path.isdir(os.path.join(HOME, "..", "dev", cand)) or \
-                   os.path.isdir(os.path.join("/Volumes/Data/Users/bryanchan/dev", cand)):
+                   os.path.isdir(os.path.join(CHECKOUTS_DIR, cand)):
                     return cand
             return rest[0]
     return name

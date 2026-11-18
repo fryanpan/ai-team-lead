@@ -9,10 +9,10 @@ the checker or the registry changes. It does three things:
      secondary volume at all (verified 2026-08-11);
   2. generates healthcheck-config.json there -- infra checks inline below, one
      session check per respawn:true registry entry, plus any local overlay.
-     The tunnel hostnames, the message brokers' addresses and their job
-     names and logs are read from the `local:` block of registry.yaml (see
+     The tunnel hostnames, the message brokers' addresses and logs, and every
+     launchd job label are read from the `local:` block of registry.yaml (see
      scripts/local_config.py), and the run stops if that block cannot be read.
-     Other labels and ports are still inline below;
+     Other ports are still inline below;
   3. installs a LaunchAgent that runs it three times a day.
 
 Project names live only in the generated config on the boot disk, never in this
@@ -79,10 +79,26 @@ CONFIG = os.path.join(STATE_DIR, "healthcheck-config.json")
 LOCAL_CONFIG_DEST = os.path.join(STATE_DIR, "local_config.py")
 LOCAL_VALUES_DEST = os.path.join(STATE_DIR, local_config.DEPLOYED_NAME)
 DEPLOYED_LOCAL_KEYS = ("hive_url",)
+# The deployed scripts also need the checkout's own path: the guard to restart
+# the monitor loops, the checker to probe the volume the checkout is on. It is
+# worked out here, as the physical path, and written beside the keys above.
+REPO_ROOT = os.path.realpath(REPO)
 OVERLAY = os.path.join(HOME, ".config", "team-lead", "healthcheck-extra.json")
 
-LABEL = "com.fryanpan.fleet-healthcheck"
-PLIST = os.path.join(HOME, "Library", "LaunchAgents", f"{LABEL}.plist")
+# The labels of the three jobs this installer creates are local values. Each
+# name here is the key that holds one; main() reads them before it deploys.
+JOB_LABEL_KEYS = {
+    "healthcheck": "launchd_healthcheck",
+    "guard": "launchd_guard",
+    "rotate": "launchd_log_rotate",
+}
+LAUNCH_AGENTS = os.path.join(HOME, "Library", "LaunchAgents")
+
+
+def plist_path(label):
+    return os.path.join(LAUNCH_AGENTS, f"{label}.plist")
+
+
 # Hourly, at :20. It was 3x/day until 2026-09-01, when the log showed the
 # cost: the 18:20 run was green, the machine froze around 21:00, and the
 # 23:22 run that caught it -- load 13.70/core, both ports down, two tunnels
@@ -97,16 +113,12 @@ HOURLY_MINUTE = 20
 # fleet_guard.py. It exists because HOURS above cannot be tightened: the full
 # check does network round-trips and 3x/day is the right cadence for those.
 # Machine pressure needs minutes, so it gets its own job with its own budget.
-GUARD_LABEL = "com.fryanpan.fleet-guard"
-GUARD_PLIST = os.path.join(HOME, "Library", "LaunchAgents", f"{GUARD_LABEL}.plist")
 GUARD_INTERVAL = 120
 
 # Log rotation. rotate_fleet_logs.py existed and was proven against a live
 # writer, but nothing ran it, so every log was back to growing without bound
 # the moment the manual run finished. A policy with no schedule is not a
 # policy. Daily, off-hours, keep 3 generations.
-ROTATE_LABEL = "com.fryanpan.fleet-log-rotate"
-ROTATE_PLIST = os.path.join(HOME, "Library", "LaunchAgents", f"{ROTATE_LABEL}.plist")
 ROTATE_DEST = os.path.join(STATE_DIR, "rotate_fleet_logs.py")
 ROTATE_HOUR, ROTATE_MINUTE = 4, 10
 ROTATE_KEEP = 3
@@ -123,8 +135,8 @@ BASE_CHECKS = [
     {"type": "launchd", "label": "{local:launchd_github_broker}"},
     # Both spellings, per the fleet rename rule: the job is live under either
     # during the transition and pinning to one produces a false RED.
-    {"type": "launchd", "label": ["com.fryanpan.claude-workspaces",
-                                 "com.fryanpan.live-feedback"]},
+    {"type": "launchd", "label": ["{local:launchd_board_server}",
+                                 "{local:launchd_board_server_former}"]},
     {"type": "launchd", "label": "{local:launchd_board_tunnel}"},
     {"type": "launchd", "label": "{local:launchd_notion_tunnel}", "skip": "notion bridge retired 2026-09-12"},
 
@@ -134,7 +146,7 @@ BASE_CHECKS = [
     #     output, so every freshness check on it reads as one ambiguous
     #     missing file -- `runs = 0` is the only signal that separates
     #     "never started" from "wrong path" from "not deployed yet". ---
-    {"type": "launchd_ran", "label": "com.fryanpan.fleet-healthcheck",
+    {"type": "launchd_ran", "label": "{local:launchd_healthcheck}",
      "why": "this checker itself would report nothing at all"},
     # --- the observation neither agent could make on the day: an FDA grant
     #     lapsed silently and a reboot restored it, so nobody knows whether a
@@ -142,9 +154,9 @@ BASE_CHECKS = [
     #     every run and compares across the reboot automatically. ---
     {"type": "tcc_grant", "name": "secondary-volume access"},
 
-    {"type": "launchd_ran", "label": "com.fryanpan.fleet-guard",
+    {"type": "launchd_ran", "label": "{local:launchd_guard}",
      "why": "nothing would notice a downed loop between hourly checks"},
-    {"type": "launchd_ran", "label": "com.fryanpan.fleet-log-rotate",
+    {"type": "launchd_ran", "label": "{local:launchd_log_rotate}",
      "why": "the logs would silently go back to growing without bound"},
 
     # --- exactly one listener per port: two in different address families
@@ -566,10 +578,17 @@ def main():
         base_checks = fill_local(BASE_CHECKS, values)
         deployed_values = fill_local(
             {k: "{local:%s}" % k for k in DEPLOYED_LOCAL_KEYS}, values)
+        labels = fill_local(
+            {job: "{local:%s}" % k for job, k in JOB_LABEL_KEYS.items()}, values)
     except local_config.LocalConfigError as e:
         print(f"NOT DEPLOYED. {e}", file=sys.stderr)
         return 2
     print(f"read local values from the `local:` block of {REGISTRY}")
+    deployed_values[local_config.REPO_ROOT_KEY] = REPO_ROOT
+    LABEL, GUARD_LABEL, ROTATE_LABEL = (
+        labels["healthcheck"], labels["guard"], labels["rotate"])
+    PLIST, GUARD_PLIST, ROTATE_PLIST = (
+        plist_path(LABEL), plist_path(GUARD_LABEL), plist_path(ROTATE_LABEL))
 
     os.makedirs(STATE_DIR, exist_ok=True)
 
@@ -587,7 +606,7 @@ def main():
     shutil.copy2(ROTATE_SRC, ROTATE_DEST)
     os.chmod(DEST, 0o755)
     print(f"deployed checker -> {DEST}")
-    print(f"deployed local values ({', '.join(DEPLOYED_LOCAL_KEYS)}) -> {LOCAL_VALUES_DEST}")
+    print(f"deployed local values ({', '.join(deployed_values)}) -> {LOCAL_VALUES_DEST}")
 
     # Leave no second copy behind after a root change -- a stale config in the
     # old root is a monitor reporting on a config nobody maintains any more.

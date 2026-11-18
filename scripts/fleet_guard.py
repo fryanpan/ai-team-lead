@@ -1384,16 +1384,27 @@ def loop_down_banner(names, reasons):
     A banner shows NOTIFY_MAX characters, so what to do goes first and the
     whole text stays under the cut. The full reasons go to the log.
     """
-    listed = ", ".join(names)
-    if any(NO_PATH in reasons.get(n, "") for n in names):
-        return (f"Rerun scripts/install_healthcheck.py from the main checkout. "
-                f"{listed} down and not restarted: {NO_PATH}.")
-    text = f"{listed} not running and could not be restarted"
-    given = [n for n in names if reasons.get(n)]
-    if given:
-        room = NOTIFY_MAX - len(text) - 3 - sum(len(n) + 4 for n in given)
-        each = max(0, room // len(given))
-        text += " (" + "; ".join(f"{n}: {reasons[n][:each]}" for n in given) + ")"
+    # Each loop is listed under its own reason. Those with no path share one
+    # reason and one fix, which goes first; the rest follow with theirs.
+    no_path = [n for n in names if NO_PATH in reasons.get(n, "")]
+    others = [n for n in names if n not in no_path]
+    text = ""
+    if no_path:
+        text = (f"Rerun scripts/install_healthcheck.py from the main checkout. "
+                f"{', '.join(no_path)} down and not restarted: {NO_PATH}.")
+    if others and text:
+        # Short form, to leave the room to the reasons.
+        room = NOTIFY_MAX - len(text) - sum(len(n) + 18 for n in others)
+        each = max(0, room // len(others))
+        text += " " + "; ".join(
+            f"{n} not restarted: {reasons.get(n, '')[:each]}" for n in others)
+    elif others:
+        text = f"{', '.join(others)} not running and could not be restarted"
+        given = [n for n in others if reasons.get(n)]
+        if given:
+            room = NOTIFY_MAX - len(text) - 3 - sum(len(n) + 4 for n in given)
+            each = max(0, room // len(given))
+            text += " (" + "; ".join(f"{n}: {reasons[n][:each]}" for n in given) + ")"
     return text
 
 

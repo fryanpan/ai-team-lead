@@ -641,6 +641,18 @@ def main():
     except local_config.LocalConfigError as e:
         print(f"NOT DEPLOYED. {e}", file=sys.stderr)
         return 2
+    # One label for two of the jobs would install one job and report three.
+    by_label = {}
+    for job, label in labels.items():
+        by_label.setdefault(label, []).append(JOB_LABEL_KEYS[job])
+    shared = {label: keys for label, keys in by_label.items() if len(keys) > 1}
+    if shared:
+        for label, keys in shared.items():
+            print(f"NOT DEPLOYED. {' and '.join(f'`{k}`' for k in keys)} in the "
+                  f"`local:` block of {REGISTRY} are both `{label}`. Each of "
+                  f"the jobs the installer creates needs its own label. "
+                  f"Nothing was changed.", file=sys.stderr)
+        return 2
     print(f"read local values from the `local:` block of {REGISTRY}")
     deployed_values[local_config.REPO_ROOT_KEY] = REPO_ROOT
     LABEL, GUARD_LABEL, ROTATE_LABEL = (

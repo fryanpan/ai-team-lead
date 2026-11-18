@@ -199,14 +199,62 @@ def repo_root():
     """
     path, deployed = source_path()
     if deployed:
+        if not load(path).get(REPO_ROOT_KEY):
+            raise LocalConfigError(
+                f"COULD NOT READ the checkout's path: {path} does not set "
+                f"{REPO_ROOT_KEY}. It is not a key of the `local:` block: "
+                f"install_healthcheck.py writes it into that file. Rerun the "
+                f"installer from the main checkout.")
         return get(REPO_ROOT_KEY, path=path)
     return os.path.realpath(os.path.dirname(HERE))
 
 
+WORKTREE_MARKER = "/.git/worktrees/"
+
+
+def main_checkout_of(root):
+    """The main checkout that the checkout at `root` belongs to.
+
+    A main checkout's `.git` is a folder, and the answer is `root` itself. A
+    linked worktree's `.git` is a file whose first line is
+    `gitdir: <main checkout>/.git/worktrees/<name>`, and the answer is read
+    from that line, with no other program involved. A `.git` file of any
+    other shape raises LocalConfigError: the main checkout is not guessed.
+    """
+    git = os.path.join(root, ".git")
+    if not os.path.isfile(git):
+        return root
+    try:
+        with open(git) as f:
+            first = f.readline().strip()
+    except OSError as e:
+        raise LocalConfigError(
+            f"COULD NOT READ the main checkout: {git} cannot be read ({e}). "
+            f"Run this from the main checkout.") from None
+    if first.startswith("gitdir: /") and WORKTREE_MARKER in first:
+        main, _, name = first[len("gitdir: "):].rpartition(WORKTREE_MARKER)
+        if main and name and "/" not in name:
+            return os.path.realpath(main)
+    raise LocalConfigError(
+        f"COULD NOT READ the main checkout: {root} is a linked worktree, and "
+        f"its .git file does not name `<main checkout>{WORKTREE_MARKER}<name>` "
+        f"(it starts {first[:80]!r}). Run this from the main checkout.")
+
+
+def main_checkout():
+    """The physical path of this repo's MAIN checkout, also when this module
+    sits in a linked worktree of it. A deployed copy returns repo_root(): the
+    installer only runs from the main checkout. Raises LocalConfigError."""
+    if source_path()[1]:
+        return repo_root()
+    return main_checkout_of(repo_root())
+
+
 def checkouts_dir():
-    """The folder that holds this repo's checkout. Other project checkouts
-    usually sit beside it. Raises LocalConfigError like repo_root()."""
-    return os.path.dirname(repo_root())
+    """The folder that holds this repo's main checkout. Other project
+    checkouts usually sit beside it. Raises LocalConfigError like
+    main_checkout()."""
+    return os.path.dirname(main_checkout())
 
 
 def try_read(read):

@@ -149,12 +149,39 @@ CHROME_FIX = ("Chrome Memory Saver (chrome://settings/performance) or close "
 # fresh socket under `launchctl submit`, which is the cold-boot case. The guard
 # therefore revives from no-server too, and `--selftest --cold` is what proves
 # it on this machine rather than by argument.
-LOOPS = {
-    "fleet-budget":
-        ***REMOVED***
-    "fleet-monitor":
-        ***REMOVED***
+#
+# The checkout's path is not written in this file. A deployed copy cannot work
+# it out, so install_healthcheck.py writes it beside this script and
+# local_config.py reads it; in a checkout it is the folder above this script.
+# When it cannot be read a loop's command is None: the loop is still checked,
+# and revive() says why it was not restarted.
+
+
+def _local_value(read):
+    """(read(local_config), "") or (None, why) when the value cannot be read.
+
+    There is no built-in value to fall back to.
+    """
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import local_config
+        return read(local_config), ""
+    except Exception as e:      # a missing module is a "could not read" too
+        return None, str(e) or type(e).__name__
+
+
+REPO_ROOT, REPO_ROOT_ERROR = _local_value(lambda lc: lc.repo_root())
+# The folder that holds the checkout. --probe and --selftest list it to see
+# whether the volume it is on can be read from the context they run in.
+CHECKOUTS_DIR = os.path.dirname(REPO_ROOT) if REPO_ROOT else None
+LOOP_SCRIPTS = {
+    "fleet-budget": "fleet_budget_loop.sh",
+    "fleet-monitor": "fleet_monitor_loop.sh",
 }
+LOOPS = {name: f"{REPO_ROOT}/scripts/{script}" if REPO_ROOT else None
+         for name, script in LOOP_SCRIPTS.items()}
 # The hive broker is checked by its /health route, not by a tmux session: it
 # may be running outside tmux (started by the first hive client), and that copy
 # holds the port. It is revived into a tmux session only when /health fails.
@@ -173,20 +200,15 @@ def _hive_url():
     built-in address to fall back to: a guessed port that answers is some
     other service, and that reads as a healthy broker.
     """
-    try:
-        here = os.path.dirname(os.path.abspath(__file__))
-        if here not in sys.path:
-            sys.path.insert(0, here)
-        import local_config
-        return local_config.get("hive_url").rstrip("/"), ""
-    except Exception as e:      # a missing module is a "could not read" too
-        return None, str(e) or type(e).__name__
+    return _local_value(lambda lc: lc.get("hive_url").rstrip("/"))
 
 
 HIVE_URL, HIVE_URL_ERROR = _hive_url()
 HIVE_HEALTH = f"{HIVE_URL}/health" if HIVE_URL else None
-***REMOVED***
-                      ***REMOVED***
+# bun's own installer and the hive's setup steps both install under the home
+# folder, so the broker's command is built from it.
+LOOPS[HIVE_BROKER] = (f"{HOME}/.bun/bin/bun "
+                      f"{HOME}/claude-hive-mcp/broker.ts")
 TMUX = "/opt/homebrew/bin/tmux"
 # Socket override, used only by `--selftest --cold`. A named socket that no
 # server is listening on forces tmux to START one, which is the cold-boot
@@ -1208,6 +1230,9 @@ def revive(name, command):
     reports success is the same false green this whole file exists to remove --
     it would report "restarted" forever while the session died on every attempt.
     """
+    if not command:
+        return False, (f"not restarted, the checkout's path could not be read: "
+                       f"{REPO_ROOT_ERROR}")
     sh(f"{tmux()} kill-session -t {name}")        # best effort; may not exist
     out, rc = sh(f"{tmux()} new-session -d -s {name} {command}")
     if rc != 0:
@@ -1235,10 +1260,14 @@ def selftest(cold=False):
     """
     global TMUX_SOCKET
     name = "guard-selftest"
+    if not CHECKOUTS_DIR:
+        print(f"selftest NOT RUN: the checkout's path could not be read: "
+              f"{REPO_ROOT_ERROR}")
+        return 1
     if cold:
         TMUX_SOCKET = "-L guard-cold-probe"
         sh(f"{tmux()} kill-server")   # ensure no server on this socket
-    ***REMOVED***
+    probe_cmd = (f"/bin/bash -c 'ls {CHECKOUTS_DIR} "
                  ">/dev/null 2>&1 && echo SECONDARY-VOLUME-READABLE "
                  ***REMOVED***
     print(f"selftest {time.strftime('%Y-%m-%dT%H:%M:%S')} euid={os.geteuid()}")
@@ -1401,8 +1430,12 @@ def probe():
     print(f"  tmux binary present: {os.path.exists(TMUX)}")
     out, rc = sh(f"{tmux()} ls")
     print(f"  tmux ls: rc={rc} out={out[:200]!r}")
-    ***REMOVED***
-    print(f"  secondary volume readable (expected NO): rc={rc}")
+    if CHECKOUTS_DIR:
+        out, rc = sh(f"/bin/ls {CHECKOUTS_DIR} >/dev/null")
+        print(f"  secondary volume readable (expected NO): rc={rc}")
+    else:
+        print(f"  secondary volume NOT CHECKED: the checkout's path could not "
+              f"be read: {REPO_ROOT_ERROR}")
     print(f"  notify path: {notify('fleet guard', 'probe run -- ignore')}")
 
 

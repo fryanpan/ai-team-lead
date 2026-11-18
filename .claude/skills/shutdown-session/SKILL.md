@@ -41,9 +41,9 @@ done
 
 Output looks like:
 ```
-***REMOVED***
-***REMOVED***
-***REMOVED***
+48464   /Users/someone/dev/ai-team-lead
+62102   /Users/someone/dev/<project-a>
+62110   /Users/someone/dev/<project-b>
 ...
 ```
 

@@ -38,7 +38,8 @@
 set -u
 
 SELF_PID="${1:?usage: self-respawn.sh <team-lead-claude-pid>}"
-***REMOVED***
+# The checkout this script is in, as a physical path: three folders up.
+TL_DIR="${TL_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd -P)}"
 TL_SESSION="${TL_SESSION:-team-lead}"
 TL_NAME="${TL_NAME:-Team Lead}"
 # The board this session posts end-of-turn notes to. claude-workspaces 0.1.182 moved

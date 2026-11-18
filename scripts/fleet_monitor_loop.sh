@@ -13,9 +13,10 @@
 # true of the current script and would have sent a reader looking for a compaction
 # that never happens.
 #
-***REMOVED***  tmux new-session -d -s fleet-monitor \
-***REMOVED***
-***REMOVED***
+# Launch (detached), by this script's physical path:
+#   tmux new-session -d -s fleet-monitor <checkout>/scripts/fleet_monitor_loop.sh
+# The report script is found beside this one.
+SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/fleet_context_report.py"
 INTERVAL="${FLEET_MONITOR_INTERVAL:-7200}"   # 2h
 
 while true; do

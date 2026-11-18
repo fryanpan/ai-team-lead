@@ -201,7 +201,7 @@ python3 respawn.py --help
 ### Manually (from a team-lead session)
 
 ```bash
-***REMOVED***
+python3 ~/dev/ai-team-lead/.claude/skills/respawn-sessions/respawn.py --mode all --execute
 ```
 
 ### Via the skill
@@ -279,7 +279,7 @@ Minimal regex parser (~30 lines), no PyYAML dependency. Handles the registry's s
 
 ## Why `zsh -ic` (and not bare `claude`)
 
-***REMOVED***
+Bryan's `claude` is a zsh **function** (defined in `~/.zshrc`), not an alias. The function injects the canonical channel + dev-plugin flags before forwarding to `~/.local/bin/claude`. Bare `claude` from a non-interactive shell skips the function entirely.
 
 The script invokes `tmux new-session -d -s <name> -c <path> /bin/zsh -ic "claude --continue"` so the interactive zsh sources `~/.zshrc` and the function applies. Don't try to inline the channel flags in `claude_invocation` — the function will append its own copy and you'll see duplicates in argv.
 

@@ -21,6 +21,11 @@ TEST_LOCAL_VALUES = {
     "launchd_github_broker": "test.github-broker",
     "launchd_notion_tunnel": "test.notion-tunnel",
     "launchd_board_tunnel": "test.board-tunnel",
+    "launchd_board_server": "test.board-server",
+    "launchd_board_server_former": "test.board-server-old",
+    "launchd_healthcheck": "test.fleet-healthcheck",
+    "launchd_guard": "test.fleet-guard",
+    "launchd_log_rotate": "test.fleet-log-rotate",
     "notion_receiver_log": "~/test-logs/notion-receiver.log",
     "github_broker_log": "~/test-logs/github-broker.log",
     "discord_state_subdir": ".test-discord",
@@ -29,6 +34,9 @@ TEST_LOCAL_VALUES = {
     "no_discord_state_dir": os.path.join(tempfile.gettempdir(),
                                          "team-lead-test-empty-discord"),
     "dev_channel_flag": "--test-channel-flag",
+    # Not a key of the block: the installer writes the checkout's path into
+    # the deployed copy, and this file stands in for that copy.
+    "repo_root": "/Volumes/Test/Users/someone/dev/team-lead-checkout",
 }
 
 _fd, TEST_LOCAL_CONFIG = tempfile.mkstemp(prefix="local-config-", suffix=".json")

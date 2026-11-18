@@ -15,7 +15,8 @@ Where the values are read from, first hit wins:
 
   1. TEAM_LEAD_LOCAL_CONFIG, a path to either file below (tests use this);
   2. `local-config.json` beside this module. install_healthcheck.py writes it
-     into the deploy root, because a launchd job cannot read the repo's volume;
+     into the deploy root, because a launchd job cannot read the repo's volume.
+     It also holds the checkout's own path, which the installer works out;
   3. `registry.yaml` one directory above this module (a repo checkout).
 
 There are three results, never two: the value, a LocalConfigError that says
@@ -52,6 +53,11 @@ KEYS = (
     "launchd_github_broker",
     "launchd_notion_tunnel",
     "launchd_board_tunnel",
+    "launchd_board_server",
+    "launchd_board_server_former",
+    "launchd_healthcheck",
+    "launchd_guard",
+    "launchd_log_rotate",
     "notion_receiver_log",
     "github_broker_log",
     "discord_state_subdir",
@@ -60,6 +66,11 @@ KEYS = (
     "no_discord_state_dir",
     "dev_channel_flag",
 )
+
+
+# Not a key of the `local:` block. install_healthcheck.py works this value out
+# and writes it into the deployed copy; see repo_root().
+REPO_ROOT_KEY = "repo_root"
 
 
 class LocalConfigError(Exception):
@@ -175,6 +186,88 @@ def require(*keys, path=None):
 def get(key, path=None):
     """One value. Raises LocalConfigError when it is not set."""
     return require(key, path=path)[0]
+
+
+def repo_root():
+    """The physical path of this repo's checkout.
+
+    In a checkout it is the folder above this module, so nobody has to write
+    it down. A deployed copy of this module is not inside the checkout and
+    cannot work the path out, so install_healthcheck.py writes it into
+    local-config.json and it is read from there. Raises LocalConfigError when
+    the deployed copy does not hold it. There is no built-in path.
+    """
+    path, deployed = source_path()
+    if deployed:
+        if not load(path).get(REPO_ROOT_KEY):
+            raise LocalConfigError(
+                f"COULD NOT READ the checkout's path: {path} does not set "
+                f"{REPO_ROOT_KEY}. It is not a key of the `local:` block: "
+                f"install_healthcheck.py writes it into that file. Rerun the "
+                f"installer from the main checkout.")
+        return get(REPO_ROOT_KEY, path=path)
+    return os.path.realpath(os.path.dirname(HERE))
+
+
+WORKTREE_MARKER = "/.git/worktrees/"
+
+
+def main_checkout_of(root):
+    """The main checkout that the checkout at `root` belongs to.
+
+    A main checkout's `.git` is a folder, and the answer is `root` itself. A
+    linked worktree's `.git` is a file whose first line is
+    `gitdir: <main checkout>/.git/worktrees/<name>`, and the answer is read
+    from that line, with no other program involved. A `.git` file of any
+    other shape raises LocalConfigError: the main checkout is not guessed.
+    """
+    git = os.path.join(root, ".git")
+    if not os.path.isfile(git):
+        return root
+    try:
+        with open(git) as f:
+            first = f.readline().strip()
+    except (OSError, ValueError) as e:     # ValueError: not text
+        raise LocalConfigError(
+            f"COULD NOT READ the main checkout: {git} cannot be read ({e}). "
+            f"Run this from the main checkout.") from None
+    if first.startswith("gitdir: /") and WORKTREE_MARKER in first:
+        main, _, name = first[len("gitdir: "):].rpartition(WORKTREE_MARKER)
+        if main and name and "/" not in name:
+            return os.path.realpath(main)
+    raise LocalConfigError(
+        f"COULD NOT READ the main checkout: {root} is a linked worktree, and "
+        f"its .git file does not name `<main checkout>{WORKTREE_MARKER}<name>` "
+        f"(it starts {first[:80]!r}). Run this from the main checkout.")
+
+
+def main_checkout():
+    """The physical path of this repo's MAIN checkout, also when this module
+    sits in a linked worktree of it. A deployed copy returns repo_root(): the
+    installer only runs from the main checkout. Raises LocalConfigError."""
+    if source_path()[1]:
+        return repo_root()
+    return main_checkout_of(repo_root())
+
+
+def checkouts_dir():
+    """The folder that holds this repo's main checkout. Other project
+    checkouts usually sit beside it. Raises LocalConfigError like
+    main_checkout()."""
+    return os.path.dirname(main_checkout())
+
+
+def try_read(read):
+    """(read(), "") or (None, why) when the value cannot be read.
+
+    For a script that must keep running without the value and report that it
+    could not look. The caller says what it did not do; it never puts a
+    built-in value in place of the one it could not read.
+    """
+    try:
+        return read(), ""
+    except Exception as e:
+        return None, str(e) or type(e).__name__
 
 
 def main(argv):

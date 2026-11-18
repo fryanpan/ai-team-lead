@@ -53,6 +53,7 @@ import getpass
 import json
 import os
 import re
+import shlex
 import signal
 import subprocess
 import sys
@@ -149,12 +150,57 @@ CHROME_FIX = ("Chrome Memory Saver (chrome://settings/performance) or close "
 # fresh socket under `launchctl submit`, which is the cold-boot case. The guard
 # therefore revives from no-server too, and `--selftest --cold` is what proves
 # it on this machine rather than by argument.
-LOOPS = {
-    "fleet-budget":
-        ***REMOVED***
-    "fleet-monitor":
-        ***REMOVED***
+#
+# The checkout's path is not written in this file. A deployed copy cannot work
+# it out, so install_healthcheck.py writes it beside this script and
+# local_config.py reads it; in a checkout it is the folder above this script.
+# When it cannot be read a loop's command is None: the loop is still checked,
+# and revive() says why it was not restarted.
+_HERE = os.path.dirname(os.path.abspath(__file__))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+try:
+    import local_config
+    _try_read = local_config.try_read
+except ImportError as _e:       # the reader itself is a "could not read" too
+    local_config = None
+
+    def _try_read(read, _why=("COULD NOT READ local values: local_config.py "
+                              f"is not beside this script ({_e}). Rerun "
+                              "scripts/install_healthcheck.py from the main "
+                              "checkout.")):
+        return None, _why
+
+REPO_ROOT, REPO_ROOT_ERROR = _try_read(lambda: local_config.repo_root())
+# The folder that holds the checkout. --probe and --selftest list it to see
+# whether the volume it is on can be read from the context they run in.
+CHECKOUTS_DIR = os.path.dirname(REPO_ROOT) if REPO_ROOT else None
+REPO_ROOT_FIX = ("Rerun scripts/install_healthcheck.py from the main checkout; "
+                 "it writes the path beside this script.")
+# What revive() says when it had no command to run, and what a banner shows of
+# a message: notify() cuts there.
+NO_PATH = "the checkout's path could not be read"
+NOTIFY_MAX = 240
+LOOP_SCRIPTS = {
+    "fleet-budget": "fleet_budget_loop.sh",
+    "fleet-monitor": "fleet_monitor_loop.sh",
 }
+
+
+def _loop_command(path):
+    """The tmux command for a loop script, safe for a path with a space in it.
+
+    revive() puts the command in a shell line, and tmux hands a command that
+    arrives as one argument to a shell of its own. The path is therefore read
+    by two shells and is quoted once for each. A path with nothing to quote
+    comes out as written.
+    """
+    return shlex.quote(shlex.quote(path))
+
+
+LOOPS = {name: (_loop_command(f"{REPO_ROOT}/scripts/{script}")
+                if REPO_ROOT else None)
+         for name, script in LOOP_SCRIPTS.items()}
 # The hive broker is checked by its /health route, not by a tmux session: it
 # may be running outside tmux (started by the first hive client), and that copy
 # holds the port. It is revived into a tmux session only when /health fails.
@@ -173,20 +219,16 @@ def _hive_url():
     built-in address to fall back to: a guessed port that answers is some
     other service, and that reads as a healthy broker.
     """
-    try:
-        here = os.path.dirname(os.path.abspath(__file__))
-        if here not in sys.path:
-            sys.path.insert(0, here)
-        import local_config
-        return local_config.get("hive_url").rstrip("/"), ""
-    except Exception as e:      # a missing module is a "could not read" too
-        return None, str(e) or type(e).__name__
+    return _try_read(lambda: local_config.get("hive_url").rstrip("/"))
 
 
 HIVE_URL, HIVE_URL_ERROR = _hive_url()
 HIVE_HEALTH = f"{HIVE_URL}/health" if HIVE_URL else None
-***REMOVED***
-                      ***REMOVED***
+# bun's own installer and the hive's setup steps both install under the home
+# folder, so the broker's command is built from it. It reaches tmux as two
+# arguments, which tmux runs without a shell, so each is quoted once.
+LOOPS[HIVE_BROKER] = (f"{shlex.quote(f'{HOME}/.bun/bin/bun')} "
+                      f"{shlex.quote(f'{HOME}/claude-hive-mcp/broker.ts')}")
 TMUX = "/opt/homebrew/bin/tmux"
 # Socket override, used only by `--selftest --cold`. A named socket that no
 # server is listening on forces tmux to START one, which is the cold-boot
@@ -1208,6 +1250,9 @@ def revive(name, command):
     reports success is the same false green this whole file exists to remove --
     it would report "restarted" forever while the session died on every attempt.
     """
+    if not command:
+        return False, (f"not restarted, {NO_PATH}: "
+                       f"{REPO_ROOT_ERROR} {REPO_ROOT_FIX}")
     sh(f"{tmux()} kill-session -t {name}")        # best effort; may not exist
     out, rc = sh(f"{tmux()} new-session -d -s {name} {command}")
     if rc != 0:
@@ -1235,12 +1280,19 @@ def selftest(cold=False):
     """
     global TMUX_SOCKET
     name = "guard-selftest"
+    if not CHECKOUTS_DIR:
+        print(f"selftest NOT RUN: the checkout's path could not be read: "
+              f"{REPO_ROOT_ERROR} {REPO_ROOT_FIX}")
+        return 1
     if cold:
         TMUX_SOCKET = "-L guard-cold-probe"
         sh(f"{tmux()} kill-server")   # ensure no server on this socket
-    ***REMOVED***
-                 ">/dev/null 2>&1 && echo SECONDARY-VOLUME-READABLE "
-                 ***REMOVED***
+    # tmux gets this as three arguments and runs them without a shell of its
+    # own, so the script is quoted once, with the folder quoted inside it.
+    probe_cmd = "/bin/bash -c " + shlex.quote(
+        f"ls {shlex.quote(CHECKOUTS_DIR)} "
+        ">/dev/null 2>&1 && echo SECONDARY-VOLUME-READABLE "
+        "|| echo SECONDARY-VOLUME-DENIED; sleep 30")
     print(f"selftest {time.strftime('%Y-%m-%dT%H:%M:%S')} euid={os.geteuid()}")
     ok, detail = revive(name, probe_cmd)
     print(f"  revive({name}) -> ok={ok} detail={detail!r}")
@@ -1256,13 +1308,21 @@ HIVE_SEND = f"{HIVE_URL}/send-message" if HIVE_URL else None
 HIVE_PEERS = f"{HIVE_URL}/list-peers" if HIVE_URL else None
 
 
+def team_lead_dir():
+    """The folder the Team Lead session runs in: TEAM_LEAD_DIR when it is set,
+    otherwise the checkout's path. None when neither can be read."""
+    return os.environ.get("TEAM_LEAD_DIR") or REPO_ROOT
+
+
 def team_lead_stable_id():
     """The Team Lead session's stable_id, from the hive's own registry.
 
     Matched on the cwd rather than a hardcoded id, because the id changes when
-    the session is respawned and the cwd does not.
+    the session is respawned and the cwd does not. The cwd is the checkout's
+    path, or TEAM_LEAD_DIR when that is set. Returns None when neither can be
+    read; hive_alert() checks that first and says so.
     """
-    if not HIVE_PEERS:
+    if not HIVE_PEERS or not team_lead_dir():
         return None
     out, rc = sh(f"curl -s -m 5 -X POST {HIVE_PEERS} "
                  f"-H 'content-type: application/json' "
@@ -1273,8 +1333,7 @@ def team_lead_stable_id():
         peers = json.loads(out)
     except Exception:
         return None
-    root = os.path.realpath(os.path.expanduser(
-        os.environ.get("TEAM_LEAD_DIR", "~/dev/ai-team-lead")))
+    root = os.path.realpath(os.path.expanduser(team_lead_dir()))
     matches = [p for p in peers if isinstance(p, dict) and p.get("stable_id")
                and p.get("cwd") and os.path.realpath(p["cwd"]) == root]
     if not matches:
@@ -1303,6 +1362,11 @@ def hive_alert(title, message):
     if not HIVE_SEND:
         print(f"  !! HIVE ALERT NOT SENT: {HIVE_URL_ERROR}")
         return "no-config"
+    if not team_lead_dir():
+        print(f"  !! HIVE ALERT NOT SENT: the checkout's path could not be "
+              f"read, so the Team Lead session cannot be found: "
+              f"{REPO_ROOT_ERROR} {REPO_ROOT_FIX}")
+        return "no-config"
     sid = team_lead_stable_id()
     if not sid:
         return "no-peer"
@@ -1314,6 +1378,36 @@ def hive_alert(title, message):
     return "sent" if rc == 0 else "failed"
 
 
+def loop_down_banner(names, reasons):
+    """The banner for loops that are down and were not restarted.
+
+    A banner shows NOTIFY_MAX characters, so what to do goes first and the
+    whole text stays under the cut. The full reasons go to the log.
+    """
+    # Each loop is listed under its own reason. Those with no path share one
+    # reason and one fix, which goes first; the rest follow with theirs.
+    no_path = [n for n in names if NO_PATH in reasons.get(n, "")]
+    others = [n for n in names if n not in no_path]
+    text = ""
+    if no_path:
+        text = (f"Rerun scripts/install_healthcheck.py from the main checkout. "
+                f"{', '.join(no_path)} down and not restarted: {NO_PATH}.")
+    if others and text:
+        # Short form, to leave the room to the reasons.
+        room = NOTIFY_MAX - len(text) - sum(len(n) + 18 for n in others)
+        each = max(0, room // len(others))
+        text += " " + "; ".join(
+            f"{n} not restarted: {reasons.get(n, '')[:each]}" for n in others)
+    elif others:
+        text = f"{', '.join(others)} not running and could not be restarted"
+        given = [n for n in others if reasons.get(n)]
+        if given:
+            room = NOTIFY_MAX - len(text) - 3 - sum(len(n) + 4 for n in given)
+            each = max(0, room // len(given))
+            text += " (" + "; ".join(f"{n}: {reasons[n][:each]}" for n in given) + ")"
+    return text
+
+
 def notify(title, message):
     r = subprocess.run(
         ["osascript",
@@ -1321,7 +1415,7 @@ def notify(title, message):
          "-e", 'display notification (item 1 of argv) with title '
                '(item 2 of argv) sound name "Basso"',
          "-e", "end run",
-         message[:240], title[:80]],
+         message[:NOTIFY_MAX], title[:80]],
         capture_output=True, text=True)
     if r.returncode != 0:
         print(f"  !! NOTIFY FAILED (rc={r.returncode}): {r.stderr.strip()[:200]}")
@@ -1401,8 +1495,12 @@ def probe():
     print(f"  tmux binary present: {os.path.exists(TMUX)}")
     out, rc = sh(f"{tmux()} ls")
     print(f"  tmux ls: rc={rc} out={out[:200]!r}")
-    ***REMOVED***
-    print(f"  secondary volume readable (expected NO): rc={rc}")
+    if CHECKOUTS_DIR:
+        out, rc = sh(f"/bin/ls {shlex.quote(CHECKOUTS_DIR)} >/dev/null")
+        print(f"  secondary volume readable (expected NO): rc={rc}")
+    else:
+        print(f"  secondary volume NOT CHECKED: the checkout's path could not "
+              f"be read: {REPO_ROOT_ERROR} {REPO_ROOT_FIX}")
     print(f"  notify path: {notify('fleet guard', 'probe run -- ignore')}")
 
 
@@ -1459,6 +1557,10 @@ def main():
     not_checked = [n for n, s in loops.items() if s == "no-config"]
 
     stamp = time.strftime("%Y-%m-%dT%H:%M:%S")
+    # The whole reason a restart failed. The banner has no room for it.
+    for name in revived:
+        if loops[name] == "revive-failed":
+            print(f"[{stamp}] LOOP NOT RESTARTED {name}: {revived[name]}")
     detail = (f"swap {m['swap_gb']}GB ({trend['text']}) · {paging['text']} · "
               f"anon+comp {m['anon_gb']}/"
               f"{m['compressed_gb']}GB · free {m['free_pct']}% · "
@@ -1519,9 +1621,7 @@ def main():
             notify("Monitor loop restarted", f"{', '.join(ok)} was down, back up")
             fired = True
     if loops_newly_down:
-        notify("Monitor loop down",
-               ***REMOVED***
-               f"restarted")
+        notify("Monitor loop down", loop_down_banner(loops_newly_down, revived))
         fired = True
     if newly_not_checked:
         notify("Monitor loop not checked",

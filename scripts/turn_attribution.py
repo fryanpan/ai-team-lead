@@ -30,6 +30,16 @@ import json, os, re, sys, glob, datetime, collections
 
 HOME = os.path.expanduser("~")
 PROJ = os.path.join(HOME, ".claude", "projects")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import local_config  # noqa: E402
+
+
+def checkouts_prefix():
+    """A transcript folder is named after the session's working folder, with
+    every character that is not a letter or a digit written as "-". This is
+    that name for the folder holding this checkout, which the other checkouts
+    sit beside. Raises local_config.LocalConfigError when it cannot be read."""
+    return re.sub(r"[^A-Za-z0-9]", "-", local_config.checkouts_dir()) + "-"
 
 
 def argval(flag, default=None):
@@ -161,13 +171,17 @@ def scan_subagent(path, days, buckets):
 
 
 def main():
+    try:
+        prefix = checkouts_prefix()
+    except local_config.LocalConfigError as e:
+        sys.exit(f"turn_attribution: nothing measured. {e}")
     days, label = days_wanted()
     per_session = collections.defaultdict(lambda: collections.defaultdict(blank))
 
     for project in sorted(glob.glob(os.path.join(PROJ, "*"))):
         if not os.path.isdir(project):
             continue
-        ***REMOVED***
+        name = os.path.basename(project).replace(prefix, "")
         for transcript in glob.glob(os.path.join(project, "*.jsonl")):
             scan_parent(transcript, days, per_session[name])
         for transcript in glob.glob(os.path.join(project, "*", "subagents", "*.jsonl")):

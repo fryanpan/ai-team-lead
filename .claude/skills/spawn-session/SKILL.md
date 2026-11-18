@@ -137,7 +137,7 @@ Keep the onboarding message crisp. The new session has zero prior conversation c
 
 ### `tmux: command not found`
 
-***REMOVED***
+Homebrew tmux isn't installed or isn't on PATH. Use the absolute path `/opt/homebrew/bin/tmux` (Apple Silicon) or `/usr/local/bin/tmux` (Intel) directly. Don't fall back to macOS's bundled `screen 4.00.03` — it forces invocation through `login -pflq <user>` which hangs in non-interactive contexts.
 
 ### `duplicate session: <name>`
 

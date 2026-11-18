@@ -38,7 +38,18 @@
 set -u
 
 SELF_PID="${1:?usage: self-respawn.sh <team-lead-claude-pid>}"
-***REMOVED***
+# The MAIN checkout, also when this copy of the script sits in a linked
+# worktree: git's common directory is the main checkout's `.git`, and its
+# parent is the checkout. Not found means stop here, before anything is killed.
+TL_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+if [ -z "${TL_DIR:-}" ]; then
+  TL_COMMON="$(git -C "$TL_HERE" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
+  case "$TL_COMMON" in
+    /*/.git) TL_DIR="${TL_COMMON%/.git}" ;;
+    *) TL_DIR="" ;;
+  esac
+fi
+[ -n "$TL_DIR" ] || { echo "ABORT: could not find the main checkout from $TL_HERE (git rev-parse --git-common-dir gave '${TL_COMMON:-}'). Set TL_DIR to it. Not killing self."; exit 1; }
 TL_SESSION="${TL_SESSION:-team-lead}"
 TL_NAME="${TL_NAME:-Team Lead}"
 # The board this session posts end-of-turn notes to. claude-workspaces 0.1.182 moved

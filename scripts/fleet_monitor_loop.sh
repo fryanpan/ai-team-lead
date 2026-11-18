@@ -13,9 +13,24 @@
 # true of the current script and would have sent a reader looking for a compaction
 # that never happens.
 #
-***REMOVED***  tmux new-session -d -s fleet-monitor \
-***REMOVED***
-***REMOVED***
+# Launch (detached), by this script's physical path:
+#   tmux new-session -d -s fleet-monitor <checkout>/scripts/fleet_monitor_loop.sh
+# The report script is taken from the main checkout. This script's own folder
+# gives the checkout it is in. When that is a linked git worktree its `.git` is
+# a file that names the main checkout, and the path is read from there, with
+# no other program involved.
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+CHECKOUT="${HERE%/*}"
+if [ -f "$CHECKOUT/.git" ]; then
+  read -r GITDIR < "$CHECKOUT/.git"
+  GITDIR="${GITDIR#gitdir: }"
+  case "$GITDIR" in
+    /*/.git/worktrees/*) CHECKOUT="${GITDIR%/.git/worktrees/*}" ;;
+    *) echo "ABORT: $CHECKOUT is a linked worktree and its .git file does not name the main checkout. Start this loop from the main checkout." >&2
+       exit 1 ;;
+  esac
+fi
+SCRIPT="$CHECKOUT/scripts/fleet_context_report.py"
 INTERVAL="${FLEET_MONITOR_INTERVAL:-7200}"   # 2h
 
 while true; do

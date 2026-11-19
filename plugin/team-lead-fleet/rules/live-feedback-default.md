@@ -21,6 +21,23 @@ When you want the user to review a markdown doc, a dev server or an interactive 
 - **Draw a chart as a live chart block in the doc, never as an embedded PNG or SVG.** A regenerated image can stay stale behind a cache, and an agent cannot edit an image block. Same day: *"Stop using images."*
 - **If this session has a `workspaceId`, or someone said "the board is your task list", read `claude-workspaces:working-in-a-workspace` before your first piece of work.** It is the contract, and nothing else will tell you to open it. It now holds the board rules this file used to carry: filing asks, replying on threads, evidence before done, task ids on dispatched work, and dated deferrals.
 
+## A new doc goes into the right Library folder when you put it on a board (2026-11-18)
+
+Bryan, on the cross-board feedback doc, at one board's Library where 47 docs sat under "No folder":
+*"Please put new docs in the right folder and keep all new docs organized"*.
+
+The bullets below are how the fleet applies that. Their wording is ours, not his.
+
+- **When you create or attach a doc, mockup or whiteboard on a board, move it into the folder for its
+  kind of work in the same turn.** Call `list_folders` first and use a folder that exists. Call
+  `create_folder` only when none fits, then `move_doc_to_folder`.
+- **Never make a catch-all folder** such as "Misc" or "Docs".
+- **Once, at your next task boundary, move the docs you created that sit under "No folder" on your
+  board into folders.** Leave a doc that a person made or placed where it is.
+- **Not covered:** the files of a diff review, and task and goal body docs. The Library does not list them.
+- **If your session has no `move_doc_to_folder`, it started on an older workspaces plugin.** File the
+  docs after your next restart.
+
 ## An ask that starts on a doc thread is filed on that thread (2026-10-19)
 
 Bryan, on a summary thread where an offer went out as plain text and its follow-up was filed on a

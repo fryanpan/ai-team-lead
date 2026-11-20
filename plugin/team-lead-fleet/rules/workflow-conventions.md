@@ -579,6 +579,20 @@ it adding work to"*.
 - **This is the one exception to the rule above.** Owning the repo does not make the work the owner's
   when the owner is on a higher priority.
 
+### A question about another agent's plans is relayed as a question (2026-11-19)
+
+Bryan asked one lead to check with another whether a feature was coming soon. The lead sent it as a
+feature request, and the other lead filed a half-day task. Bryan: *"Tell [the other lead] not to work on that.
+My request was not for work."*
+
+- **When Bryan asks whether something is planned or coming, send the other agent a question only.**
+  Write "status question, not a request" in the message, and do not propose a design. A relayed question
+  of his is allowed under the high-priority limit on agent messages below.
+- **If a message asks whether something is planned or coming, answer from your plans and file no work**,
+  with or without the marker. If it is unclear whether the sender wants work, ask before you file.
+- **Bring the answer back to where Bryan asked.** If he then asks for the thing, that is the request.
+- **If you already filed work from a status question, archive it** and say so in your answer.
+
 ## Do not notify the team-lead when a task completes
 
 Finishing a task is not a reason to message anyone. Ship it and pick up the next thing — the team-lead can already see your PRs, transcript and `set_summary`. Message it only for a decision you can't make or a blocker you can't clear.
